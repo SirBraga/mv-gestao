@@ -1,0 +1,261 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String
+  emailVerified Boolean   @default(false)
+  image         String?
+  role          Role      @default(USER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  tickets       Tickets[]
+  apontamentos  Apontamento[]
+  comments      TicketComment[]
+  sessions      Session[]
+  accounts      Account[]
+  
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role?
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model Clients {
+  id String @id 
+  name String
+  cnpj String?
+  cpf String?
+  ie String?
+  aditionalInfo String?
+  address String
+  city String
+  houseNumber String
+  neighborhood String
+  zipCode String
+  complement String
+  cnae String?
+  type CType? @default(PESSOA_JURIDICA)
+  tickets Tickets[]
+  contability Contability[]
+  products Products[]
+  hasContract Boolean?
+  supportReleased Boolean?
+  ownerName String?
+  ownerAddress String?
+  ownerPhone String?
+  ownerEmail String?
+  ownerCpf String?
+  ownerNeighborhood String?
+  ownerCity String?
+  ownerState String?
+  ownerZipCode String?
+  certificateExpiresDate DateTime?
+  certificateType String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("clients")
+}
+
+
+model Tickets {
+  id String @id @default(cuid())
+  clientId String
+  client Clients @relation(fields: [clientId], references: [id])
+  ticketStatus Ticket_Status? @default(NOVO)
+  ticketPriority Ticket_Priority? @default(MEDIUM)
+  ticketType Ticket_Type? @default(SUPPORT)
+  ticketDescription String
+  ticketResolutionDate DateTime?
+  reopenCount Int @default(0)
+  reopenReason String?
+  reopenDate DateTime?
+  reopenById String?
+  apontamentos Apontamento[]
+  comments TicketComment[]
+  assignedTo User? @relation(fields: [assignedToId], references: [id], onDelete: Cascade)
+  assignedToId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tickets")
+}
+
+
+model Apontamento {
+  id String @id @default(cuid())
+  ticketId String
+  ticket Tickets @relation(fields: [ticketId], references: [id])
+  userId String
+  user User @relation(fields: [userId], references: [id])
+  description String
+  category Apontamento_Category @default(PROBLEMA_RESOLVIDO)
+  duration Int // duration in minutes
+  date DateTime @default(now())
+  statusChange Ticket_Status? // optional: change ticket status with this entry
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("apontamento")
+}
+
+model TicketComment {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    Tickets  @relation(fields: [ticketId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  content   String
+  parentId  String?
+  parent    TicketComment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies   TicketComment[] @relation("CommentReplies")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("ticket_comment")
+}
+
+model Contability {
+  id String @id @default(cuid())
+  clientId String
+  client Clients @relation(fields: [clientId], references: [id])
+  phone String
+  email String
+  address String
+  city String
+  houseNumber String
+  neighborhood String
+  zipCode String
+  complement String
+  state String
+  cnpj String
+  cpf String
+  ie String
+  type CType? @default(PESSOA_JURIDICA)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("contability")
+}
+
+
+model Products {
+  id String @id @default(cuid())
+  name String
+  description String?
+  clientId String?
+  client   Clients? @relation(fields: [clientId], references: [id])
+  image String?
+  category String?
+  status String?
+  supportContact String?
+  price Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("products")
+}
+
+enum Role {
+  ADMIN
+  MODERATOR
+  USER
+}
+
+enum CType {
+  PESSOA_FISICA
+  PESSOA_JURIDICA
+}
+
+enum Ticket_Status {
+  NOVO
+  PENDING_CLIENT
+  PENDING_EMPRESS
+  IN_PROGRESS
+  CLOSED
+}
+
+enum Ticket_Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum Ticket_Type {
+  SUPPORT
+  SALES
+  FINANCE
+  MAINTENCE
+}
+
+enum Apontamento_Category {
+  PROBLEMA_RESOLVIDO
+  TREINAMENTO
+  REUNIAO
+  TIRA_DUVIDAS
+  DESENVOLVIMENTO
+}
