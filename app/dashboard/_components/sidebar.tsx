@@ -1,7 +1,7 @@
 "use client"
 
 import Image from "next/image"
-import { Home, Users, Ticket, Calculator, Package, LogOut, Settings } from "lucide-react"
+import { Home, Users, Ticket, Calculator, Package, LogOut, Settings, UsersRound } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   DropdownMenu,
@@ -26,6 +26,7 @@ const navItems = [
   { label: "Tickets", path: "/dashboard/tickets", icon: Ticket, color: "bg-amber-500" },
   { label: "Contabilidade", path: "/dashboard/contabilidade", icon: Calculator, color: "bg-violet-500" },
   { label: "Produtos", path: "/dashboard/produtos", icon: Package, color: "bg-rose-500" },
+  { label: "Funcionários", path: "/dashboard/funcionarios", icon: UsersRound, color: "bg-blue-500" },
 ]
 
 interface SidebarProps {
