@@ -2,14 +2,18 @@ import { prisma } from "@/app/utils/prisma"
 import { auth } from "@/app/utils/auth"
 import { headers } from "next/headers"
 import { redirect } from "next/navigation"
-import { cacheTag } from "next/cache"
 import FuncionariosClient from "./_components/FuncionariosClient"
 
-async function getUsers() {
-    "use cache"
-    cacheTag("users")
+export default async function FuncionariosPage() {
+    const session = await auth.api.getSession({ headers: await headers() })
+    if (!session) redirect("/")
 
-    return prisma.user.findMany({
+    const currentUser = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { role: true, id: true },
+    })
+
+    const users = await prisma.user.findMany({
         orderBy: { createdAt: "desc" },
         select: {
             id: true,
@@ -21,18 +25,6 @@ async function getUsers() {
             createdAt: true,
         },
     })
-}
-
-export default async function FuncionariosPage() {
-    const session = await auth.api.getSession({ headers: await headers() })
-    if (!session) redirect("/")
-
-    const currentUser = await prisma.user.findUnique({
-        where: { id: session.user.id },
-        select: { role: true, id: true },
-    })
-
-    const users = await getUsers()
     const isAdmin = currentUser?.role === "ADMIN"
 
     return (

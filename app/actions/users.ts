@@ -3,7 +3,7 @@
 import { prisma } from "@/app/utils/prisma"
 import { auth } from "@/app/utils/auth"
 import { headers } from "next/headers"
-import { revalidateTag } from "next/cache"
+import { revalidatePath } from "next/cache"
 
 type Role = "ADMIN" | "MODERATOR" | "USER"
 
@@ -70,7 +70,7 @@ export async function createUser(data: {
         })
     }
 
-    revalidateTag("users", "max")
+    revalidatePath("/dashboard/funcionarios")
     return { success: true }
 }
 
@@ -87,7 +87,7 @@ export async function updateUserRole(userId: string, role: Role) {
         data: { role },
     })
 
-    revalidateTag("users", "max")
+    revalidatePath("/dashboard/funcionarios")
     return { success: true }
 }
 
@@ -103,7 +103,7 @@ export async function deleteUser(userId: string) {
     await prisma.account.deleteMany({ where: { userId } })
     await prisma.user.delete({ where: { id: userId } })
 
-    revalidateTag("users", "max")
+    revalidatePath("/dashboard/funcionarios")
     return { success: true }
 }
 
@@ -117,6 +117,6 @@ export async function updateUserName(userId: string, name: string) {
         data: { name: name.trim() },
     })
 
-    revalidateTag("users", "max")
+    revalidatePath("/dashboard/funcionarios")
     return { success: true }
 }
