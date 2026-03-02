@@ -161,6 +161,26 @@ export async function updateOnlineStatus(isOnline: boolean) {
     })
 }
 
+// Buscar remetente + conteúdo da mensagem não lida mais recente
+export async function getLatestUnreadMessage() {
+    const session = await getSession()
+    const msg = await prisma.chatMessage.findFirst({
+        where: { receiverId: session.user.id, read: false },
+        orderBy: { createdAt: "desc" },
+        select: {
+            id: true,
+            content: true,
+            sender: { select: { id: true, name: true } },
+        },
+    })
+    if (!msg) return null
+    return {
+        id: msg.id,
+        content: msg.content,
+        senderName: msg.sender.name,
+    }
+}
+
 // Contar total de mensagens não lidas
 export async function getUnreadCount() {
     const session = await getSession()

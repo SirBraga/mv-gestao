@@ -9,6 +9,9 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
 import { toast } from "react-toastify"
+import { maskCPF, maskCNPJ, maskPhone, maskCEP } from "@/app/utils/masks"
+import { uploadFile } from "@/app/utils/upload"
+import { ImagePositioner } from "../_components/ImagePositioner"
 import {
     Search,
     Filter,
@@ -47,11 +50,18 @@ function isCertExpiring30d(dateStr: string | null) {
 }
 
 const INITIAL_FORM = {
-    name: "", type: "PJ" as "PF" | "PJ", cnpj: "", cpf: "", phone: "", email: "",
+    name: "", type: "PJ" as "PF" | "PJ", cnpj: "", cpf: "", ie: "", state: "",
+    codigoCSC: "", tokenCSC: "",
+    phone: "", email: "", aditionalInfo: "",
     address: "", city: "", houseNumber: "", neighborhood: "", zipCode: "", complement: "",
-    ownerName: "", ownerPhone: "", ownerEmail: "",
-    hasContract: false, supportReleased: false,
+    ownerName: "", ownerPhone: "", ownerEmail: "", ownerCpf: "",
+    ownerAddress: "", ownerNeighborhood: "", ownerCity: "", ownerState: "", ownerZipCode: "",
+    hasContract: false, contractType: "" as "" | "MENSAL" | "TRIMESTRAL" | "ANUAL",
+    supportReleased: false,
+    photoUrl: "",
 }
+
+const STATES = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"]
 
 const FILTERS = [
     { key: "all" as FilterType, label: "Todos", icon: Users },
@@ -100,6 +110,10 @@ export default function Clientes() {
     const [sortDir, setSortDir] = useState<SortDir>("asc")
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [form, setForm] = useState(INITIAL_FORM)
+    const [photoFile, setPhotoFile] = useState<File | null>(null)
+    const [photoSrc, setPhotoSrc] = useState<string | null>(null)
+    const [photoPos, setPhotoPos] = useState("50% 50%")
+    const [uploading, setUploading] = useState(false)
 
     const { data: clients = [], isLoading } = useQuery({
         queryKey: ["clients"],
@@ -126,18 +140,44 @@ export default function Clientes() {
         }
     }
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!form.name.trim()) return toast.error("Nome é obrigatório")
         if (!form.city.trim()) return toast.error("Cidade é obrigatória")
-        createMutation.mutate({
-            name: form.name, type: form.type,
-            cnpj: form.type === "PJ" ? form.cnpj : undefined,
-            cpf: form.type === "PF" ? form.cpf : undefined,
-            address: form.address, city: form.city, houseNumber: form.houseNumber,
-            neighborhood: form.neighborhood, zipCode: form.zipCode, complement: form.complement,
-            ownerName: form.ownerName, ownerPhone: form.ownerPhone, ownerEmail: form.ownerEmail,
-            hasContract: form.hasContract, supportReleased: form.supportReleased,
-        })
+        setUploading(true)
+        try {
+            let photoUrl = form.photoUrl
+            if (photoFile) {
+                const res = await uploadFile(photoFile, "clientes")
+                photoUrl = res.url
+            }
+            await createMutation.mutateAsync({
+                name: form.name, type: form.type,
+                cnpj: form.type === "PJ" ? form.cnpj : undefined,
+                cpf: form.type === "PF" ? form.cpf : undefined,
+                ie: form.ie || undefined,
+                state: form.state || undefined,
+                codigoCSC: form.type === "PJ" ? form.codigoCSC || undefined : undefined,
+                tokenCSC: form.type === "PJ" ? form.tokenCSC || undefined : undefined,
+                address: form.address, city: form.city, houseNumber: form.houseNumber,
+                neighborhood: form.neighborhood, zipCode: form.zipCode, complement: form.complement,
+                aditionalInfo: form.aditionalInfo || undefined,
+                contractType: form.contractType || undefined,
+                photoUrl: photoUrl || undefined,
+                ownerName: form.ownerName || undefined, ownerPhone: form.ownerPhone || undefined,
+                ownerEmail: form.ownerEmail || undefined, ownerCpf: form.ownerCpf || undefined,
+                ownerAddress: form.ownerAddress || undefined, ownerNeighborhood: form.ownerNeighborhood || undefined,
+                ownerCity: form.ownerCity || undefined, ownerState: form.ownerState || undefined,
+                ownerZipCode: form.ownerZipCode || undefined,
+                hasContract: form.hasContract, supportReleased: form.supportReleased,
+            })
+            setPhotoFile(null)
+            setPhotoSrc(null)
+            setPhotoPos("50% 50%")
+        } catch {
+            // error handled by mutation onError
+        } finally {
+            setUploading(false)
+        }
     }
 
     const filteredClients = useMemo(() => {
@@ -303,63 +343,101 @@ export default function Clientes() {
                         <SheetTitle className="text-base">Novo Cliente</SheetTitle>
                         <SheetDescription className="text-xs">Preencha os dados para cadastrar um novo cliente.</SheetDescription>
                     </SheetHeader>
-                    <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+                    <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+                        {/* Foto */}
+                        <div className="mx-auto w-28">
+                            <ImagePositioner src={photoSrc} position={photoPos} onPositionChange={setPhotoPos} onFileSelect={(f: File) => { setPhotoFile(f); setPhotoSrc(URL.createObjectURL(f)) }} onRemove={() => { setPhotoFile(null); setPhotoSrc(null); setPhotoPos("50% 50%") }} aspectClass="aspect-square" label="Foto" rounded />
+                        </div>
+
+                        {/* Dados básicos */}
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Dados do Cliente</p>
                         <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome completo / Razão social</label>
-                            <Input placeholder="Ex: Empresa ABC Ltda" className="h-10 rounded-lg text-sm" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome / Razão social *</label>
+                            <Input placeholder="Ex: Empresa ABC Ltda" className="h-9 rounded-lg text-sm" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo</label>
-                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.type} onChange={e => setForm({...form, type: e.target.value as "PF"|"PJ"})}>
+                                <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.type} onChange={e => setForm({...form, type: e.target.value as "PF"|"PJ"})}>
                                     <option value="PJ">Pessoa Jurídica</option>
                                     <option value="PF">Pessoa Física</option>
                                 </select>
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">{form.type === "PJ" ? "CNPJ" : "CPF"}</label>
-                                <Input placeholder={form.type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"} className="h-10 rounded-lg text-sm" value={form.type === "PJ" ? form.cnpj : form.cpf} onChange={e => setForm({...form, [form.type === "PJ" ? "cnpj" : "cpf"]: e.target.value})} />
+                                <Input placeholder={form.type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"} className="h-9 rounded-lg text-sm" value={form.type === "PJ" ? form.cnpj : form.cpf} onChange={e => setForm({...form, [form.type === "PJ" ? "cnpj" : "cpf"]: form.type === "PJ" ? maskCNPJ(e.target.value) : maskCPF(e.target.value)})} />
                             </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Telefone</label>
-                                <Input placeholder="(00) 00000-0000" className="h-10 rounded-lg text-sm" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} />
-                            </div>
-                            <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Email</label>
-                                <Input placeholder="email@empresa.com" className="h-10 rounded-lg text-sm" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Endereço</label>
-                            <Input placeholder="Rua, Avenida..." className="h-10 rounded-lg text-sm" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
                         </div>
                         <div className="grid grid-cols-3 gap-3">
                             <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Cidade</label>
-                                <Input placeholder="São Paulo" className="h-10 rounded-lg text-sm" value={form.city} onChange={e => setForm({...form, city: e.target.value})} />
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">IE</label>
+                                <Input placeholder="Inscrição Estadual" className="h-9 rounded-lg text-sm" value={form.ie} onChange={e => setForm({...form, ie: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Estado</label>
+                                <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.state} onChange={e => setForm({...form, state: e.target.value})}>
+                                    <option value="">Selecione</option>
+                                    {STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Telefone</label>
+                                <Input placeholder="(00) 00000-0000" className="h-9 rounded-lg text-sm" value={form.phone} onChange={e => setForm({...form, phone: maskPhone(e.target.value)})} />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Email</label>
+                            <Input placeholder="email@empresa.com" className="h-9 rounded-lg text-sm" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
+                        </div>
+
+                        {/* CSC / Token (only PJ) */}
+                        {form.type === "PJ" && (
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Código CSC</label>
+                                    <Input placeholder="Código CSC" className="h-9 rounded-lg text-sm" value={form.codigoCSC} onChange={e => setForm({...form, codigoCSC: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Token CSC</label>
+                                    <Input placeholder="Token" className="h-9 rounded-lg text-sm" value={form.tokenCSC} onChange={e => setForm({...form, tokenCSC: e.target.value})} />
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Endereço */}
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Endereço</p>
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Logradouro</label>
+                            <Input placeholder="Rua, Avenida..." className="h-9 rounded-lg text-sm" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Cidade *</label>
+                                <Input placeholder="São Paulo" className="h-9 rounded-lg text-sm" value={form.city} onChange={e => setForm({...form, city: e.target.value})} />
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Bairro</label>
-                                <Input placeholder="Centro" className="h-10 rounded-lg text-sm" value={form.neighborhood} onChange={e => setForm({...form, neighborhood: e.target.value})} />
+                                <Input placeholder="Centro" className="h-9 rounded-lg text-sm" value={form.neighborhood} onChange={e => setForm({...form, neighborhood: e.target.value})} />
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">CEP</label>
-                                <Input placeholder="00000-000" className="h-10 rounded-lg text-sm" value={form.zipCode} onChange={e => setForm({...form, zipCode: e.target.value})} />
+                                <Input placeholder="00000-000" className="h-9 rounded-lg text-sm" value={form.zipCode} onChange={e => setForm({...form, zipCode: maskCEP(e.target.value)})} />
                             </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nº</label>
-                                <Input placeholder="123" className="h-10 rounded-lg text-sm" value={form.houseNumber} onChange={e => setForm({...form, houseNumber: e.target.value})} />
+                                <Input placeholder="123" className="h-9 rounded-lg text-sm" value={form.houseNumber} onChange={e => setForm({...form, houseNumber: e.target.value})} />
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Complemento</label>
-                                <Input placeholder="Sala 1" className="h-10 rounded-lg text-sm" value={form.complement} onChange={e => setForm({...form, complement: e.target.value})} />
+                                <Input placeholder="Sala 1" className="h-9 rounded-lg text-sm" value={form.complement} onChange={e => setForm({...form, complement: e.target.value})} />
                             </div>
                         </div>
-                        <div className="flex items-center gap-4 pt-2">
+
+                        {/* Contrato */}
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Contrato</p>
+                        <div className="grid grid-cols-2 gap-3">
                             <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
                                 <input type="checkbox" checked={form.hasContract} onChange={e => setForm({...form, hasContract: e.target.checked})} className="rounded" /> Tem contrato
                             </label>
@@ -367,12 +445,78 @@ export default function Clientes() {
                                 <input type="checkbox" checked={form.supportReleased} onChange={e => setForm({...form, supportReleased: e.target.checked})} className="rounded" /> Suporte liberado
                             </label>
                         </div>
+                        {form.hasContract && (
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo de Contrato</label>
+                                <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.contractType} onChange={e => setForm({...form, contractType: e.target.value as "" | "MENSAL" | "TRIMESTRAL" | "ANUAL"})}>
+                                    <option value="">Selecione</option>
+                                    <option value="MENSAL">Mensal</option>
+                                    <option value="TRIMESTRAL">Trimestral</option>
+                                    <option value="ANUAL">Anual</option>
+                                </select>
+                            </div>
+                        )}
+
+                        {/* Proprietário */}
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Dados do Proprietário</p>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome</label>
+                                <Input placeholder="Nome do proprietário" className="h-9 rounded-lg text-sm" value={form.ownerName} onChange={e => setForm({...form, ownerName: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">CPF</label>
+                                <Input placeholder="000.000.000-00" className="h-9 rounded-lg text-sm" value={form.ownerCpf} onChange={e => setForm({...form, ownerCpf: maskCPF(e.target.value)})} />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Telefone</label>
+                                <Input placeholder="(00) 00000-0000" className="h-9 rounded-lg text-sm" value={form.ownerPhone} onChange={e => setForm({...form, ownerPhone: maskPhone(e.target.value)})} />
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Email</label>
+                                <Input placeholder="email@proprietario.com" className="h-9 rounded-lg text-sm" value={form.ownerEmail} onChange={e => setForm({...form, ownerEmail: e.target.value})} />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Endereço</label>
+                            <Input placeholder="Rua do proprietário" className="h-9 rounded-lg text-sm" value={form.ownerAddress} onChange={e => setForm({...form, ownerAddress: e.target.value})} />
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Cidade</label>
+                                <Input placeholder="Cidade" className="h-9 rounded-lg text-sm" value={form.ownerCity} onChange={e => setForm({...form, ownerCity: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Bairro</label>
+                                <Input placeholder="Bairro" className="h-9 rounded-lg text-sm" value={form.ownerNeighborhood} onChange={e => setForm({...form, ownerNeighborhood: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Estado</label>
+                                <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.ownerState} onChange={e => setForm({...form, ownerState: e.target.value})}>
+                                    <option value="">UF</option>
+                                    {STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">CEP do Proprietário</label>
+                            <Input placeholder="00000-000" className="h-9 rounded-lg text-sm" value={form.ownerZipCode} onChange={e => setForm({...form, ownerZipCode: maskCEP(e.target.value)})} />
+                        </div>
+
+                        {/* Descrição */}
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Informações Adicionais</p>
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Descrição / Observações</label>
+                            <textarea placeholder="Observações sobre o cliente..." className="w-full min-h-20 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 bg-white resize-y" value={form.aditionalInfo} onChange={e => setForm({...form, aditionalInfo: e.target.value})} />
+                        </div>
                     </div>
                     <SheetFooter className="px-6 py-4 border-t border-gray-100">
                         <div className="flex gap-2 w-full">
                             <Button variant="outline" className="flex-1 h-10 rounded-lg text-sm" onClick={() => setDrawerOpen(false)}>Cancelar</Button>
-                            <Button className="flex-1 h-10 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm" onClick={handleSubmit} disabled={createMutation.isPending}>
-                                {createMutation.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
+                            <Button className="flex-1 h-10 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm" onClick={handleSubmit} disabled={createMutation.isPending || uploading}>
+                                {(createMutation.isPending || uploading) ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
                                 Salvar Cliente
                             </Button>
                         </div>

@@ -1,11 +1,12 @@
 "use client"
 
 import Image from "next/image"
-import { useState, useEffect, useTransition } from "react"
+import { useState, useEffect, useTransition, useRef, useCallback } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Home, Users, Ticket, Calculator, Package, LogOut, Settings, UsersRound, MessageCircle, Circle, Wifi, WifiOff, Camera, Loader2 } from "lucide-react"
-import { updateOnlineStatus, getUnreadCount } from "@/app/actions/chat"
+import { Home, Users, Ticket, Calculator, Package, LogOut, Settings, UsersRound, MessageCircle, Circle, Wifi, WifiOff, Camera, Loader2, Bell, CheckCheck } from "lucide-react"
+import { updateOnlineStatus, getUnreadCount, getLatestUnreadMessage } from "@/app/actions/chat"
 import { updateProfileImage } from "@/app/actions/profile"
+import { getNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead } from "@/app/actions/notifications"
 import { uploadFile } from "@/app/utils/upload"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ImagePositioner } from "./ImagePositioner"
@@ -58,15 +59,72 @@ export default function Sidebar({ avatar, name, userId, role }: SidebarProps) {
   const [isOnline, setIsOnline] = useState(true)
   const [isPending, startTransition] = useTransition()
   const [profileOpen, setProfileOpen] = useState(false)
+  const [notifOpen, setNotifOpen] = useState(false)
   const [photoSrc, setPhotoSrc] = useState<string | null>(avatar || null)
   const [photoPosition, setPhotoPosition] = useState("50% 50%")
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const prevNotifCountRef = useRef(0)
+  const prevChatCountRef = useRef(0)
+  const lastSeenChatMsgIdRef = useRef<string | null>(null)
+
+  const playNotifSound = useCallback(() => {
+    try {
+      const ctx = new AudioContext()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.frequency.value = 880
+      osc.type = "sine"
+      gain.gain.setValueAtTime(0.25, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4)
+      osc.start()
+      osc.stop(ctx.currentTime + 0.4)
+    } catch {
+      // Silently fail
+    }
+  }, [])
 
   const { data: unreadCount = 0 } = useQuery({
     queryKey: ["unreadCount"],
     queryFn: () => getUnreadCount(),
+    refetchInterval: 3000,
+  })
+
+  const { data: latestUnread } = useQuery({
+    queryKey: ["latestUnreadMsg"],
+    queryFn: () => getLatestUnreadMessage(),
+    refetchInterval: 3000,
+    enabled: unreadCount > 0,
+  })
+
+  const { data: unreadNotifCount = 0 } = useQuery({
+    queryKey: ["unreadNotifCount"],
+    queryFn: () => getUnreadNotificationCount(),
     refetchInterval: 5000,
+  })
+
+  const { data: notifications = [] } = useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => getNotifications(),
+    refetchInterval: 10000,
+  })
+
+  const markReadMut = useMutation({
+    mutationFn: markNotificationRead,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] })
+      queryClient.invalidateQueries({ queryKey: ["unreadNotifCount"] })
+    },
+  })
+
+  const markAllReadMut = useMutation({
+    mutationFn: markAllNotificationsRead,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] })
+      queryClient.invalidateQueries({ queryKey: ["unreadNotifCount"] })
+    },
   })
 
   const profileMutation = useMutation({
@@ -78,6 +136,49 @@ export default function Sidebar({ avatar, name, userId, role }: SidebarProps) {
     },
     onError: () => toast.error("Erro ao atualizar foto"),
   })
+
+  // Sound + browser notification: ticket notifications
+  useEffect(() => {
+    if (unreadNotifCount > prevNotifCountRef.current && prevNotifCountRef.current > 0) {
+      playNotifSound()
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        const latestNotif = notifications[0] as { title: string; message: string } | undefined
+        if (latestNotif) {
+          new Notification(latestNotif.title, { body: latestNotif.message, icon: "/root/logo.png" })
+        }
+      }
+    }
+    prevNotifCountRef.current = unreadNotifCount
+  }, [unreadNotifCount, playNotifSound, notifications])
+
+  // Sound + browser notification: new chat messages (only when NOT on /dashboard/chat)
+  useEffect(() => {
+    const isOnChatPage = pathname.startsWith("/dashboard/chat")
+    if (
+      unreadCount > prevChatCountRef.current &&
+      prevChatCountRef.current > 0 &&
+      !isOnChatPage &&
+      latestUnread &&
+      latestUnread.id !== lastSeenChatMsgIdRef.current
+    ) {
+      playNotifSound()
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        new Notification(`💬 ${latestUnread.senderName}`, {
+          body: latestUnread.content.slice(0, 100) || "Enviou um arquivo",
+          icon: "/root/logo.png",
+        })
+      }
+      lastSeenChatMsgIdRef.current = latestUnread.id
+    }
+    prevChatCountRef.current = unreadCount
+  }, [unreadCount, latestUnread, pathname, playNotifSound])
+
+  // Request browser notification permission on mount
+  useEffect(() => {
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission()
+    }
+  }, [])
 
   // Set online on mount, offline on unmount
   useEffect(() => {
@@ -185,19 +286,60 @@ export default function Sidebar({ avatar, name, userId, role }: SidebarProps) {
 
         {/* Bottom */}
         <div className="flex flex-col items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={handleLogout}
-                className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-white/10 transition-all cursor-pointer"
-              >
-                <LogOut size={18} className="text-white/50" strokeWidth={1.5} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right" sideOffset={8}>
-              Sair
-            </TooltipContent>
-          </Tooltip>
+          {/* Notifications Bell */}
+          <div className="relative">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setNotifOpen(!notifOpen)}
+                  className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-white/10 transition-all cursor-pointer relative"
+                >
+                  <Bell size={18} className="text-white/50" strokeWidth={1.5} />
+                  {unreadNotifCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold leading-none animate-pulse">
+                      {unreadNotifCount > 99 ? "99+" : unreadNotifCount}
+                    </span>
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" sideOffset={8}>Notificações</TooltipContent>
+            </Tooltip>
+            {notifOpen && (
+              <div className="absolute left-14 bottom-0 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                  <p className="text-sm font-semibold text-gray-900">Notificações</p>
+                  {unreadNotifCount > 0 && (
+                    <button onClick={() => markAllReadMut.mutate()} className="text-[10px] text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 cursor-pointer">
+                      <CheckCheck size={10} /> Marcar todas como lidas
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-80 overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 text-gray-400">
+                      <Bell size={20} className="mb-1.5 text-gray-300" />
+                      <p className="text-xs">Nenhuma notificação</p>
+                    </div>
+                  ) : (
+                    notifications.map((n: { id: string; title: string; message: string; link: string | null; read: boolean; createdAt: string }) => (
+                      <button
+                        key={n.id}
+                        onClick={() => {
+                          if (!n.read) markReadMut.mutate(n.id)
+                          if (n.link) { router.push(n.link); setNotifOpen(false) }
+                        }}
+                        className={`w-full text-left px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer ${!n.read ? "bg-blue-50/50" : ""}`}
+                      >
+                        <p className={`text-xs ${!n.read ? "font-semibold text-gray-900" : "text-gray-600"}`}>{n.title}</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5 line-clamp-1">{n.message}</p>
+                        <p className="text-[9px] text-gray-300 mt-1">{new Date(n.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

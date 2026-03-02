@@ -79,8 +79,14 @@ export async function getClientById(id: string) {
         cnpj: client.cnpj,
         cpf: client.cpf,
         ie: client.ie,
+        state: client.state,
+        codigoCSC: client.codigoCSC,
+        tokenCSC: client.tokenCSC,
         cnae: client.cnae,
         aditionalInfo: client.aditionalInfo,
+        contractType: client.contractType,
+        blockReason: client.blockReason,
+        photoUrl: client.photoUrl,
         type: client.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
         city: client.city,
         address: client.address,
@@ -133,6 +139,9 @@ export async function createClient(data: {
     cnpj?: string
     cpf?: string
     ie?: string
+    state?: string
+    codigoCSC?: string
+    tokenCSC?: string
     cnae?: string
     type: "PF" | "PJ"
     address: string
@@ -141,9 +150,18 @@ export async function createClient(data: {
     neighborhood: string
     zipCode: string
     complement: string
+    aditionalInfo?: string
+    contractType?: "MENSAL" | "TRIMESTRAL" | "ANUAL"
+    photoUrl?: string
     ownerName?: string
     ownerPhone?: string
     ownerEmail?: string
+    ownerCpf?: string
+    ownerAddress?: string
+    ownerNeighborhood?: string
+    ownerCity?: string
+    ownerState?: string
+    ownerZipCode?: string
     hasContract?: boolean
     supportReleased?: boolean
 }) {
@@ -156,6 +174,9 @@ export async function createClient(data: {
             cnpj: data.cnpj || null,
             cpf: data.cpf || null,
             ie: data.ie || null,
+            state: data.state || null,
+            codigoCSC: data.codigoCSC || null,
+            tokenCSC: data.tokenCSC || null,
             cnae: data.cnae || null,
             type: data.type === "PF" ? "PESSOA_FISICA" : "PESSOA_JURIDICA",
             address: data.address,
@@ -164,9 +185,18 @@ export async function createClient(data: {
             neighborhood: data.neighborhood,
             zipCode: data.zipCode,
             complement: data.complement || "",
+            aditionalInfo: data.aditionalInfo || null,
+            contractType: data.contractType || null,
+            photoUrl: data.photoUrl || null,
             ownerName: data.ownerName || null,
             ownerPhone: data.ownerPhone || null,
             ownerEmail: data.ownerEmail || null,
+            ownerCpf: data.ownerCpf || null,
+            ownerAddress: data.ownerAddress || null,
+            ownerNeighborhood: data.ownerNeighborhood || null,
+            ownerCity: data.ownerCity || null,
+            ownerState: data.ownerState || null,
+            ownerZipCode: data.ownerZipCode || null,
             hasContract: data.hasContract ?? false,
             supportReleased: data.supportReleased ?? false,
         },
@@ -254,11 +284,14 @@ export async function deleteClientAttachment(attachmentId: string) {
     return { success: true }
 }
 
-export async function toggleClientSupport(id: string, released: boolean) {
+export async function toggleClientSupport(id: string, released: boolean, blockReason?: "CONTRATO_CANCELADO" | "INADIMPLENCIA" | "SOLICITACAO_CLIENTE" | "OUTROS") {
     await getSession()
     await prisma.clients.update({
         where: { id },
-        data: { supportReleased: released },
+        data: {
+            supportReleased: released,
+            blockReason: released ? null : (blockReason || null),
+        },
     })
     revalidatePath("/dashboard/clientes")
     return { success: true }

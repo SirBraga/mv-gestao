@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation"
 import { use } from "react"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getClientById, toggleClientSupport, addClientContact, deleteClientContact, addClientAttachment, deleteClientAttachment } from "@/app/actions/clients"
+import { getClientById, toggleClientSupport, addClientContact, deleteClientContact, addClientAttachment, deleteClientAttachment, updateClient } from "@/app/actions/clients"
+import { maskCPF, maskCNPJ, maskPhone, maskCEP } from "@/app/utils/masks"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -34,6 +35,8 @@ import {
     Paperclip,
     Download,
     X,
+    Pencil,
+    Save,
 } from "lucide-react"
 import { uploadFile } from "@/app/utils/upload"
 import { toast } from "react-toastify"
@@ -96,12 +99,13 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     })
 
     const toggleSupportMutation = useMutation({
-        mutationFn: (released: boolean) => toggleClientSupport(id, released),
+        mutationFn: ({ released, reason }: { released: boolean; reason?: "CONTRATO_CANCELADO" | "INADIMPLENCIA" | "SOLICITACAO_CLIENTE" | "OUTROS" }) => toggleClientSupport(id, released, reason),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["client", id] })
             queryClient.invalidateQueries({ queryKey: ["clients"] })
             toast.success(client?.supportReleased ? "Suporte bloqueado" : "Suporte liberado")
             setShowBlockModal(false)
+            setBlockReason("")
         },
         onError: (err: Error) => toast.error(err.message),
     })
@@ -144,8 +148,22 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
         onError: (err: Error) => toast.error(err.message),
     })
 
+    const updateMutation = useMutation({
+        mutationFn: (data: Record<string, unknown>) => updateClient(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["client", id] })
+            queryClient.invalidateQueries({ queryKey: ["clients"] })
+            toast.success("Cliente atualizado!")
+            setEditing(false)
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
     const [copied, setCopied] = useState<string | null>(null)
     const [showBlockModal, setShowBlockModal] = useState(false)
+    const [blockReason, setBlockReason] = useState<"" | "CONTRATO_CANCELADO" | "INADIMPLENCIA" | "SOLICITACAO_CLIENTE" | "OUTROS">("")
+    const [editing, setEditing] = useState(false)
+    const [editForm, setEditForm] = useState<Record<string, string>>({})
     const [showContactModal, setShowContactModal] = useState(false)
     const [contactForm, setContactForm] = useState({ name: "", phone: "", email: "", role: "" })
     const [attachUploading, setAttachUploading] = useState(false)
@@ -178,6 +196,53 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     }
 
     const isImageFile = (fileType: string) => fileType.startsWith("image/")
+
+    const startEditing = () => {
+        if (!client) return
+        setEditForm({
+            name: client.name || "",
+            cnpj: client.cnpj || "",
+            cpf: client.cpf || "",
+            ie: client.ie || "",
+            state: client.state || "",
+            codigoCSC: client.codigoCSC || "",
+            tokenCSC: client.tokenCSC || "",
+            address: client.address || "",
+            houseNumber: client.houseNumber || "",
+            neighborhood: client.neighborhood || "",
+            city: client.city || "",
+            zipCode: client.zipCode || "",
+            complement: client.complement || "",
+            aditionalInfo: client.aditionalInfo || "",
+            ownerName: client.ownerName || "",
+            ownerCpf: client.ownerCpf || "",
+            ownerPhone: client.ownerPhone || "",
+            ownerEmail: client.ownerEmail || "",
+            ownerAddress: client.ownerAddress || "",
+            ownerNeighborhood: client.ownerNeighborhood || "",
+            ownerCity: client.ownerCity || "",
+            ownerState: client.ownerState || "",
+            ownerZipCode: client.ownerZipCode || "",
+        })
+        setEditing(true)
+    }
+
+    const handleSaveEdit = () => {
+        if (!editForm.name?.trim()) return toast.error("Nome é obrigatório")
+        const data: Record<string, unknown> = {}
+        const fields = ["name", "cnpj", "cpf", "ie", "state", "codigoCSC", "tokenCSC", "address", "houseNumber", "neighborhood", "city", "zipCode", "complement", "aditionalInfo", "ownerName", "ownerCpf", "ownerPhone", "ownerEmail", "ownerAddress", "ownerNeighborhood", "ownerCity", "ownerState", "ownerZipCode"]
+        for (const f of fields) {
+            data[f] = editForm[f] || null
+        }
+        data.name = editForm.name
+        data.address = editForm.address || ""
+        data.city = editForm.city || ""
+        data.houseNumber = editForm.houseNumber || ""
+        data.neighborhood = editForm.neighborhood || ""
+        data.zipCode = editForm.zipCode || ""
+        data.complement = editForm.complement || ""
+        updateMutation.mutate(data)
+    }
 
     if (isLoading) {
         return (
@@ -221,7 +286,16 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                     {client.supportReleased
                         ? <button onClick={() => setShowBlockModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-medium hover:bg-gray-50 transition-all cursor-pointer"><ShieldX size={12} /> Bloquear</button>
                         : <button onClick={() => setShowBlockModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-medium hover:bg-gray-50 transition-all cursor-pointer"><ShieldCheck size={12} /> Liberar</button>}
-                    <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-medium hover:bg-gray-50 transition-all cursor-pointer"><FileText size={12} /> Editar</button>
+                    {editing ? (
+                        <>
+                            <button onClick={() => setEditing(false)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-medium hover:bg-gray-50 transition-all cursor-pointer"><X size={12} /> Cancelar</button>
+                            <button onClick={handleSaveEdit} disabled={updateMutation.isPending} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-all cursor-pointer disabled:opacity-50">
+                                {updateMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Salvar
+                            </button>
+                        </>
+                    ) : (
+                        <button onClick={startEditing} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-medium hover:bg-gray-50 transition-all cursor-pointer"><Pencil size={12} /> Editar</button>
+                    )}
                 </div>
             </div>
 
@@ -232,56 +306,130 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                 <div className="flex-1 overflow-y-auto p-6 space-y-5">
 
                     {/* Observações */}
-                    {client.aditionalInfo && (
+                    {(client.aditionalInfo || editing) && (
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Observações</p>
-                            <p className="text-sm text-gray-600 leading-relaxed">{client.aditionalInfo}</p>
+                            {editing ? (
+                                <textarea className="w-full min-h-16 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 bg-white resize-y" value={editForm.aditionalInfo || ""} onChange={e => setEditForm({...editForm, aditionalInfo: e.target.value})} />
+                            ) : (
+                                <p className="text-sm text-gray-600 leading-relaxed">{client.aditionalInfo}</p>
+                            )}
                         </div>
                     )}
 
                     {/* Endereço do cliente */}
                     <div className="bg-white border border-gray-200 rounded-xl p-4">
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">Endereço</p>
-                        <div className="grid grid-cols-2 gap-x-8 gap-y-2">
-                            <Prop label="Logradouro" value={`${client.address}, ${client.houseNumber}`} />
-                            <Prop label="Bairro" value={client.neighborhood} />
-                            <Prop label="Cidade" value={client.city} />
-                            <Prop label="CEP" value={client.zipCode} />
-                            {client.complement && <Prop label="Complemento" value={client.complement} />}
-                        </div>
+                        {editing ? (
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[10px] text-gray-400 mb-0.5 block">Logradouro</label>
+                                    <Input className="h-8 text-sm" value={editForm.address || ""} onChange={e => setEditForm({...editForm, address: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-400 mb-0.5 block">Nº</label>
+                                    <Input className="h-8 text-sm" value={editForm.houseNumber || ""} onChange={e => setEditForm({...editForm, houseNumber: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-400 mb-0.5 block">Bairro</label>
+                                    <Input className="h-8 text-sm" value={editForm.neighborhood || ""} onChange={e => setEditForm({...editForm, neighborhood: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-400 mb-0.5 block">Cidade</label>
+                                    <Input className="h-8 text-sm" value={editForm.city || ""} onChange={e => setEditForm({...editForm, city: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-400 mb-0.5 block">CEP</label>
+                                    <Input className="h-8 text-sm" value={editForm.zipCode || ""} onChange={e => setEditForm({...editForm, zipCode: maskCEP(e.target.value)})} />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-400 mb-0.5 block">Complemento</label>
+                                    <Input className="h-8 text-sm" value={editForm.complement || ""} onChange={e => setEditForm({...editForm, complement: e.target.value})} />
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-2 gap-x-8 gap-y-2">
+                                <Prop label="Logradouro" value={`${client.address}, ${client.houseNumber}`} />
+                                <Prop label="Bairro" value={client.neighborhood} />
+                                <Prop label="Cidade" value={client.city} />
+                                <Prop label="CEP" value={client.zipCode} />
+                                {client.complement && <Prop label="Complemento" value={client.complement} />}
+                            </div>
+                        )}
                     </div>
 
                     {/* Sócio / Responsável */}
-                    {hasOwner && (
+                    {(hasOwner || editing) && (
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">{client.type === "PJ" ? "Sócio / Responsável" : "Responsável"}</p>
-                            <div className="grid grid-cols-2 gap-x-8 gap-y-2">
-                                {client.ownerName && <Prop label="Nome" value={client.ownerName} />}
-                                {client.ownerCpf && <Prop label="CPF" value={client.ownerCpf} />}
-                                {client.ownerPhone && (
+                            {editing ? (
+                                <div className="grid grid-cols-2 gap-3">
                                     <div>
-                                        <p className="text-[10px] text-gray-400 mb-0.5">Telefone</p>
-                                        <div className="flex items-center gap-1.5">
-                                            <span className="text-sm text-gray-900">{client.ownerPhone}</span>
-                                            <button onClick={() => window.open(`https://wa.me/55${cleanPhone(client.ownerPhone!)}`, "_blank")} className="text-gray-300 hover:text-emerald-500 cursor-pointer"><MessageCircle size={11} /></button>
-                                            <button onClick={() => handleCopy(client.ownerPhone!, "ownerPhone")} className="text-gray-300 hover:text-gray-500 cursor-pointer">{copied === "ownerPhone" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
-                                        </div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">Nome</label>
+                                        <Input className="h-8 text-sm" value={editForm.ownerName || ""} onChange={e => setEditForm({...editForm, ownerName: e.target.value})} />
                                     </div>
-                                )}
-                                {client.ownerEmail && (
                                     <div>
-                                        <p className="text-[10px] text-gray-400 mb-0.5">Email</p>
-                                        <div className="flex items-center gap-1.5">
-                                            <span className="text-sm text-gray-900">{client.ownerEmail}</span>
-                                            <button onClick={() => handleCopy(client.ownerEmail!, "ownerEmail")} className="text-gray-300 hover:text-gray-500 cursor-pointer">{copied === "ownerEmail" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
-                                        </div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">CPF</label>
+                                        <Input className="h-8 text-sm" placeholder="000.000.000-00" value={editForm.ownerCpf || ""} onChange={e => setEditForm({...editForm, ownerCpf: maskCPF(e.target.value)})} />
                                     </div>
-                                )}
-                                {client.ownerAddress && <Prop label="Endereço" value={client.ownerAddress} />}
-                                {client.ownerNeighborhood && <Prop label="Bairro" value={client.ownerNeighborhood} />}
-                                {client.ownerCity && <Prop label="Cidade" value={`${client.ownerCity}${client.ownerState ? ` — ${client.ownerState}` : ""}`} />}
-                                {client.ownerZipCode && <Prop label="CEP" value={client.ownerZipCode} />}
-                            </div>
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">Telefone</label>
+                                        <Input className="h-8 text-sm" placeholder="(00) 00000-0000" value={editForm.ownerPhone || ""} onChange={e => setEditForm({...editForm, ownerPhone: maskPhone(e.target.value)})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">Email</label>
+                                        <Input className="h-8 text-sm" value={editForm.ownerEmail || ""} onChange={e => setEditForm({...editForm, ownerEmail: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">Endereço</label>
+                                        <Input className="h-8 text-sm" value={editForm.ownerAddress || ""} onChange={e => setEditForm({...editForm, ownerAddress: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">Bairro</label>
+                                        <Input className="h-8 text-sm" value={editForm.ownerNeighborhood || ""} onChange={e => setEditForm({...editForm, ownerNeighborhood: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">Cidade</label>
+                                        <Input className="h-8 text-sm" value={editForm.ownerCity || ""} onChange={e => setEditForm({...editForm, ownerCity: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">Estado</label>
+                                        <Input className="h-8 text-sm" placeholder="UF" value={editForm.ownerState || ""} onChange={e => setEditForm({...editForm, ownerState: e.target.value.toUpperCase().slice(0, 2)})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">CEP</label>
+                                        <Input className="h-8 text-sm" placeholder="00000-000" value={editForm.ownerZipCode || ""} onChange={e => setEditForm({...editForm, ownerZipCode: maskCEP(e.target.value)})} />
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 gap-x-8 gap-y-2">
+                                    {client.ownerName && <Prop label="Nome" value={client.ownerName} />}
+                                    {client.ownerCpf && <Prop label="CPF" value={client.ownerCpf} />}
+                                    {client.ownerPhone && (
+                                        <div>
+                                            <p className="text-[10px] text-gray-400 mb-0.5">Telefone</p>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="text-sm text-gray-900">{client.ownerPhone}</span>
+                                                <button onClick={() => window.open(`https://wa.me/55${cleanPhone(client.ownerPhone!)}`, "_blank")} className="text-gray-300 hover:text-emerald-500 cursor-pointer"><MessageCircle size={11} /></button>
+                                                <button onClick={() => handleCopy(client.ownerPhone!, "ownerPhone")} className="text-gray-300 hover:text-gray-500 cursor-pointer">{copied === "ownerPhone" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {client.ownerEmail && (
+                                        <div>
+                                            <p className="text-[10px] text-gray-400 mb-0.5">Email</p>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="text-sm text-gray-900">{client.ownerEmail}</span>
+                                                <button onClick={() => handleCopy(client.ownerEmail!, "ownerEmail")} className="text-gray-300 hover:text-gray-500 cursor-pointer">{copied === "ownerEmail" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {client.ownerAddress && <Prop label="Endereço" value={client.ownerAddress} />}
+                                    {client.ownerNeighborhood && <Prop label="Bairro" value={client.ownerNeighborhood} />}
+                                    {client.ownerCity && <Prop label="Cidade" value={`${client.ownerCity}${client.ownerState ? ` — ${client.ownerState}` : ""}`} />}
+                                    {client.ownerZipCode && <Prop label="CEP" value={client.ownerZipCode} />}
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -525,15 +673,37 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             </div>
 
             {/* Modal Bloquear/Liberar */}
-            <Dialog open={showBlockModal} onOpenChange={setShowBlockModal}>
+            <Dialog open={showBlockModal} onOpenChange={(open) => { setShowBlockModal(open); if (!open) setBlockReason("") }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle>{client.supportReleased ? "Bloquear Suporte" : "Liberar Suporte"}</DialogTitle>
                         <DialogDescription>{client.supportReleased ? `Deseja bloquear o suporte para ${client.name}?` : `Deseja liberar o suporte para ${client.name}?`}</DialogDescription>
                     </DialogHeader>
+                    {client.supportReleased && (
+                        <div className="py-2">
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Motivo do bloqueio *</label>
+                            <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={blockReason} onChange={e => setBlockReason(e.target.value as typeof blockReason)}>
+                                <option value="">Selecione o motivo</option>
+                                <option value="CONTRATO_CANCELADO">Contrato cancelado</option>
+                                <option value="INADIMPLENCIA">Inadimplência</option>
+                                <option value="SOLICITACAO_CLIENTE">Solicitação do cliente</option>
+                                <option value="OUTROS">Outros</option>
+                            </select>
+                        </div>
+                    )}
                     <DialogFooter className="gap-2">
                         <Button variant="outline" onClick={() => setShowBlockModal(false)}>Cancelar</Button>
-                        <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={toggleSupportMutation.isPending} onClick={() => toggleSupportMutation.mutate(!client.supportReleased)}>{toggleSupportMutation.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : null}{client.supportReleased ? "Bloquear" : "Liberar"}</Button>
+                        <Button
+                            className={client.supportReleased ? "bg-red-500 hover:bg-red-600 text-white" : "bg-emerald-500 hover:bg-emerald-600 text-white"}
+                            disabled={toggleSupportMutation.isPending || (client.supportReleased && !blockReason)}
+                            onClick={() => {
+                                if (client.supportReleased && !blockReason) return toast.error("Selecione o motivo do bloqueio")
+                                toggleSupportMutation.mutate({ released: !client.supportReleased, reason: blockReason || undefined })
+                            }}
+                        >
+                            {toggleSupportMutation.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
+                            {client.supportReleased ? "Bloquear" : "Liberar"}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

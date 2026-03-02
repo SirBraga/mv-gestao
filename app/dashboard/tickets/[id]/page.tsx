@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation"
 import { use } from "react"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getTicketById, claimTicket, updateTicketStatus, assignTicket, addApontamento, addComment, reopenTicket, getAllUsers } from "@/app/actions/tickets"
+import { getTicketById, claimTicket, updateTicketStatus, assignTicket, addApontamento, addComment, reopenTicket, getAllUsers, updateTicketRequester, updateTicketClient, addCommentAttachment } from "@/app/actions/tickets"
+import { getClients, getClientContacts } from "@/app/actions/clients"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -258,6 +259,21 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
         queryFn: () => getAllUsers(),
     })
 
+    const { data: clientsList = [] } = useQuery({
+        queryKey: ["clients-simple"],
+        queryFn: () => getClients(),
+    })
+
+    const [changeClientId, setChangeClientId] = useState("")
+    const [changeContactId, setChangeContactId] = useState("")
+    const [showChangeRequesterModal, setShowChangeRequesterModal] = useState(false)
+
+    const { data: changeContacts = [] } = useQuery({
+        queryKey: ["client-contacts-change", changeClientId || ticket?.clientId],
+        queryFn: () => getClientContacts(changeClientId || ticket?.clientId || ""),
+        enabled: !!(changeClientId || ticket?.clientId),
+    })
+
     const invalidate = () => {
         queryClient.invalidateQueries({ queryKey: ["ticket", id] })
         queryClient.invalidateQueries({ queryKey: ["tickets"] })
@@ -288,14 +304,40 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     })
 
     const commentMut = useMutation({
-        mutationFn: ({ content, parentId }: { content: string; parentId?: string | null }) => addComment(id, content, parentId),
-        onSuccess: () => { invalidate(); toast.success("Comentário adicionado!"); setNewComment(""); setReplyContent(""); setReplyingTo(null) },
+        mutationFn: async ({ content, parentId, files }: { content: string; parentId?: string | null; files?: File[] }) => {
+            const result = await addComment(id, content, parentId)
+            if (files && files.length > 0 && result.commentId) {
+                for (const file of files) {
+                    const uploaded = await uploadFile(file, "comentarios")
+                    await addCommentAttachment(result.commentId, {
+                        url: uploaded.url,
+                        fileName: file.name,
+                        fileType: file.type,
+                        fileSize: file.size,
+                    })
+                }
+            }
+            return result
+        },
+        onSuccess: () => { invalidate(); toast.success("Comentário adicionado!"); setNewComment(""); setReplyContent(""); setReplyingTo(null); setCommentFiles([]) },
         onError: (e: Error) => toast.error(e.message),
     })
 
     const reopenMut = useMutation({
         mutationFn: (reason: string) => reopenTicket(id, reason),
         onSuccess: () => { invalidate(); toast.success("Ticket reaberto!"); setShowReopenModal(false); setReopenReason("") },
+        onError: (e: Error) => toast.error(e.message),
+    })
+
+    const requesterMut = useMutation({
+        mutationFn: (contactId: string | null) => updateTicketRequester(id, contactId),
+        onSuccess: () => { invalidate(); toast.success("Solicitante atualizado!"); setShowChangeRequesterModal(false); setChangeContactId("") },
+        onError: (e: Error) => toast.error(e.message),
+    })
+
+    const clientMut = useMutation({
+        mutationFn: (clientId: string) => updateTicketClient(id, clientId),
+        onSuccess: () => { invalidate(); toast.success("Cliente alterado!"); setShowChangeClientModal(false); setChangeClientId("") },
         onError: (e: Error) => toast.error(e.message),
     })
 
@@ -320,6 +362,8 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     const [activeTab, setActiveTab] = useState<"descricao" | "apontamentos" | "comentarios">("descricao")
     const [apontFiles, setApontFiles] = useState<{ url: string; fileName: string; fileType: string; fileSize: number }[]>([])
     const [apontUploading, setApontUploading] = useState(false)
+    const [commentFiles, setCommentFiles] = useState<File[]>([])
+    const [commentUploading, setCommentUploading] = useState(false)
 
     const handleCopy = (text: string, label: string) => {
         copyToClipboard(text)
@@ -409,11 +453,13 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                     {/* Description card */}
                     <div className="bg-white border border-gray-200 rounded-xl p-4">
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Descrição</p>
-                        <div className="flex items-center gap-2 mb-1.5">
+                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                             <span className="text-sm font-medium text-gray-900">{ticket.client.name}</span>
+                            <button onClick={() => setShowChangeClientModal(true)} className="text-[9px] text-blue-500 hover:text-blue-600 cursor-pointer font-medium">(alterar)</button>
                             {ticket.requestedByContact && (
                                 <span className="text-[10px] text-gray-400">• Solicitante: <span className="font-medium text-gray-600">{ticket.requestedByContact.name}</span></span>
                             )}
+                            <button onClick={() => setShowChangeRequesterModal(true)} className="text-[9px] text-blue-500 hover:text-blue-600 cursor-pointer font-medium">{ticket.requestedByContact ? "(alterar)" : "(definir solicitante)"}</button>
                             <span className="text-[10px] text-gray-400">{formatDate(ticket.createdAt)}</span>
                         </div>
                         <p className="text-sm text-gray-600 leading-relaxed">{ticket.ticketDescription}</p>
@@ -557,11 +603,26 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                         <div className="px-4 py-3 border-b border-gray-100">
                             <div className="flex items-center gap-2">
                                 <Input placeholder="Escreva um comentário..." value={newComment} onChange={(e) => setNewComment(e.target.value)}
-                                    onKeyDown={(e) => { if (e.key === "Enter" && newComment.trim()) { commentMut.mutate({ content: newComment }) } }}
+                                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && newComment.trim()) { commentMut.mutate({ content: newComment, files: commentFiles }) } }}
                                     className="flex-1 h-8 text-xs" />
+                                <label className="flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 text-gray-400 hover:text-blue-500 hover:border-blue-300 cursor-pointer transition-colors shrink-0">
+                                    <Paperclip size={12} />
+                                    <input type="file" multiple className="hidden" onChange={e => { if (e.target.files) setCommentFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = "" }} />
+                                </label>
                                 <Button className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 px-2.5" disabled={!newComment.trim() || commentMut.isPending}
-                                    onClick={() => commentMut.mutate({ content: newComment })}><Send size={12} /></Button>
+                                    onClick={() => commentMut.mutate({ content: newComment, files: commentFiles })}><Send size={12} /></Button>
                             </div>
+                            {commentFiles.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5 mt-2">
+                                    {commentFiles.map((f, i) => (
+                                        <div key={i} className="flex items-center gap-1 px-2 py-0.5 rounded bg-gray-50 text-[10px] text-gray-600">
+                                            <Paperclip size={9} className="text-gray-400" />
+                                            <span className="truncate max-w-24">{f.name}</span>
+                                            <button onClick={() => setCommentFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-gray-400 hover:text-red-500 cursor-pointer"><X size={10} /></button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                         {ticket.comments.length === 0 ? (
                             <div className="flex flex-col items-center justify-center py-8 text-gray-400">
@@ -658,9 +719,27 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                     <DialogFooter className="gap-2"><Button variant="outline" onClick={() => { setShowTransferModal(false); setSelectedUserId("") }}>Cancelar</Button><Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={!selectedUserId || assignMut.isPending} onClick={() => assignMut.mutate(selectedUserId)}>{assignMut.isPending ? <Loader2 size={14} className="animate-spin mr-1" /> : null}Transferir</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
-            <Dialog open={showChangeClientModal} onOpenChange={setShowChangeClientModal}>
-                <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Mudar Cliente</DialogTitle><DialogDescription>Esta funcionalidade será implementada em breve.</DialogDescription></DialogHeader>
-                    <DialogFooter><Button variant="outline" onClick={() => setShowChangeClientModal(false)}>Fechar</Button></DialogFooter>
+            <Dialog open={showChangeClientModal} onOpenChange={(open) => { setShowChangeClientModal(open); if (!open) setChangeClientId("") }}>
+                <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Mudar Cliente</DialogTitle><DialogDescription>Ao mudar o cliente, o solicitante será resetado.</DialogDescription></DialogHeader>
+                    <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={changeClientId} onChange={e => setChangeClientId(e.target.value)}>
+                        <option value="">Selecione o novo cliente...</option>
+                        {clientsList.filter((c: { id: string }) => c.id !== ticket.clientId).map((c: { id: string; name: string }) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                    </select>
+                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => { setShowChangeClientModal(false); setChangeClientId("") }}>Cancelar</Button><Button className="bg-blue-600 hover:bg-blue-700 text-white" disabled={!changeClientId || clientMut.isPending} onClick={() => clientMut.mutate(changeClientId)}>{clientMut.isPending ? <Loader2 size={14} className="animate-spin mr-1" /> : null}Confirmar</Button></DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={showChangeRequesterModal} onOpenChange={(open) => { setShowChangeRequesterModal(open); if (!open) setChangeContactId("") }}>
+                <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Mudar Solicitante</DialogTitle><DialogDescription>Selecione o novo solicitante do ticket.</DialogDescription></DialogHeader>
+                    <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={changeContactId} onChange={e => setChangeContactId(e.target.value)}>
+                        <option value="">Selecione o solicitante...</option>
+                        <option value="__contabilidade__">Contabilidade</option>
+                        {changeContacts.map((ct: { id: string; name: string; role: string | null }) => (
+                            <option key={ct.id} value={ct.id}>{ct.name}{ct.role ? ` (${ct.role})` : ""}</option>
+                        ))}
+                    </select>
+                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => { setShowChangeRequesterModal(false); setChangeContactId("") }}>Cancelar</Button><Button className="bg-blue-600 hover:bg-blue-700 text-white" disabled={!changeContactId || requesterMut.isPending} onClick={() => requesterMut.mutate(changeContactId === "__contabilidade__" ? null : changeContactId)}>{requesterMut.isPending ? <Loader2 size={14} className="animate-spin mr-1" /> : null}Confirmar</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
             <Dialog open={showApontamentoModal} onOpenChange={(open) => { if (!open) { setShowApontamentoModal(false); setApontDesc(""); setApontDuration(""); setApontStatusChange(""); setApontFiles([]) } }}>

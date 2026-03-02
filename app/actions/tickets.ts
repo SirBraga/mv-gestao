@@ -4,6 +4,7 @@ import { prisma } from "@/app/utils/prisma"
 import { auth } from "@/app/utils/auth"
 import { headers } from "next/headers"
 import { revalidatePath } from "next/cache"
+import { createNotification } from "@/app/actions/notifications"
 
 async function getSession() {
     const session = await auth.api.getSession({ headers: await headers() })
@@ -45,8 +46,9 @@ export async function createTicket(data: {
     ticketType?: "SUPPORT" | "SALES" | "FINANCE" | "MAINTENCE"
     requestedByContactId?: string
     requestedByContabilityId?: string
+    assignedToId?: string
 }) {
-    await getSession()
+    const session = await getSession()
     const ticket = await prisma.tickets.create({
         data: {
             clientId: data.clientId,
@@ -55,20 +57,33 @@ export async function createTicket(data: {
             ticketType: data.ticketType || "SUPPORT",
             requestedByContactId: data.requestedByContactId || null,
             requestedByContabilityId: data.requestedByContabilityId || null,
+            assignedToId: data.assignedToId || null,
+            ticketStatus: data.assignedToId ? "IN_PROGRESS" : "NOVO",
         },
+        select: { id: true, ticketNumber: true },
     })
+    if (data.assignedToId && data.assignedToId !== session.user.id) {
+        await createNotification({
+            userId: data.assignedToId,
+            title: `Ticket #${ticket.ticketNumber} atribuído a você`,
+            message: data.ticketDescription.slice(0, 100),
+            type: "TICKET_ASSIGNED",
+            link: `/dashboard/tickets/${ticket.id}`,
+        })
+    }
     revalidatePath("/dashboard/tickets")
     return { success: true, id: ticket.id }
 }
 
 export async function claimTicket(ticketId: string) {
     const session = await getSession()
-    await prisma.tickets.update({
+    const ticket = await prisma.tickets.update({
         where: { id: ticketId },
         data: {
             assignedToId: session.user.id,
             ticketStatus: "IN_PROGRESS",
         },
+        select: { ticketNumber: true },
     })
     revalidatePath("/dashboard/tickets")
     return { success: true }
@@ -86,11 +101,21 @@ export async function updateTicketStatus(ticketId: string, status: "NOVO" | "PEN
 }
 
 export async function assignTicket(ticketId: string, userId: string | null) {
-    await getSession()
-    await prisma.tickets.update({
+    const session = await getSession()
+    const ticket = await prisma.tickets.update({
         where: { id: ticketId },
         data: { assignedToId: userId },
+        select: { ticketNumber: true, ticketDescription: true },
     })
+    if (userId && userId !== session.user.id) {
+        await createNotification({
+            userId,
+            title: `Ticket #${ticket.ticketNumber} atribuído a você`,
+            message: ticket.ticketDescription.slice(0, 100),
+            type: "TICKET_ASSIGNED",
+            link: `/dashboard/tickets/${ticketId}`,
+        })
+    }
     revalidatePath("/dashboard/tickets")
     return { success: true }
 }
@@ -241,7 +266,7 @@ export async function addApontamento(data: {
 export async function addComment(ticketId: string, content: string, parentId?: string | null) {
     const session = await getSession()
     if (!content.trim()) throw new Error("Conteúdo do comentário é obrigatório")
-    await prisma.ticketComment.create({
+    const comment = await prisma.ticketComment.create({
         data: {
             ticketId,
             userId: session.user.id,
@@ -250,7 +275,7 @@ export async function addComment(ticketId: string, content: string, parentId?: s
         },
     })
     revalidatePath("/dashboard/tickets")
-    return { success: true }
+    return { success: true, commentId: comment.id }
 }
 
 export async function reopenTicket(ticketId: string, reason: string) {
@@ -279,4 +304,54 @@ export async function getAllUsers() {
         select: { id: true, name: true },
         orderBy: { name: "asc" },
     })
+}
+
+export async function updateTicketRequester(ticketId: string, contactId: string | null) {
+    await getSession()
+    await prisma.tickets.update({
+        where: { id: ticketId },
+        data: { requestedByContactId: contactId },
+    })
+    revalidatePath("/dashboard/tickets")
+    return { success: true }
+}
+
+export async function updateTicketClient(ticketId: string, clientId: string) {
+    await getSession()
+    await prisma.tickets.update({
+        where: { id: ticketId },
+        data: { clientId, requestedByContactId: null },
+    })
+    revalidatePath("/dashboard/tickets")
+    return { success: true }
+}
+
+export async function addTicketAttachment(ticketId: string, data: { url: string; fileName: string; fileType: string; fileSize: number }) {
+    await getSession()
+    await prisma.attachment.create({
+        data: {
+            ticketId,
+            url: data.url,
+            fileName: data.fileName,
+            fileType: data.fileType,
+            fileSize: data.fileSize,
+        },
+    })
+    revalidatePath("/dashboard/tickets")
+    return { success: true }
+}
+
+export async function addCommentAttachment(commentId: string, data: { url: string; fileName: string; fileType: string; fileSize: number }) {
+    await getSession()
+    await prisma.attachment.create({
+        data: {
+            commentId,
+            url: data.url,
+            fileName: data.fileName,
+            fileType: data.fileType,
+            fileSize: data.fileSize,
+        },
+    })
+    revalidatePath("/dashboard/tickets")
+    return { success: true }
 }

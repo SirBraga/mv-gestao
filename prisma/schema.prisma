@@ -30,6 +30,7 @@ model User {
   sentMessages     ChatMessage[] @relation("SentMessages")
   receivedMessages ChatMessage[] @relation("ReceivedMessages")
   onlineStatus     UserStatus?
+  notifications    Notification[]
 
   @@unique([email])
   @@map("user")
@@ -90,6 +91,9 @@ model Clients {
   cnpj String?
   cpf String?
   ie String?
+  state String?
+  codigoCSC String?
+  tokenCSC String?
   aditionalInfo String?
   address String
   city String
@@ -105,7 +109,10 @@ model Clients {
   contacts ClientContact[]
   attachments Attachment[]
   hasContract Boolean?
+  contractType ContractType?
   supportReleased Boolean?
+  blockReason BlockReason?
+  photoUrl String?
   ownerName String?
   ownerAddress String?
   ownerPhone String?
@@ -202,6 +209,7 @@ model TicketComment {
   parentId  String?
   parent    TicketComment?  @relation("CommentReplies", fields: [parentId], references: [id])
   replies   TicketComment[] @relation("CommentReplies")
+  attachments Attachment[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -292,6 +300,19 @@ enum Apontamento_Category {
   DESENVOLVIMENTO
 }
 
+enum ContractType {
+  MENSAL
+  TRIMESTRAL
+  ANUAL
+}
+
+enum BlockReason {
+  CONTRATO_CANCELADO
+  INADIMPLENCIA
+  SOLICITACAO_CLIENTE
+  OUTROS
+}
+
 // ── Chat Interno ──
 
 model ChatMessage {
@@ -329,13 +350,32 @@ model Attachment {
   apontamento     Apontamento? @relation(fields: [apontamentoId], references: [id], onDelete: Cascade)
   clientId        String?
   client          Clients?     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  commentId       String?
+  comment         TicketComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
   createdAt  DateTime @default(now())
 
   @@index([chatMessageId])
   @@index([ticketId])
   @@index([apontamentoId])
   @@index([clientId])
+  @@index([commentId])
   @@map("attachment")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("TICKET_ASSIGNED") // TICKET_ASSIGNED, TICKET_COMMENT, etc.
+  link      String?  // e.g. /dashboard/tickets/abc
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([userId, read])
+  @@map("notification")
 }
 
 model UserStatus {

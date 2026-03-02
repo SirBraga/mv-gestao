@@ -4,8 +4,10 @@ import { useState, useMemo } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getTickets, createTicket, claimTicket } from "@/app/actions/tickets"
+import { getTickets, createTicket, claimTicket, getAllUsers } from "@/app/actions/tickets"
 import { getClients, getClientContacts } from "@/app/actions/clients"
+import { uploadFile } from "@/app/utils/upload"
+import { addTicketAttachment } from "@/app/actions/tickets"
 import TicketCard from "../_components/ticketCard"
 import type { TicketData } from "../_components/ticketCard"
 import { Input } from "@/components/ui/input"
@@ -37,6 +39,8 @@ import {
     AlertTriangle,
     Plus,
     Loader2,
+    Paperclip,
+    X,
 } from "lucide-react"
 
 const INITIAL_FORM = {
@@ -45,6 +49,7 @@ const INITIAL_FORM = {
     ticketDescription: "",
     ticketPriority: "MEDIUM" as "LOW" | "MEDIUM" | "HIGH",
     ticketType: "SUPPORT" as "SUPPORT" | "SALES" | "FINANCE" | "MAINTENCE",
+    assignedToId: "",
 }
 
 type FilterType = "all" | "open" | "pending_client" | "pending_empress" | "in_progress" | "closed" | "mine"
@@ -62,13 +67,13 @@ const FILTERS = [
 
 
 const filterStatusMap: Record<FilterType, TicketData["status"][]> = {
-    all: ["NOVO", "PENDING_CLIENT", "PENDING_EMPRESS", "IN_PROGRESS", "CLOSED"],
+    all: ["NOVO", "PENDING_CLIENT", "PENDING_EMPRESS", "IN_PROGRESS"],
     open: ["NOVO"],
     pending_client: ["PENDING_CLIENT"],
     pending_empress: ["PENDING_EMPRESS"],
     in_progress: ["IN_PROGRESS"],
     closed: ["CLOSED"],
-    mine: ["NOVO", "PENDING_CLIENT", "PENDING_EMPRESS", "IN_PROGRESS", "CLOSED"],
+    mine: ["NOVO", "PENDING_CLIENT", "PENDING_EMPRESS", "IN_PROGRESS"],
 }
 
 const COLUMNS: { key: SortKey; label: string }[] = [
@@ -90,13 +95,13 @@ const priorityOrder: Record<TicketData["priority"], number> = {
 function compareTickets(a: TicketData, b: TicketData, key: SortKey, dir: SortDir): number {
     let cmp = 0
     switch (key) {
-        case "id": cmp = a.id.localeCompare(b.id, "pt-BR", { numeric: true }); break
+        case "id": cmp = a.ticketNumber - b.ticketNumber; break
         case "priority": cmp = priorityOrder[a.priority] - priorityOrder[b.priority]; break
         case "ticketDescription": cmp = a.clientName.localeCompare(b.clientName, "pt-BR"); break
         case "status": cmp = a.status.localeCompare(b.status, "pt-BR"); break
         case "assignee": cmp = (a.assigneeName || "").localeCompare(b.assigneeName || "", "pt-BR"); break
         case "requester": cmp = (a.requesterName || "").localeCompare(b.requesterName || "", "pt-BR"); break
-        case "date": cmp = a.date.localeCompare(b.date, "pt-BR"); break
+        case "date": cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(); break
     }
     return dir === "asc" ? cmp : -cmp
 }
@@ -113,6 +118,8 @@ export default function TicketsPage() {
     const [claimTicketId, setClaimTicketId] = useState<string | null>(null)
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [form, setForm] = useState(INITIAL_FORM)
+    const [attachFiles, setAttachFiles] = useState<File[]>([])
+    const [submitting, setSubmitting] = useState(false)
 
     const { data: tickets = [], isLoading } = useQuery({
         queryKey: ["tickets"],
@@ -128,6 +135,11 @@ export default function TicketsPage() {
         queryKey: ["client-contacts", form.clientId],
         queryFn: () => getClientContacts(form.clientId),
         enabled: !!form.clientId,
+    })
+
+    const { data: usersList = [] } = useQuery({
+        queryKey: ["all-users"],
+        queryFn: () => getAllUsers(),
     })
 
     const createMutation = useMutation({
@@ -172,17 +184,37 @@ export default function TicketsPage() {
         if (claimTicketId) claimMutation.mutate(claimTicketId)
     }
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!form.clientId) return toast.error("Selecione um cliente")
         if (!form.requestedByContactId) return toast.error("Selecione o solicitante")
         if (!form.ticketDescription.trim()) return toast.error("Descrição é obrigatória")
-        createMutation.mutate({
-            clientId: form.clientId,
-            ticketDescription: form.ticketDescription,
-            ticketPriority: form.ticketPriority,
-            ticketType: form.ticketType,
-            requestedByContactId: form.requestedByContactId,
-        })
+        setSubmitting(true)
+        try {
+            const result = await createMutation.mutateAsync({
+                clientId: form.clientId,
+                ticketDescription: form.ticketDescription,
+                ticketPriority: form.ticketPriority,
+                ticketType: form.ticketType,
+                requestedByContactId: form.requestedByContactId,
+                assignedToId: form.assignedToId || undefined,
+            })
+            if (attachFiles.length > 0 && result.id) {
+                for (const file of attachFiles) {
+                    const uploaded = await uploadFile(file, "tickets")
+                    await addTicketAttachment(result.id, {
+                        url: uploaded.url,
+                        fileName: file.name,
+                        fileType: file.type,
+                        fileSize: file.size,
+                    })
+                }
+            }
+            setAttachFiles([])
+        } catch {
+            // handled by mutation onError
+        } finally {
+            setSubmitting(false)
+        }
     }
 
     const allTickets = tickets as TicketData[]
@@ -199,7 +231,7 @@ export default function TicketsPage() {
                 const matchesSearch =
                     !searchQuery ||
                     ticket.ticketDescription.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    ticket.id.includes(searchQuery) ||
+                    String(ticket.ticketNumber).includes(searchQuery) ||
                     ticket.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
                     (ticket.assigneeName || "").toLowerCase().includes(searchQuery.toLowerCase())
 
@@ -209,7 +241,7 @@ export default function TicketsPage() {
     }, [allTickets, activeFilter, searchQuery, sortKey, sortDir])
 
     const counts: Record<FilterType, number> = {
-        all: allTickets.length,
+        all: allTickets.filter((t) => t.status !== "CLOSED").length,
         open: allTickets.filter((t) => t.status === "NOVO").length,
         pending_client: allTickets.filter((t) => t.status === "PENDING_CLIENT").length,
         pending_empress: allTickets.filter((t) => t.status === "PENDING_EMPRESS").length,
@@ -421,12 +453,38 @@ export default function TicketsPage() {
                                 </select>
                             </div>
                         </div>
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Responsável <span className="text-gray-300">(opcional)</span></label>
+                            <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.assignedToId} onChange={e => setForm({...form, assignedToId: e.target.value})}>
+                                <option value="">Nenhum (será atribuído depois)</option>
+                                {usersList.map((u: { id: string; name: string }) => (
+                                    <option key={u.id} value={u.id}>{u.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Anexos <span className="text-gray-300">(opcional)</span></label>
+                            <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-gray-300 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-500 cursor-pointer transition-colors">
+                                <Paperclip size={13} /> Adicionar arquivos
+                                <input type="file" multiple className="hidden" onChange={e => { if (e.target.files) setAttachFiles(prev => [...prev, ...Array.from(e.target.files!)]) }} />
+                            </label>
+                            {attachFiles.length > 0 && (
+                                <div className="mt-2 space-y-1">
+                                    {attachFiles.map((f, i) => (
+                                        <div key={i} className="flex items-center justify-between px-2 py-1 rounded bg-gray-50 text-xs text-gray-600">
+                                            <span className="truncate flex-1">{f.name}</span>
+                                            <button onClick={() => setAttachFiles(prev => prev.filter((_, idx) => idx !== i))} className="ml-2 text-gray-400 hover:text-red-500 cursor-pointer"><X size={12} /></button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     </div>
                     <SheetFooter className="px-6 py-4 border-t border-gray-100">
                         <div className="flex gap-2 w-full">
                             <Button variant="outline" className="flex-1 h-10 rounded-lg text-sm" onClick={() => setDrawerOpen(false)}>Cancelar</Button>
-                            <Button className="flex-1 h-10 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm" onClick={handleSubmit} disabled={createMutation.isPending}>
-                                {createMutation.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
+                            <Button className="flex-1 h-10 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm" onClick={handleSubmit} disabled={createMutation.isPending || submitting}>
+                                {(createMutation.isPending || submitting) ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
                                 Criar Ticket
                             </Button>
                         </div>

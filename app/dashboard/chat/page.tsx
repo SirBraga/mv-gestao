@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useMemo } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getChatUsers, getMessages, sendMessage } from "@/app/actions/chat"
 import { uploadFile } from "@/app/utils/upload"
@@ -149,14 +149,38 @@ export default function ChatPage() {
     const sendMutation = useMutation({
         mutationFn: ({ receiverId, content, replyToId, attachments }: { receiverId: string; content: string; replyToId?: string | null; attachments?: { url: string; fileName: string; fileType: string; fileSize: number }[] }) =>
             sendMessage(receiverId, content, replyToId, attachments),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["chat-messages", selectedUserId] })
+        onMutate: async ({ receiverId, content, replyToId, attachments }) => {
+            await queryClient.cancelQueries({ queryKey: ["chat-messages", receiverId] })
+            const previous = queryClient.getQueryData(["chat-messages", receiverId])
+            const tempId = `temp-${Date.now()}`
+            const optimisticMsg: ChatMsg = {
+                id: tempId,
+                senderId: currentUserId,
+                receiverId,
+                content,
+                read: false,
+                createdAt: new Date().toISOString(),
+                replyToId: replyToId ?? null,
+                replyTo: replyTo ? { id: replyTo.id, content: replyTo.content, senderId: replyTo.senderId } : null,
+                attachments: attachments?.map((a, i) => ({ id: `tmp-att-${i}`, ...a })) ?? [],
+            }
+            queryClient.setQueryData(["chat-messages", receiverId], (old: { messages: ChatMsg[]; currentUserId: string } | undefined) => ({
+                messages: [...(old?.messages ?? []), optimisticMsg],
+                currentUserId: old?.currentUserId ?? currentUserId,
+            }))
+            return { previous, tempId }
+        },
+        onSuccess: (_data, { receiverId }) => {
+            queryClient.invalidateQueries({ queryKey: ["chat-messages", receiverId] })
             queryClient.invalidateQueries({ queryKey: ["chat-users"] })
             queryClient.invalidateQueries({ queryKey: ["unreadCount"] })
             setReplyTo(null)
             setPendingFiles([])
         },
-        onError: () => toast.error("Erro ao enviar mensagem"),
+        onError: (_err, { receiverId }, context) => {
+            if (context?.previous) queryClient.setQueryData(["chat-messages", receiverId], context.previous)
+            toast.error("Erro ao enviar mensagem")
+        },
     })
 
     const filteredUsers = useMemo(() => {
