@@ -4,6 +4,7 @@ import { prisma } from "@/app/utils/prisma"
 import { auth } from "@/app/utils/auth"
 import { headers } from "next/headers"
 import { revalidatePath } from "next/cache"
+import { sendPushToUser } from "@/app/utils/push"
 
 interface ChatUserResult {
     id: string
@@ -132,6 +133,20 @@ export async function sendMessage(receiverId: string, content: string, replyToId
             attachments: { select: { id: true, url: true, fileName: true, fileType: true, fileSize: true } },
         },
     })
+
+    // Push notification para o destinatário
+    const sender = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { name: true },
+    })
+    if (sender) {
+        await sendPushToUser(receiverId, {
+            title: `💬 ${sender.name}`,
+            body: content.trim() || "Enviou um arquivo",
+            url: "/dashboard/chat",
+            tag: `chat-${session.user.id}`,
+        })
+    }
 
     revalidatePath("/dashboard/chat")
     return message

@@ -5,6 +5,7 @@ import { auth } from "@/app/utils/auth"
 import { headers } from "next/headers"
 import { revalidatePath } from "next/cache"
 import { createNotification } from "@/app/actions/notifications"
+import { sendPushToUser } from "@/app/utils/push"
 
 async function getSession() {
     const session = await auth.api.getSession({ headers: await headers() })
@@ -70,6 +71,12 @@ export async function createTicket(data: {
             type: "TICKET_ASSIGNED",
             link: `/dashboard/tickets/${ticket.id}`,
         })
+        await sendPushToUser(data.assignedToId, {
+            title: `🎫 Ticket #${ticket.ticketNumber} atribuído a você`,
+            body: data.ticketDescription.slice(0, 100),
+            url: `/dashboard/tickets/${ticket.id}`,
+            tag: `ticket-${ticket.id}`,
+        })
     }
     revalidatePath("/dashboard/tickets")
     return { success: true, id: ticket.id }
@@ -114,6 +121,12 @@ export async function assignTicket(ticketId: string, userId: string | null) {
             message: ticket.ticketDescription.slice(0, 100),
             type: "TICKET_ASSIGNED",
             link: `/dashboard/tickets/${ticketId}`,
+        })
+        await sendPushToUser(userId, {
+            title: `🎫 Ticket #${ticket.ticketNumber} atribuído a você`,
+            body: ticket.ticketDescription.slice(0, 100),
+            url: `/dashboard/tickets/${ticketId}`,
+            tag: `ticket-${ticketId}`,
         })
     }
     revalidatePath("/dashboard/tickets")

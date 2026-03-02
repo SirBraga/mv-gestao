@@ -45,6 +45,15 @@ const navItems = [
   { label: "Chat", path: "/dashboard/chat", icon: MessageCircle, color: "bg-teal-500" },
 ]
 
+function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/")
+  const rawData = atob(base64)
+  const arr = new Uint8Array(rawData.length)
+  for (let i = 0; i < rawData.length; i++) arr[i] = rawData.charCodeAt(i)
+  return arr.buffer
+}
+
 interface SidebarProps {
     avatar: string;
     name: string
@@ -173,12 +182,44 @@ export default function Sidebar({ avatar, name, userId, role }: SidebarProps) {
     prevChatCountRef.current = unreadCount
   }, [unreadCount, latestUnread, pathname, playNotifSound])
 
-  // Request browser notification permission on mount
+  // Register Service Worker + subscribe to push notifications
   useEffect(() => {
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      Notification.requestPermission()
+    if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) return
+
+    async function registerPush() {
+      try {
+        const reg = await navigator.serviceWorker.register("/sw.js")
+
+        const permission = await Notification.requestPermission()
+        if (permission !== "granted") return
+
+        const existing = await reg.pushManager.getSubscription()
+        if (existing) {
+          await fetch("/api/push/subscribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(existing),
+          })
+          return
+        }
+
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
+        })
+
+        await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(sub),
+        })
+      } catch {
+        // Silently fail — push não essencial
+      }
     }
-  }, [])
+
+    registerPush()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Set online on mount, offline on unmount
   useEffect(() => {
