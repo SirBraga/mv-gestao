@@ -251,8 +251,22 @@ export default function FuncionariosClient({ isAdmin, currentUserId }: Props) {
             {/* Rows */}
             <div className="flex-1 overflow-y-auto">
                 {isLoading ? (
-                    <div className="flex items-center justify-center py-16">
-                        <Loader2 size={20} className="animate-spin text-gray-400" />
+                    <div className="flex flex-col">
+                        {[...Array(6)].map((_, i) => (
+                            <div key={i} className="grid grid-cols-[1.5fr_1.2fr_120px_120px_80px] items-center border-b border-gray-100 px-6 py-3 gap-3">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-full bg-gray-100 animate-pulse shrink-0" />
+                                    <div className="space-y-1.5 flex-1">
+                                        <div className="h-3 bg-gray-100 rounded animate-pulse w-3/4" />
+                                        <div className="h-2.5 bg-gray-100 rounded animate-pulse w-1/2" />
+                                    </div>
+                                </div>
+                                <div className="h-3 bg-gray-100 rounded animate-pulse w-4/5" />
+                                <div className="h-5 bg-gray-100 rounded-full animate-pulse w-20" />
+                                <div className="h-3 bg-gray-100 rounded animate-pulse w-16" />
+                                <div className="h-7 bg-gray-100 rounded animate-pulse w-8 ml-auto" />
+                            </div>
+                        ))}
                     </div>
                 ) : null}
                 {!isLoading && filtered.map((user) => {

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getChatUsers, getMessages, sendMessage } from "@/app/actions/chat"
+import { getChatUsers, getMessages, sendMessage, markAsRead } from "@/app/actions/chat"
 import { uploadFile } from "@/app/utils/upload"
 import { toast } from "react-toastify"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -123,13 +123,15 @@ export default function ChatPage() {
         queryKey: ["chat-users"],
         queryFn: () => getChatUsers(),
         refetchInterval: 5000,
+        staleTime: 4000,
     })
 
-    const { data: messagesData } = useQuery({
+    const { data: messagesData, isLoading: loadingMessages } = useQuery({
         queryKey: ["chat-messages", selectedUserId],
         queryFn: () => getMessages(selectedUserId!),
         enabled: !!selectedUserId,
         refetchInterval: 3000,
+        staleTime: 2000,
     })
 
     const currentUserId = messagesData?.currentUserId || ""
@@ -203,14 +205,13 @@ export default function ChatPage() {
         if (selectedUserId) setTimeout(() => inputRef.current?.focus(), 100)
     }, [selectedUserId])
 
+    // Marcar como lidas e atualizar badges ao abrir conversa
     useEffect(() => {
-        if (selectedUserId) {
-            const timer = setTimeout(() => {
-                queryClient.invalidateQueries({ queryKey: ["chat-users"] })
-                queryClient.invalidateQueries({ queryKey: ["unreadCount"] })
-            }, 1000)
-            return () => clearTimeout(timer)
-        }
+        if (!selectedUserId) return
+        markAsRead(selectedUserId).then(() => {
+            queryClient.invalidateQueries({ queryKey: ["chat-users"] })
+            queryClient.invalidateQueries({ queryKey: ["unreadCount"] })
+        })
     }, [selectedUserId, queryClient])
 
     const handleSend = () => {
@@ -282,7 +283,17 @@ export default function ChatPage() {
 
                 <div className="flex-1 overflow-y-auto">
                     {loadingUsers ? (
-                        <div className="flex items-center justify-center py-12"><Loader2 size={18} className="animate-spin text-gray-400" /></div>
+                        <div className="flex flex-col">
+                            {[...Array(5)].map((_, i) => (
+                                <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50">
+                                    <div className="w-10 h-10 rounded-full bg-gray-100 animate-pulse shrink-0" />
+                                    <div className="flex-1 space-y-2">
+                                        <div className="h-3 bg-gray-100 rounded animate-pulse w-3/4" />
+                                        <div className="h-2.5 bg-gray-100 rounded animate-pulse w-1/2" />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     ) : filteredUsers.map((user) => {
                         const isSelected = selectedUserId === user.id
                         return (
@@ -339,7 +350,15 @@ export default function ChatPage() {
 
                         {/* Messages */}
                         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-0.5" style={{ background: "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)" }}>
-                            {conversationMessages.length === 0 ? (
+                            {loadingMessages ? (
+                                <div className="flex flex-col gap-3 pt-2">
+                                    {[...Array(5)].map((_, i) => (
+                                        <div key={i} className={`flex ${i % 2 === 0 ? "justify-start" : "justify-end"}`}>
+                                            <div className={`h-8 rounded-2xl animate-pulse bg-gray-200 ${i % 2 === 0 ? "w-48" : "w-36"}`} />
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : conversationMessages.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full text-gray-400">
                                     <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center mb-3">
                                         <MessageCircle size={28} className="text-blue-200" />

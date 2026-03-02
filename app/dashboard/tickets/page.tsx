@@ -124,11 +124,15 @@ export default function TicketsPage() {
     const { data: tickets = [], isLoading } = useQuery({
         queryKey: ["tickets"],
         queryFn: () => getTickets(),
+        staleTime: 1000 * 30,
+        refetchOnWindowFocus: false,
     })
 
     const { data: clientsList = [] } = useQuery({
         queryKey: ["clients-simple"],
         queryFn: () => getClients(),
+        staleTime: 1000 * 60 * 5,
+        refetchOnWindowFocus: false,
     })
 
     const { data: clientContacts = [] } = useQuery({

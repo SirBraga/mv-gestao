@@ -50,7 +50,9 @@ export default function Dashboard() {
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard", viewMode, period, customStart, customEnd],
     queryFn: () => getDashboardStats(viewMode, period, customStart || undefined, customEnd || undefined),
-    refetchInterval: 30000,
+    staleTime: 1000 * 60 * 2,
+    refetchInterval: 1000 * 60 * 2,
+    refetchOnWindowFocus: false,
   })
 
   const isAdmin = true

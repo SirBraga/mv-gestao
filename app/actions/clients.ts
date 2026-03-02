@@ -262,6 +262,14 @@ export async function getClientContacts(clientId: string) {
     return contacts
 }
 
+export async function getClientContability(clientId: string) {
+    await getSession()
+    return prisma.contability.findMany({
+        where: { clientId },
+        select: { id: true, cnpj: true, cpf: true, email: true, phone: true },
+    })
+}
+
 export async function addClientAttachment(clientId: string, data: { url: string; fileName: string; fileType: string; fileSize: number }) {
     await getSession()
     await prisma.attachment.create({

@@ -159,6 +159,7 @@ export async function getTicketById(id: string) {
                 select: { id: true, url: true, fileName: true, fileType: true, fileSize: true },
             },
             requestedByContact: { select: { id: true, name: true, phone: true, email: true } },
+            requestedByContability: { select: { id: true, cnpj: true, cpf: true, email: true, phone: true } },
             apontamentos: {
                 orderBy: { date: "desc" },
                 include: {
@@ -213,6 +214,7 @@ export async function getTicketById(id: string) {
         } : null,
         attachments: ticket.attachments,
         requestedByContact: ticket.requestedByContact,
+        requestedByContability: ticket.requestedByContability,
         apontamentos: ticket.apontamentos.map(a => ({
             id: a.id,
             description: a.description,
@@ -319,11 +321,18 @@ export async function getAllUsers() {
     })
 }
 
-export async function updateTicketRequester(ticketId: string, contactId: string | null) {
+export async function updateTicketRequester(
+    ticketId: string,
+    contactId: string | null,
+    contabilityId: string | null = null
+) {
     await getSession()
     await prisma.tickets.update({
         where: { id: ticketId },
-        data: { requestedByContactId: contactId },
+        data: {
+            requestedByContactId: contactId,
+            requestedByContabilityId: contabilityId,
+        },
     })
     revalidatePath("/dashboard/tickets")
     return { success: true }
@@ -331,9 +340,16 @@ export async function updateTicketRequester(ticketId: string, contactId: string 
 
 export async function updateTicketClient(ticketId: string, clientId: string) {
     await getSession()
+    const ticket = await prisma.tickets.findUnique({
+        where: { id: ticketId },
+        select: { _count: { select: { apontamentos: true } } },
+    })
+    if (ticket && ticket._count.apontamentos > 0) {
+        throw new Error("Não é possível mudar o cliente de um ticket que já possui apontamentos.")
+    }
     await prisma.tickets.update({
         where: { id: ticketId },
-        data: { clientId, requestedByContactId: null },
+        data: { clientId, requestedByContactId: null, requestedByContabilityId: null },
     })
     revalidatePath("/dashboard/tickets")
     return { success: true }

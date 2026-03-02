@@ -16,23 +16,23 @@ export interface TicketData {
   createdAt: string
 }
 
-const priorityTag: Record<TicketData["priority"], string> = {
-  LOW: "bg-emerald-500",
-  MEDIUM: "bg-amber-500",
-  HIGH: "bg-red-500",
+const priorityExclamations: Record<TicketData["priority"], string> = {
+  LOW: "!",
+  MEDIUM: "!!",
+  HIGH: "!!!",
 }
 
-const priorityLabels: Record<TicketData["priority"], string> = {
-  LOW: "Baixa",
-  MEDIUM: "Média",
-  HIGH: "Alta",
+const priorityExclamationColors: Record<TicketData["priority"], string> = {
+  LOW: "text-emerald-500",
+  MEDIUM: "text-amber-500",
+  HIGH: "text-red-500",
 }
 
 const statusTag: Record<TicketData["status"], string> = {
-  NOVO: "bg-sky-500",
-  PENDING_CLIENT: "bg-amber-500",
-  PENDING_EMPRESS: "bg-violet-500",
-  IN_PROGRESS: "bg-orange-500",
+  NOVO: "bg-emerald-500",
+  PENDING_CLIENT: "bg-emerald-500",
+  PENDING_EMPRESS: "bg-emerald-500",
+  IN_PROGRESS: "bg-emerald-500",
   CLOSED: "bg-gray-400",
 }
 
@@ -64,8 +64,8 @@ export default function TicketCard({ ticket, onClaim, onNavigate }: TicketCardPr
       <span className="text-xs text-gray-500 font-mono font-semibold">#{ticket.ticketNumber}</span>
 
       {/* Prioridade */}
-      <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[10px] font-bold text-white w-fit ${priorityTag[ticket.priority]}`}>
-        {priorityLabels[ticket.priority]}
+      <span className={`inline-flex items-center justify-center text-sm font-bold tracking-tighter w-fit ${priorityExclamationColors[ticket.priority]}`}>
+        {priorityExclamations[ticket.priority]}
       </span>
 
       {/* Cliente + Título */}

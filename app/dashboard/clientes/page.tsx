@@ -3,6 +3,8 @@
 import { useState, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getClients, createClient } from "@/app/actions/clients"
+import { getProducts } from "@/app/actions/products"
+import { getContabilities } from "@/app/actions/contability"
 import ClientCard from "../_components/clientCard"
 import type { ClientData } from "../_components/clientCard"
 import { Input } from "@/components/ui/input"
@@ -29,6 +31,8 @@ import {
     ShieldAlert,
     AlertTriangle,
     Loader2,
+    X,
+    Check,
 } from "lucide-react"
 
 type FilterType = "all" | "active" | "blocked" | "cert_expired" | "cert_expiring"
@@ -56,6 +60,7 @@ const INITIAL_FORM = {
     address: "", city: "", houseNumber: "", neighborhood: "", zipCode: "", complement: "",
     ownerName: "", ownerPhone: "", ownerEmail: "", ownerCpf: "",
     ownerAddress: "", ownerNeighborhood: "", ownerCity: "", ownerState: "", ownerZipCode: "",
+    ownerHouseNumber: "", ownerComplement: "",
     hasContract: false, contractType: "" as "" | "MENSAL" | "TRIMESTRAL" | "ANUAL",
     supportReleased: false,
     photoUrl: "",
@@ -114,11 +119,63 @@ export default function Clientes() {
     const [photoSrc, setPhotoSrc] = useState<string | null>(null)
     const [photoPos, setPhotoPos] = useState("50% 50%")
     const [uploading, setUploading] = useState(false)
+    const [cepLoading, setCepLoading] = useState(false)
+    const [ownerCepLoading, setOwnerCepLoading] = useState(false)
+    const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
+    const [selectedContabilityIds, setSelectedContabilityIds] = useState<string[]>([])
+    const [productSearch, setProductSearch] = useState("")
+    const [contabilitySearch, setContabilitySearch] = useState("")
 
     const { data: clients = [], isLoading } = useQuery({
         queryKey: ["clients"],
         queryFn: () => getClients(),
     })
+
+    const { data: allProducts = [] } = useQuery({
+        queryKey: ["products-list"],
+        queryFn: () => getProducts(),
+        enabled: drawerOpen,
+    })
+
+    const { data: allContabilities = [] } = useQuery({
+        queryKey: ["contabilities-list"],
+        queryFn: () => getContabilities(),
+        enabled: drawerOpen,
+    })
+
+    async function fetchViaCEP(cep: string, target: "client" | "owner") {
+        const digits = cep.replace(/\D/g, "")
+        if (digits.length !== 8) return
+        if (target === "client") setCepLoading(true)
+        else setOwnerCepLoading(true)
+        try {
+            const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`)
+            const data = await res.json()
+            if (data.erro) { toast.error("CEP não encontrado"); return }
+            if (target === "client") {
+                setForm(f => ({
+                    ...f,
+                    address: data.logradouro || f.address,
+                    neighborhood: data.bairro || f.neighborhood,
+                    city: data.localidade || f.city,
+                    state: data.uf || f.state,
+                }))
+            } else {
+                setForm(f => ({
+                    ...f,
+                    ownerAddress: data.logradouro || f.ownerAddress,
+                    ownerNeighborhood: data.bairro || f.ownerNeighborhood,
+                    ownerCity: data.localidade || f.ownerCity,
+                    ownerState: data.uf || f.ownerState,
+                }))
+            }
+        } catch {
+            toast.error("Erro ao buscar CEP")
+        } finally {
+            if (target === "client") setCepLoading(false)
+            else setOwnerCepLoading(false)
+        }
+    }
 
     const createMutation = useMutation({
         mutationFn: createClient,
@@ -368,17 +425,10 @@ export default function Clientes() {
                                 <Input placeholder={form.type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"} className="h-9 rounded-lg text-sm" value={form.type === "PJ" ? form.cnpj : form.cpf} onChange={e => setForm({...form, [form.type === "PJ" ? "cnpj" : "cpf"]: form.type === "PJ" ? maskCNPJ(e.target.value) : maskCPF(e.target.value)})} />
                             </div>
                         </div>
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">IE</label>
                                 <Input placeholder="Inscrição Estadual" className="h-9 rounded-lg text-sm" value={form.ie} onChange={e => setForm({...form, ie: e.target.value})} />
-                            </div>
-                            <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Estado</label>
-                                <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.state} onChange={e => setForm({...form, state: e.target.value})}>
-                                    <option value="">Selecione</option>
-                                    {STATES.map(s => <option key={s} value={s}>{s}</option>)}
-                                </select>
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Telefone</label>
@@ -410,7 +460,7 @@ export default function Clientes() {
                             <label className="text-xs font-medium text-gray-500 mb-1.5 block">Logradouro</label>
                             <Input placeholder="Rua, Avenida..." className="h-9 rounded-lg text-sm" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
                         </div>
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Cidade *</label>
                                 <Input placeholder="São Paulo" className="h-9 rounded-lg text-sm" value={form.city} onChange={e => setForm({...form, city: e.target.value})} />
@@ -419,20 +469,38 @@ export default function Clientes() {
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Bairro</label>
                                 <Input placeholder="Centro" className="h-9 rounded-lg text-sm" value={form.neighborhood} onChange={e => setForm({...form, neighborhood: e.target.value})} />
                             </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">CEP</label>
-                                <Input placeholder="00000-000" className="h-9 rounded-lg text-sm" value={form.zipCode} onChange={e => setForm({...form, zipCode: maskCEP(e.target.value)})} />
+                                <div className="relative flex items-center">
+                                    <Input placeholder="00000-000" className="h-9 rounded-lg text-sm pr-8" value={form.zipCode} onChange={e => setForm({...form, zipCode: maskCEP(e.target.value)})} />
+                                    <button
+                                        type="button"
+                                        title="Buscar endereço pelo CEP"
+                                        disabled={form.zipCode.replace(/\D/g, "").length !== 8 || cepLoading}
+                                        onClick={() => fetchViaCEP(form.zipCode, "client")}
+                                        className="absolute right-2 text-gray-400 hover:text-blue-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                                    >
+                                        {cepLoading ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
+                                    </button>
+                                </div>
                             </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Estado</label>
+                                <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.state} onChange={e => setForm({...form, state: e.target.value})}>
+                                    <option value="">UF</option>
+                                    {STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                            </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nº</label>
                                 <Input placeholder="123" className="h-9 rounded-lg text-sm" value={form.houseNumber} onChange={e => setForm({...form, houseNumber: e.target.value})} />
                             </div>
-                            <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Complemento</label>
-                                <Input placeholder="Sala 1" className="h-9 rounded-lg text-sm" value={form.complement} onChange={e => setForm({...form, complement: e.target.value})} />
-                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Complemento</label>
+                            <Input placeholder="Sala 1" className="h-9 rounded-lg text-sm" value={form.complement} onChange={e => setForm({...form, complement: e.target.value})} />
                         </div>
 
                         {/* Contrato */}
@@ -483,7 +551,7 @@ export default function Clientes() {
                             <label className="text-xs font-medium text-gray-500 mb-1.5 block">Endereço</label>
                             <Input placeholder="Rua do proprietário" className="h-9 rounded-lg text-sm" value={form.ownerAddress} onChange={e => setForm({...form, ownerAddress: e.target.value})} />
                         </div>
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Cidade</label>
                                 <Input placeholder="Cidade" className="h-9 rounded-lg text-sm" value={form.ownerCity} onChange={e => setForm({...form, ownerCity: e.target.value})} />
@@ -492,6 +560,23 @@ export default function Clientes() {
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Bairro</label>
                                 <Input placeholder="Bairro" className="h-9 rounded-lg text-sm" value={form.ownerNeighborhood} onChange={e => setForm({...form, ownerNeighborhood: e.target.value})} />
                             </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">CEP</label>
+                                <div className="relative flex items-center">
+                                    <Input placeholder="00000-000" className="h-9 rounded-lg text-sm pr-8" value={form.ownerZipCode} onChange={e => setForm({...form, ownerZipCode: maskCEP(e.target.value)})} />
+                                    <button
+                                        type="button"
+                                        title="Buscar endereço pelo CEP"
+                                        disabled={form.ownerZipCode.replace(/\D/g, "").length !== 8 || ownerCepLoading}
+                                        onClick={() => fetchViaCEP(form.ownerZipCode, "owner")}
+                                        className="absolute right-2 text-gray-400 hover:text-blue-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                                    >
+                                        {ownerCepLoading ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
+                                    </button>
+                                </div>
+                            </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Estado</label>
                                 <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.ownerState} onChange={e => setForm({...form, ownerState: e.target.value})}>
@@ -499,10 +584,107 @@ export default function Clientes() {
                                     {STATES.map(s => <option key={s} value={s}>{s}</option>)}
                                 </select>
                             </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nº</label>
+                                <Input placeholder="123" className="h-9 rounded-lg text-sm" value={form.ownerHouseNumber ?? ""} onChange={e => setForm({...form, ownerHouseNumber: e.target.value})} />
+                            </div>
                         </div>
                         <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">CEP do Proprietário</label>
-                            <Input placeholder="00000-000" className="h-9 rounded-lg text-sm" value={form.ownerZipCode} onChange={e => setForm({...form, ownerZipCode: maskCEP(e.target.value)})} />
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Complemento</label>
+                            <Input placeholder="Apto, Sala..." className="h-9 rounded-lg text-sm" value={form.ownerComplement ?? ""} onChange={e => setForm({...form, ownerComplement: e.target.value})} />
+                        </div>
+
+                        {/* Produtos contratados (opcional) */}
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Produtos Contratados <span className="normal-case font-normal">(opcional)</span></p>
+                        <div>
+                            <div className="relative mb-1.5">
+                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
+                                <Input placeholder="Buscar produto..." className="pl-8 h-9 rounded-lg text-sm" value={productSearch} onChange={e => setProductSearch(e.target.value)} />
+                            </div>
+                            <div className="max-h-36 overflow-y-auto border border-gray-200 rounded-lg">
+                                {(allProducts as {id: string; name: string}[])
+                                    .filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()))
+                                    .map(p => {
+                                        const selected = selectedProductIds.includes(p.id)
+                                        return (
+                                            <button
+                                                key={p.id}
+                                                type="button"
+                                                onClick={() => setSelectedProductIds(prev => selected ? prev.filter(x => x !== p.id) : [...prev, p.id])}
+                                                className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors cursor-pointer ${selected ? "bg-emerald-50 text-emerald-700" : "text-gray-700"}`}
+                                            >
+                                                <span className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border ${selected ? "bg-emerald-500 border-emerald-500" : "border-gray-300"}`}>
+                                                    {selected && <Check size={10} className="text-white" />}
+                                                </span>
+                                                {p.name}
+                                            </button>
+                                        )
+                                    })}
+                                {(allProducts as {id: string; name: string}[]).filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase())).length === 0 && (
+                                    <p className="text-xs text-gray-400 px-3 py-2">Nenhum produto encontrado</p>
+                                )}
+                            </div>
+                            {selectedProductIds.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1.5">
+                                    {selectedProductIds.map(id => {
+                                        const p = (allProducts as {id: string; name: string}[]).find(x => x.id === id)
+                                        return p ? (
+                                            <span key={id} className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-medium">
+                                                {p.name}
+                                                <button type="button" onClick={() => setSelectedProductIds(prev => prev.filter(x => x !== id))} className="cursor-pointer hover:text-red-500"><X size={9} /></button>
+                                            </span>
+                                        ) : null
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Contabilidades (opcional) */}
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Contabilidades <span className="normal-case font-normal">(opcional)</span></p>
+                        <div>
+                            <div className="relative mb-1.5">
+                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
+                                <Input placeholder="Buscar contabilidade..." className="pl-8 h-9 rounded-lg text-sm" value={contabilitySearch} onChange={e => setContabilitySearch(e.target.value)} />
+                            </div>
+                            <div className="max-h-36 overflow-y-auto border border-gray-200 rounded-lg">
+                                {(allContabilities as {id: string; cnpj: string | null; cpf: string | null; clientName: string}[])
+                                    .filter(c => c.clientName.toLowerCase().includes(contabilitySearch.toLowerCase()) || (c.cnpj || "").includes(contabilitySearch) || (c.cpf || "").includes(contabilitySearch))
+                                    .map(c => {
+                                        const selected = selectedContabilityIds.includes(c.id)
+                                        return (
+                                            <button
+                                                key={c.id}
+                                                type="button"
+                                                onClick={() => setSelectedContabilityIds(prev => selected ? prev.filter(x => x !== c.id) : [...prev, c.id])}
+                                                className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors cursor-pointer ${selected ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
+                                            >
+                                                <span className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border ${selected ? "bg-blue-500 border-blue-500" : "border-gray-300"}`}>
+                                                    {selected && <Check size={10} className="text-white" />}
+                                                </span>
+                                                <span className="flex-1 min-w-0">
+                                                    <span className="block truncate">{c.clientName}</span>
+                                                    <span className="text-[10px] text-gray-400">{c.cnpj || c.cpf || ""}</span>
+                                                </span>
+                                            </button>
+                                        )
+                                    })}
+                                {(allContabilities as {id: string; cnpj: string | null; cpf: string | null; clientName: string}[]).filter(c => c.clientName.toLowerCase().includes(contabilitySearch.toLowerCase()) || (c.cnpj || "").includes(contabilitySearch) || (c.cpf || "").includes(contabilitySearch)).length === 0 && (
+                                    <p className="text-xs text-gray-400 px-3 py-2">Nenhuma contabilidade encontrada</p>
+                                )}
+                            </div>
+                            {selectedContabilityIds.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1.5">
+                                    {selectedContabilityIds.map(id => {
+                                        const c = (allContabilities as {id: string; clientName: string}[]).find(x => x.id === id)
+                                        return c ? (
+                                            <span key={id} className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-medium">
+                                                {c.clientName}
+                                                <button type="button" onClick={() => setSelectedContabilityIds(prev => prev.filter(x => x !== id))} className="cursor-pointer hover:text-red-500"><X size={9} /></button>
+                                            </span>
+                                        ) : null
+                                    })}
+                                </div>
+                            )}
                         </div>
 
                         {/* Descrição */}

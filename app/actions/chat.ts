@@ -93,16 +93,6 @@ export async function getMessages(otherUserId: string) {
         },
     })
 
-    // Marcar como lidas as mensagens recebidas
-    await prisma.chatMessage.updateMany({
-        where: {
-            senderId: otherUserId,
-            receiverId: session.user.id,
-            read: false,
-        },
-        data: { read: true },
-    })
-
     return { messages, currentUserId: session.user.id }
 }
 
@@ -134,21 +124,14 @@ export async function sendMessage(receiverId: string, content: string, replyToId
         },
     })
 
-    // Push notification para o destinatário
-    const sender = await prisma.user.findUnique({
-        where: { id: session.user.id },
-        select: { name: true },
+    // Push em background — não bloqueia o retorno ao client
+    void sendPushToUser(receiverId, {
+        title: `💬 ${session.user.name}`,
+        body: content.trim() || "Enviou um arquivo",
+        url: "/dashboard/chat",
+        tag: `chat-${session.user.id}`,
     })
-    if (sender) {
-        await sendPushToUser(receiverId, {
-            title: `💬 ${sender.name}`,
-            body: content.trim() || "Enviou um arquivo",
-            url: "/dashboard/chat",
-            tag: `chat-${session.user.id}`,
-        })
-    }
 
-    revalidatePath("/dashboard/chat")
     return message
 }
 

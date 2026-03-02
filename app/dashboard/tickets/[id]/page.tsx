@@ -6,7 +6,7 @@ import { use } from "react"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getTicketById, claimTicket, updateTicketStatus, assignTicket, addApontamento, addComment, reopenTicket, getAllUsers, updateTicketRequester, updateTicketClient, addCommentAttachment } from "@/app/actions/tickets"
-import { getClients, getClientContacts } from "@/app/actions/clients"
+import { getClients, getClientContacts, getClientContability } from "@/app/actions/clients"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -99,6 +99,19 @@ interface TicketDetail {
     clientId: string
     createdAt: string
     updatedAt: string
+    requestedByContact: {
+        id: string
+        name: string
+        phone: string | null
+        email: string | null
+    } | null
+    requestedByContability: {
+        id: string
+        cnpj: string
+        cpf: string
+        email: string
+        phone: string
+    } | null
     client: {
         id: string
         name: string
@@ -268,10 +281,18 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     const [changeContactId, setChangeContactId] = useState("")
     const [showChangeRequesterModal, setShowChangeRequesterModal] = useState(false)
 
+    const activeClientId = changeClientId || ticket?.clientId
+
     const { data: changeContacts = [] } = useQuery({
-        queryKey: ["client-contacts-change", changeClientId || ticket?.clientId],
-        queryFn: () => getClientContacts(changeClientId || ticket?.clientId || ""),
-        enabled: !!(changeClientId || ticket?.clientId),
+        queryKey: ["client-contacts-change", activeClientId],
+        queryFn: () => getClientContacts(activeClientId || ""),
+        enabled: !!activeClientId,
+    })
+
+    const { data: changeContability = [] } = useQuery({
+        queryKey: ["client-contability", activeClientId],
+        queryFn: () => getClientContability(activeClientId || ""),
+        enabled: !!activeClientId,
     })
 
     const invalidate = () => {
@@ -330,7 +351,8 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     })
 
     const requesterMut = useMutation({
-        mutationFn: (contactId: string | null) => updateTicketRequester(id, contactId),
+        mutationFn: ({ contactId, contabilityId }: { contactId: string | null; contabilityId: string | null }) =>
+            updateTicketRequester(id, contactId, contabilityId),
         onSuccess: () => { invalidate(); toast.success("Solicitante atualizado!"); setShowChangeRequesterModal(false); setChangeContactId("") },
         onError: (e: Error) => toast.error(e.message),
     })
@@ -454,12 +476,6 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                     <div className="bg-white border border-gray-200 rounded-xl p-4">
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Descrição</p>
                         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                            <span className="text-sm font-medium text-gray-900">{ticket.client.name}</span>
-                            <button onClick={() => setShowChangeClientModal(true)} className="text-[9px] text-blue-500 hover:text-blue-600 cursor-pointer font-medium">(alterar)</button>
-                            {ticket.requestedByContact && (
-                                <span className="text-[10px] text-gray-400">• Solicitante: <span className="font-medium text-gray-600">{ticket.requestedByContact.name}</span></span>
-                            )}
-                            <button onClick={() => setShowChangeRequesterModal(true)} className="text-[9px] text-blue-500 hover:text-blue-600 cursor-pointer font-medium">{ticket.requestedByContact ? "(alterar)" : "(definir solicitante)"}</button>
                             <span className="text-[10px] text-gray-400">{formatDate(ticket.createdAt)}</span>
                         </div>
                         <p className="text-sm text-gray-600 leading-relaxed">{ticket.ticketDescription}</p>
@@ -670,7 +686,39 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                         <SidebarProp label="Prioridade" value={<div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${priorityDotColors[priority]}`} /><span className="text-xs">{priorityLabels[priority]}</span></div>} />
                         <SidebarProp label="Tipo" value={<span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${typeColors[type]}`}>{typeLabels[type]}</span>} />
                         <div className="border-t border-gray-100 pt-3" />
-                        <SidebarProp label="Cliente" value={<Link href={`/dashboard/clientes/${ticket.client.id}`} className="text-xs text-gray-900 hover:text-emerald-600 transition-colors">{ticket.client.name}</Link>} />
+                        {/* Bloco Cliente */}
+                        <div className="rounded-lg border border-gray-100 p-3 space-y-1.5">
+                            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Cliente</p>
+                            <Link href={`/dashboard/clientes/${ticket.client.id}`} className="text-sm font-medium text-gray-900 hover:text-emerald-600 transition-colors block">{ticket.client.name}</Link>
+                            <p className="text-[10px] text-gray-400">{ticket.client.city}</p>
+                            <button
+                                onClick={() => setShowChangeClientModal(true)}
+                                disabled={ticket.apontamentos.length > 0}
+                                title={ticket.apontamentos.length > 0 ? "Não é possível mudar o cliente com apontamentos" : undefined}
+                                className="mt-1 w-full flex items-center gap-1.5 px-2 py-1 rounded border border-gray-200 text-gray-500 text-[10px] font-medium hover:bg-gray-50 transition-all cursor-pointer justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+                            ><Users size={10} /> Mudar Cliente</button>
+                        </div>
+                        {/* Bloco Solicitante */}
+                        <div className="rounded-lg border border-gray-100 p-3 space-y-1.5">
+                            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Solicitante</p>
+                            {ticket.requestedByContact ? (
+                                <>
+                                    <p className="text-sm font-medium text-gray-900">{ticket.requestedByContact.name}</p>
+                                    {ticket.requestedByContact.phone && <p className="text-[10px] text-gray-400">{ticket.requestedByContact.phone}</p>}
+                                </>
+                            ) : ticket.requestedByContability ? (
+                                <>
+                                    <p className="text-sm font-medium text-gray-900">{ticket.requestedByContability.cnpj || ticket.requestedByContability.cpf}</p>
+                                    {ticket.requestedByContability.email && <p className="text-[10px] text-gray-400">{ticket.requestedByContability.email}</p>}
+                                </>
+                            ) : (
+                                <p className="text-[10px] text-gray-400 italic">Não definido</p>
+                            )}
+                            <button
+                                onClick={() => setShowChangeRequesterModal(true)}
+                                className="mt-1 w-full flex items-center gap-1.5 px-2 py-1 rounded border border-gray-200 text-gray-500 text-[10px] font-medium hover:bg-gray-50 transition-all cursor-pointer justify-center"
+                            ><UserCheck size={10} /> {ticket.requestedByContact || ticket.requestedByContability ? "Alterar Solicitante" : "Definir Solicitante"}</button>
+                        </div>
                         <SidebarProp label="Responsável" value={ticket.assignedTo ? <span className="text-xs">{ticket.assignedTo.name}</span> : <span className="text-xs text-gray-300">Não atribuído</span>} />
                         <div className="border-t border-gray-100 pt-3" />
                         <SidebarProp label="Criado" value={<span className="text-xs">{formatDateShort(ticket.createdAt)}</span>} />
@@ -685,7 +733,6 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                                 <button onClick={() => setShowTransferModal(true)} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-[11px] font-medium hover:bg-gray-50 transition-all cursor-pointer justify-center"><ArrowRightLeft size={11} /> Transferir</button>
                             </>
                         )}
-                        <button onClick={() => setShowChangeClientModal(true)} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-[11px] font-medium hover:bg-gray-50 transition-all cursor-pointer justify-center"><Users size={11} /> Mudar Cliente</button>
                     </div>
                 </div>
             </div>
@@ -731,15 +778,37 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                 </DialogContent>
             </Dialog>
             <Dialog open={showChangeRequesterModal} onOpenChange={(open) => { setShowChangeRequesterModal(open); if (!open) setChangeContactId("") }}>
-                <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Mudar Solicitante</DialogTitle><DialogDescription>Selecione o novo solicitante do ticket.</DialogDescription></DialogHeader>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader><DialogTitle>Definir Solicitante</DialogTitle><DialogDescription>Selecione o contato ou contabilidade solicitante do ticket.</DialogDescription></DialogHeader>
                     <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={changeContactId} onChange={e => setChangeContactId(e.target.value)}>
                         <option value="">Selecione o solicitante...</option>
-                        <option value="__contabilidade__">Contabilidade</option>
-                        {changeContacts.map((ct: { id: string; name: string; role: string | null }) => (
-                            <option key={ct.id} value={ct.id}>{ct.name}{ct.role ? ` (${ct.role})` : ""}</option>
-                        ))}
+                        {changeContacts.length > 0 && (
+                            <optgroup label="Contatos">
+                                {changeContacts.map((ct: { id: string; name: string; role: string | null }) => (
+                                    <option key={ct.id} value={`contact:${ct.id}`}>{ct.name}{ct.role ? ` (${ct.role})` : ""}</option>
+                                ))}
+                            </optgroup>
+                        )}
+                        {changeContability.length > 0 && (
+                            <optgroup label="Contabilidade">
+                                {changeContability.map((cont: { id: string; cnpj: string | null; cpf: string | null }) => (
+                                    <option key={cont.id} value={`contability:${cont.id}`}>{cont.cnpj || cont.cpf || "Contabilidade"}</option>
+                                ))}
+                            </optgroup>
+                        )}
                     </select>
-                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => { setShowChangeRequesterModal(false); setChangeContactId("") }}>Cancelar</Button><Button className="bg-blue-600 hover:bg-blue-700 text-white" disabled={!changeContactId || requesterMut.isPending} onClick={() => requesterMut.mutate(changeContactId === "__contabilidade__" ? null : changeContactId)}>{requesterMut.isPending ? <Loader2 size={14} className="animate-spin mr-1" /> : null}Confirmar</Button></DialogFooter>
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => { setShowChangeRequesterModal(false); setChangeContactId("") }}>Cancelar</Button>
+                        <Button className="bg-blue-600 hover:bg-blue-700 text-white" disabled={!changeContactId || requesterMut.isPending}
+                            onClick={() => {
+                                const [type, val] = changeContactId.split(":")
+                                requesterMut.mutate({
+                                    contactId: type === "contact" ? val : null,
+                                    contabilityId: type === "contability" ? val : null,
+                                })
+                            }}
+                        >{requesterMut.isPending ? <Loader2 size={14} className="animate-spin mr-1" /> : null}Confirmar</Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
             <Dialog open={showApontamentoModal} onOpenChange={(open) => { if (!open) { setShowApontamentoModal(false); setApontDesc(""); setApontDuration(""); setApontStatusChange(""); setApontFiles([]) } }}>
