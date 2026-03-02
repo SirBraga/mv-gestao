@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useMemo, useTransition } from "react"
+import { useState, useMemo } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -35,15 +36,15 @@ import {
     ShieldCheck,
     User,
     Trash2,
-    ChevronDown,
     Mail,
     Calendar,
     Crown,
     Eye,
     EyeOff,
+    Loader2,
 } from "lucide-react"
 import { toast } from "react-toastify"
-import { createUser, updateUserRole, deleteUser } from "@/app/actions/users"
+import { getUsers, createUser, updateUserRole, deleteUser } from "@/app/actions/users"
 
 type Role = "ADMIN" | "MODERATOR" | "USER"
 
@@ -58,7 +59,6 @@ interface UserData {
 }
 
 interface Props {
-    users: UserData[]
     isAdmin: boolean
     currentUserId: string
 }
@@ -93,14 +93,21 @@ function formatDate(date: Date) {
     })
 }
 
-export default function FuncionariosClient({ users, isAdmin, currentUserId }: Props) {
+export default function FuncionariosClient({ isAdmin, currentUserId }: Props) {
+    const queryClient = useQueryClient()
     const [search, setSearch] = useState("")
     const [roleFilter, setRoleFilter] = useState<Role | "ALL">("ALL")
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [deleteModal, setDeleteModal] = useState<string | null>(null)
     const [roleModal, setRoleModal] = useState<{ userId: string; currentRole: Role } | null>(null)
     const [showPassword, setShowPassword] = useState(false)
-    const [isPending, startTransition] = useTransition()
+
+    const { data: usersRaw = [], isLoading } = useQuery({
+        queryKey: ["users"],
+        queryFn: () => getUsers(),
+    })
+
+    const users = usersRaw as UserData[]
 
     // Form state
     const [formName, setFormName] = useState("")
@@ -133,55 +140,54 @@ export default function FuncionariosClient({ users, isAdmin, currentUserId }: Pr
         setShowPassword(false)
     }
 
+    const createMutation = useMutation({
+        mutationFn: createUser,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["users"] })
+            toast.success("Funcionário criado com sucesso!")
+            setDrawerOpen(false)
+            resetForm()
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const roleMutation = useMutation({
+        mutationFn: ({ userId, role }: { userId: string; role: Role }) => updateUserRole(userId, role),
+        onSuccess: (_d, vars) => {
+            queryClient.invalidateQueries({ queryKey: ["users"] })
+            toast.success(`Permissão atualizada para ${roleLabels[vars.role]}`)
+            setRoleModal(null)
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const deleteMutation = useMutation({
+        mutationFn: deleteUser,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["users"] })
+            toast.success("Funcionário removido com sucesso")
+            setDeleteModal(null)
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
     function handleCreate() {
         if (!formName.trim() || !formEmail.trim() || !formPassword.trim()) {
             toast.error("Preencha todos os campos obrigatórios")
             return
         }
-
-        startTransition(async () => {
-            try {
-                await createUser({
-                    name: formName.trim(),
-                    email: formEmail.trim(),
-                    password: formPassword,
-                    role: formRole,
-                })
-                toast.success("Funcionário criado com sucesso!")
-                setDrawerOpen(false)
-                resetForm()
-            } catch (error: unknown) {
-                const msg = error instanceof Error ? error.message : "Erro ao criar funcionário"
-                toast.error(msg)
-            }
-        })
+        createMutation.mutate({ name: formName.trim(), email: formEmail.trim(), password: formPassword, role: formRole })
     }
 
     function handleRoleChange(userId: string, newRole: Role) {
-        startTransition(async () => {
-            try {
-                await updateUserRole(userId, newRole)
-                toast.success(`Permissão atualizada para ${roleLabels[newRole]}`)
-                setRoleModal(null)
-            } catch (error: unknown) {
-                const msg = error instanceof Error ? error.message : "Erro ao atualizar permissão"
-                toast.error(msg)
-            }
-        })
+        roleMutation.mutate({ userId, role: newRole })
     }
 
     function handleDelete(userId: string) {
-        startTransition(async () => {
-            try {
-                await deleteUser(userId)
-                toast.success("Funcionário removido com sucesso")
-                setDeleteModal(null)
-            } catch (error: unknown) {
-                const msg = error instanceof Error ? error.message : "Erro ao remover funcionário"
-                toast.error(msg)
-            }
-        })
+        deleteMutation.mutate(userId)
     }
+
+    const isPending = createMutation.isPending || roleMutation.isPending || deleteMutation.isPending
 
     const userToDelete = users.find(u => u.id === deleteModal)
 
@@ -244,7 +250,12 @@ export default function FuncionariosClient({ users, isAdmin, currentUserId }: Pr
 
             {/* Rows */}
             <div className="flex-1 overflow-y-auto">
-                {filtered.map((user) => {
+                {isLoading ? (
+                    <div className="flex items-center justify-center py-16">
+                        <Loader2 size={20} className="animate-spin text-gray-400" />
+                    </div>
+                ) : null}
+                {!isLoading && filtered.map((user) => {
                     const isMe = user.id === currentUserId
                     const RoleIcon = roleIcons[user.role]
                     return (

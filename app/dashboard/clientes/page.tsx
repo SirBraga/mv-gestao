@@ -1,11 +1,14 @@
 "use client"
 
 import { useState, useMemo } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { getClients, createClient } from "@/app/actions/clients"
 import ClientCard from "../_components/clientCard"
 import type { ClientData } from "../_components/clientCard"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
+import { toast } from "react-toastify"
 import {
     Search,
     Filter,
@@ -20,127 +23,50 @@ import {
     ArrowUp,
     ArrowDown,
     Plus,
+    ShieldAlert,
+    AlertTriangle,
+    Loader2,
 } from "lucide-react"
 
-const SAMPLE_CLIENTS: ClientData[] = [
-    {
-        id: "9462",
-        name: "João Silva",
-        document: "123.456.789-00",
-        phone: "(11) 98765-4321",
-        contract: "Mensal",
-        supportReleased: true,
-        type: "PF",
-        date: "01/15",
-    },
-    {
-        id: "9374",
-        name: "Empresa ABC Ltda",
-        document: "12.345.678/0001-99",
-        phone: "(11) 3344-5566",
-        contract: "Anual",
-        supportReleased: true,
-        type: "PJ",
-        date: "01/28",
-    },
-    {
-        id: "9359",
-        name: "Maria Oliveira",
-        document: "987.654.321-11",
-        phone: "(21) 99887-7665",
-        contract: "Avulso",
-        supportReleased: false,
-        type: "PF",
-        date: "01/31",
-    },
-    {
-        id: "9261",
-        name: "Tech Solutions ME",
-        document: "45.678.901/0001-23",
-        phone: "(31) 3456-7890",
-        contract: "Anual",
-        supportReleased: true,
-        type: "PJ",
-        date: "10/28",
-    },
-    {
-        id: "9151",
-        name: "Carlos Mendes",
-        document: "456.789.012-33",
-        phone: "(41) 99876-5432",
-        contract: "Mensal",
-        supportReleased: true,
-        type: "PF",
-        date: "10/06",
-    },
-    {
-        id: "8861",
-        name: "Distribuidora Norte Ltda",
-        document: "67.890.123/0001-45",
-        phone: "(51) 3210-9876",
-        contract: "Anual",
-        supportReleased: true,
-        type: "PJ",
-        date: "11/07",
-    },
-    {
-        id: "8829",
-        name: "Ana Paula Costa",
-        document: "789.012.345-66",
-        phone: "(61) 98765-1234",
-        contract: "Mensal",
-        supportReleased: true,
-        type: "PF",
-        date: "12/10",
-    },
-    {
-        id: "8811",
-        name: "Logística Express SA",
-        document: "89.012.345/0001-67",
-        phone: "(71) 3456-0987",
-        contract: "Anual",
-        supportReleased: false,
-        type: "PJ",
-        date: "12/04",
-    },
-    {
-        id: "8013",
-        name: "Roberto Almeida",
-        document: "012.345.678-99",
-        phone: "(81) 99654-3210",
-        contract: "Avulso",
-        supportReleased: false,
-        type: "PF",
-        date: "02/11",
-    },
-    {
-        id: "7791",
-        name: "Padaria Central ME",
-        document: "23.456.789/0001-01",
-        phone: "(91) 3321-6540",
-        contract: "Mensal",
-        supportReleased: false,
-        type: "PJ",
-        date: "03/04",
-    },
-]
-
-type FilterType = "all" | "active" | "blocked"
-type SortKey = "id" | "name" | "phone" | "status" | "contract" | "date" | "type"
+type FilterType = "all" | "active" | "blocked" | "cert_expired" | "cert_expiring"
+type SortKey = "id" | "name" | "phone" | "email" | "status" | "contract" | "type"
 type SortDir = "asc" | "desc"
+
+function isCertExpired(dateStr: string | null) {
+    if (!dateStr) return false
+    return new Date(dateStr) < new Date()
+}
+
+function isCertExpiring30d(dateStr: string | null) {
+    if (!dateStr) return false
+    const exp = new Date(dateStr)
+    const now = new Date()
+    const in30 = new Date()
+    in30.setDate(in30.getDate() + 30)
+    return exp >= now && exp <= in30
+}
+
+const INITIAL_FORM = {
+    name: "", type: "PJ" as "PF" | "PJ", cnpj: "", cpf: "", phone: "", email: "",
+    address: "", city: "", houseNumber: "", neighborhood: "", zipCode: "", complement: "",
+    ownerName: "", ownerPhone: "", ownerEmail: "",
+    hasContract: false, supportReleased: false,
+}
 
 const FILTERS = [
     { key: "all" as FilterType, label: "Todos", icon: Users },
     { key: "active" as FilterType, label: "Liberados", icon: UserCheck },
     { key: "blocked" as FilterType, label: "Bloqueados", icon: UserX },
+    { key: "cert_expired" as FilterType, label: "Cert. Vencido", icon: ShieldAlert },
+    { key: "cert_expiring" as FilterType, label: "Cert. Vencendo", icon: AlertTriangle },
 ]
 
 const COLUMNS: { key: SortKey; label: string }[] = [
     { key: "name", label: "Cliente" },
     { key: "phone", label: "Telefone" },
+    { key: "email", label: "Email" },
     { key: "status", label: "Status" },
     { key: "contract", label: "Contrato" },
-    { key: "date", label: "Data" },
     { key: "type", label: "Tipo" },
 ]
 
@@ -150,10 +76,10 @@ function compareClients(a: ClientData, b: ClientData, key: SortKey, dir: SortDir
     switch (key) {
         case "id": valA = a.id; valB = b.id; break
         case "name": valA = a.name; valB = b.name; break
-        case "phone": valA = a.phone; valB = b.phone; break
+        case "phone": valA = a.phone || ""; valB = b.phone || ""; break
+        case "email": valA = a.email || ""; valB = b.email || ""; break
         case "status": valA = a.supportReleased; valB = b.supportReleased; break
-        case "contract": valA = a.contract; valB = b.contract; break
-        case "date": valA = a.date; valB = b.date; break
+        case "contract": valA = a.hasContract; valB = b.hasContract; break
         case "type": valA = a.type; valB = b.type; break
     }
     if (typeof valA === "boolean") {
@@ -165,13 +91,31 @@ function compareClients(a: ClientData, b: ClientData, key: SortKey, dir: SortDir
 }
 
 export default function Clientes() {
+    const queryClient = useQueryClient()
     const [activeFilter, setActiveFilter] = useState<FilterType>("all")
     const [defaultOpen, setDefaultOpen] = useState(true)
     const [favoritesOpen, setFavoritesOpen] = useState(true)
     const [searchQuery, setSearchQuery] = useState("")
-    const [sortKey, setSortKey] = useState<SortKey>("id")
-    const [sortDir, setSortDir] = useState<SortDir>("desc")
+    const [sortKey, setSortKey] = useState<SortKey>("name")
+    const [sortDir, setSortDir] = useState<SortDir>("asc")
     const [drawerOpen, setDrawerOpen] = useState(false)
+    const [form, setForm] = useState(INITIAL_FORM)
+
+    const { data: clients = [], isLoading } = useQuery({
+        queryKey: ["clients"],
+        queryFn: () => getClients(),
+    })
+
+    const createMutation = useMutation({
+        mutationFn: createClient,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["clients"] })
+            setDrawerOpen(false)
+            setForm(INITIAL_FORM)
+            toast.success("Cliente criado com sucesso!")
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
 
     const handleSort = (key: SortKey) => {
         if (sortKey === key) {
@@ -182,28 +126,48 @@ export default function Clientes() {
         }
     }
 
+    const handleSubmit = () => {
+        if (!form.name.trim()) return toast.error("Nome é obrigatório")
+        if (!form.city.trim()) return toast.error("Cidade é obrigatória")
+        createMutation.mutate({
+            name: form.name, type: form.type,
+            cnpj: form.type === "PJ" ? form.cnpj : undefined,
+            cpf: form.type === "PF" ? form.cpf : undefined,
+            address: form.address, city: form.city, houseNumber: form.houseNumber,
+            neighborhood: form.neighborhood, zipCode: form.zipCode, complement: form.complement,
+            ownerName: form.ownerName, ownerPhone: form.ownerPhone, ownerEmail: form.ownerEmail,
+            hasContract: form.hasContract, supportReleased: form.supportReleased,
+        })
+    }
+
     const filteredClients = useMemo(() => {
-        return SAMPLE_CLIENTS
+        return (clients as ClientData[])
             .filter((client) => {
                 const matchesFilter =
                     activeFilter === "all" ||
                     (activeFilter === "active" && client.supportReleased) ||
-                    (activeFilter === "blocked" && !client.supportReleased)
+                    (activeFilter === "blocked" && !client.supportReleased) ||
+                    (activeFilter === "cert_expired" && isCertExpired(client.certificateExpiresDate)) ||
+                    (activeFilter === "cert_expiring" && isCertExpiring30d(client.certificateExpiresDate))
 
                 const matchesSearch =
                     !searchQuery ||
                     client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    client.id.includes(searchQuery)
+                    (client.cnpj || "").includes(searchQuery) ||
+                    (client.cpf || "").includes(searchQuery)
 
                 return matchesFilter && matchesSearch
             })
             .sort((a, b) => compareClients(a, b, sortKey, sortDir))
-    }, [activeFilter, searchQuery, sortKey, sortDir])
+    }, [clients, activeFilter, searchQuery, sortKey, sortDir])
 
-    const counts = {
-        all: SAMPLE_CLIENTS.length,
-        active: SAMPLE_CLIENTS.filter((c) => c.supportReleased).length,
-        blocked: SAMPLE_CLIENTS.filter((c) => !c.supportReleased).length,
+    const allClients = clients as ClientData[]
+    const counts: Record<FilterType, number> = {
+        all: allClients.length,
+        active: allClients.filter((c) => c.supportReleased).length,
+        blocked: allClients.filter((c) => !c.supportReleased).length,
+        cert_expired: allClients.filter((c) => isCertExpired(c.certificateExpiresDate)).length,
+        cert_expiring: allClients.filter((c) => isCertExpiring30d(c.certificateExpiresDate)).length,
     }
 
     return (
@@ -299,12 +263,12 @@ export default function Clientes() {
                 </div>
 
                 {/* Column Headers */}
-                <div className="grid grid-cols-[1.5fr_1fr_120px_110px_70px_50px] gap-3 px-4 py-2.5 border-b border-gray-200 bg-gray-50/80">
+                <div className="grid grid-cols-[1.5fr_1fr_1fr_120px_110px_50px] gap-3 px-4 py-2.5 border-b border-gray-200 bg-gray-50/80">
                     {COLUMNS.map((col) => (
                         <button
                             key={col.key}
                             onClick={() => handleSort(col.key)}
-                            className={`flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors cursor-pointer select-none ${col.key === "date" ? "justify-end" : ""}`}
+                            className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors cursor-pointer select-none"
                         >
                             {col.label}
                             {sortKey === col.key && (
@@ -318,14 +282,18 @@ export default function Clientes() {
 
                 {/* Rows */}
                 <div className="flex-1 overflow-y-auto">
-                    {filteredClients.map((client) => (
-                        <ClientCard key={client.id} client={client} />
-                    ))}
-
-                    {filteredClients.length === 0 && (
+                    {isLoading ? (
+                        <div className="flex items-center justify-center py-16">
+                            <Loader2 size={20} className="animate-spin text-gray-400" />
+                        </div>
+                    ) : filteredClients.length === 0 ? (
                         <div className="flex items-center justify-center py-16 text-gray-400 text-sm">
                             Nenhum cliente encontrado
                         </div>
+                    ) : (
+                        filteredClients.map((client) => (
+                            <ClientCard key={client.id} client={client} />
+                        ))
                     )}
                 </div>
             </div>
@@ -338,62 +306,75 @@ export default function Clientes() {
                     <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
                         <div>
                             <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome completo / Razão social</label>
-                            <Input placeholder="Ex: Empresa ABC Ltda" className="h-10 rounded-lg text-sm" />
+                            <Input placeholder="Ex: Empresa ABC Ltda" className="h-10 rounded-lg text-sm" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo</label>
-                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white">
+                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.type} onChange={e => setForm({...form, type: e.target.value as "PF"|"PJ"})}>
                                     <option value="PJ">Pessoa Jurídica</option>
                                     <option value="PF">Pessoa Física</option>
                                 </select>
                             </div>
                             <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">CPF / CNPJ</label>
-                                <Input placeholder="00.000.000/0001-00" className="h-10 rounded-lg text-sm" />
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">{form.type === "PJ" ? "CNPJ" : "CPF"}</label>
+                                <Input placeholder={form.type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"} className="h-10 rounded-lg text-sm" value={form.type === "PJ" ? form.cnpj : form.cpf} onChange={e => setForm({...form, [form.type === "PJ" ? "cnpj" : "cpf"]: e.target.value})} />
                             </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Telefone</label>
-                                <Input placeholder="(00) 00000-0000" className="h-10 rounded-lg text-sm" />
+                                <Input placeholder="(00) 00000-0000" className="h-10 rounded-lg text-sm" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} />
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Email</label>
-                                <Input placeholder="email@empresa.com" className="h-10 rounded-lg text-sm" />
+                                <Input placeholder="email@empresa.com" className="h-10 rounded-lg text-sm" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
                             </div>
-                        </div>
-                        <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Contrato</label>
-                            <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white">
-                                <option value="Mensal">Mensal</option>
-                                <option value="Anual">Anual</option>
-                                <option value="Avulso">Avulso</option>
-                            </select>
                         </div>
                         <div>
                             <label className="text-xs font-medium text-gray-500 mb-1.5 block">Endereço</label>
-                            <Input placeholder="Rua, número, bairro" className="h-10 rounded-lg text-sm" />
+                            <Input placeholder="Rua, Avenida..." className="h-10 rounded-lg text-sm" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Cidade</label>
+                                <Input placeholder="São Paulo" className="h-10 rounded-lg text-sm" value={form.city} onChange={e => setForm({...form, city: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Bairro</label>
+                                <Input placeholder="Centro" className="h-10 rounded-lg text-sm" value={form.neighborhood} onChange={e => setForm({...form, neighborhood: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">CEP</label>
+                                <Input placeholder="00000-000" className="h-10 rounded-lg text-sm" value={form.zipCode} onChange={e => setForm({...form, zipCode: e.target.value})} />
+                            </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Cidade</label>
-                                <Input placeholder="São Paulo" className="h-10 rounded-lg text-sm" />
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nº</label>
+                                <Input placeholder="123" className="h-10 rounded-lg text-sm" value={form.houseNumber} onChange={e => setForm({...form, houseNumber: e.target.value})} />
                             </div>
                             <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Estado</label>
-                                <Input placeholder="SP" className="h-10 rounded-lg text-sm" />
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Complemento</label>
+                                <Input placeholder="Sala 1" className="h-10 rounded-lg text-sm" value={form.complement} onChange={e => setForm({...form, complement: e.target.value})} />
                             </div>
                         </div>
-                        <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Observações</label>
-                            <textarea placeholder="Informações adicionais..." className="w-full h-20 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 bg-white resize-none" />
+                        <div className="flex items-center gap-4 pt-2">
+                            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                <input type="checkbox" checked={form.hasContract} onChange={e => setForm({...form, hasContract: e.target.checked})} className="rounded" /> Tem contrato
+                            </label>
+                            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                <input type="checkbox" checked={form.supportReleased} onChange={e => setForm({...form, supportReleased: e.target.checked})} className="rounded" /> Suporte liberado
+                            </label>
                         </div>
                     </div>
                     <SheetFooter className="px-6 py-4 border-t border-gray-100">
                         <div className="flex gap-2 w-full">
                             <Button variant="outline" className="flex-1 h-10 rounded-lg text-sm" onClick={() => setDrawerOpen(false)}>Cancelar</Button>
-                            <Button className="flex-1 h-10 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm" onClick={() => { console.log("Creating client"); setDrawerOpen(false) }}>Salvar Cliente</Button>
+                            <Button className="flex-1 h-10 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm" onClick={handleSubmit} disabled={createMutation.isPending}>
+                                {createMutation.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
+                                Salvar Cliente
+                            </Button>
                         </div>
                     </SheetFooter>
                 </SheetContent>

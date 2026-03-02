@@ -4,6 +4,8 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { use } from "react"
 import Link from "next/link"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { getTicketById, claimTicket, updateTicketStatus, assignTicket, addApontamento, addComment, reopenTicket, getAllUsers } from "@/app/actions/tickets"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -37,13 +39,29 @@ import {
     Users,
     Send,
     Reply,
+    Loader2,
+    Paperclip,
+    FileText,
+    Download,
+    X,
+    Image as ImageIcon,
 } from "lucide-react"
+import { uploadFile } from "@/app/utils/upload"
+import { toast } from "react-toastify"
 
 // ── Types matching the DB schema ──
 type TicketStatus = "NOVO" | "PENDING_CLIENT" | "PENDING_EMPRESS" | "IN_PROGRESS" | "CLOSED"
 type TicketPriority = "LOW" | "MEDIUM" | "HIGH"
 type TicketType = "SUPPORT" | "SALES" | "FINANCE" | "MAINTENCE"
 type ApontamentoCategory = "PROBLEMA_RESOLVIDO" | "TREINAMENTO" | "REUNIAO" | "TIRA_DUVIDAS" | "DESENVOLVIMENTO"
+
+interface AttachmentData {
+    id: string
+    url: string
+    fileName: string
+    fileType: string
+    fileSize: number
+}
 
 interface ApontamentoData {
     id: string
@@ -53,6 +71,7 @@ interface ApontamentoData {
     date: string
     statusChange: TicketStatus | null
     user: { id: string; name: string }
+    attachments: AttachmentData[]
 }
 
 interface CommentData {
@@ -98,138 +117,6 @@ interface TicketDetail {
     comments: CommentData[]
 }
 
-// ── Sample data matching seed ──
-const SAMPLE_APONTAMENTOS: Record<string, ApontamentoData[]> = {
-    t001: [
-        { id: "a1", description: "Análise preliminar de performance nos relatórios mensais", category: "TIRA_DUVIDAS", duration: 45, date: "2026-01-16T09:00:00Z", statusChange: null, user: { id: "user-1", name: "Pedro Braga" } },
-    ],
-    t004: [
-        { id: "a2", description: "Análise inicial do módulo de estoque, identificação de dependências para atualização", category: "DESENVOLVIMENTO", duration: 120, date: "2026-02-01T10:00:00Z", statusChange: null, user: { id: "user-1", name: "Pedro Braga" } },
-        { id: "a3", description: "Backup do banco de dados e preparação do ambiente de testes", category: "DESENVOLVIMENTO", duration: 60, date: "2026-02-02T14:00:00Z", statusChange: null, user: { id: "user-1", name: "Pedro Braga" } },
-    ],
-    t005: [
-        { id: "a4", description: "Treinamento remoto sobre cadastro de produtos no sistema", category: "TREINAMENTO", duration: 45, date: "2026-02-08T09:00:00Z", statusChange: "CLOSED", user: { id: "user-1", name: "Pedro Braga" } },
-    ],
-    t007: [
-        { id: "a5", description: "Investigação do erro na geração de boletos, problema identificado no módulo bancário", category: "PROBLEMA_RESOLVIDO", duration: 90, date: "2026-02-11T11:00:00Z", statusChange: null, user: { id: "user-1", name: "Pedro Braga" } },
-        { id: "a6", description: "Reunião com equipe financeira para alinhar correção do módulo de boletos", category: "REUNIAO", duration: 30, date: "2026-02-12T15:00:00Z", statusChange: "PENDING_EMPRESS", user: { id: "user-1", name: "Pedro Braga" } },
-    ],
-    t009: [
-        { id: "a7", description: "Sessão de treinamento sobre funcionalidades do dashboard com o cliente", category: "TREINAMENTO", duration: 60, date: "2026-02-13T10:00:00Z", statusChange: null, user: { id: "user-1", name: "Pedro Braga" } },
-        { id: "a8", description: "Tira-dúvidas final e validação com o cliente", category: "TIRA_DUVIDAS", duration: 30, date: "2026-02-15T16:00:00Z", statusChange: "CLOSED", user: { id: "user-1", name: "Pedro Braga" } },
-    ],
-}
-
-const SAMPLE_COMMENTS: Record<string, CommentData[]> = {
-    t004: [
-        {
-            id: "c1", content: "Já iniciei a análise das dependências. Vou precisar de acesso ao ambiente de staging.", user: { id: "user-1", name: "Pedro Braga" },
-            createdAt: "2026-02-01T11:00:00Z", parentId: null,
-            replies: [
-                { id: "c2", content: "Acesso liberado. Pode seguir com a atualização.", user: { id: "user-2", name: "Ana Costa" }, createdAt: "2026-02-01T12:30:00Z", parentId: "c1", replies: [] },
-            ],
-        },
-        { id: "c3", content: "Backup realizado com sucesso. Ambiente de testes pronto.", user: { id: "user-1", name: "Pedro Braga" }, createdAt: "2026-02-02T15:00:00Z", parentId: null, replies: [] },
-    ],
-    t007: [
-        { id: "c4", content: "Cliente reportou que o problema ocorre apenas com boletos do Banco do Brasil.", user: { id: "user-1", name: "Pedro Braga" }, createdAt: "2026-02-10T11:00:00Z", parentId: null, replies: [] },
-    ],
-}
-
-const SAMPLE_USERS = [
-    { id: "user-1", name: "Pedro Braga" },
-    { id: "user-2", name: "Ana Costa" },
-    { id: "user-3", name: "Carlos Silva" },
-    { id: "user-4", name: "Maria Santos" },
-]
-
-const SAMPLE_TICKETS: Record<string, TicketDetail> = {
-    t001: {
-        id: "t001", ticketDescription: "Sistema apresentando lentidão ao gerar relatórios mensais",
-        ticketStatus: "NOVO", ticketPriority: "HIGH", ticketType: "SUPPORT",
-        ticketResolutionDate: null, reopenCount: 0, reopenReason: null, reopenDate: null, reopenById: null,
-        assignedToId: "user-1", clientId: "9462", createdAt: "2026-01-15T10:00:00Z", updatedAt: "2026-01-15T10:00:00Z",
-        client: { id: "9462", name: "João Silva", cnpj: null, cpf: "123.456.789-00", type: "PESSOA_FISICA", city: "São Paulo", ownerPhone: "(11) 98765-4321", ownerEmail: "joao.silva@email.com" },
-        assignedTo: { id: "user-1", name: "Pedro Braga", email: "pedrobraga2016@gmail.com" },
-        apontamentos: SAMPLE_APONTAMENTOS.t001 || [], comments: [],
-    },
-    t002: {
-        id: "t002", ticketDescription: "Erro ao importar notas fiscais no módulo contábil",
-        ticketStatus: "PENDING_CLIENT", ticketPriority: "MEDIUM", ticketType: "SUPPORT",
-        ticketResolutionDate: null, reopenCount: 0, reopenReason: null, reopenDate: null, reopenById: null,
-        assignedToId: null, clientId: "9374", createdAt: "2026-01-28T14:30:00Z", updatedAt: "2026-01-28T14:30:00Z",
-        client: { id: "9374", name: "Empresa ABC Ltda", cnpj: "12.345.678/0001-99", cpf: null, type: "PESSOA_JURIDICA", city: "São Paulo", ownerPhone: "(11) 3344-5566", ownerEmail: "carlos@empresaabc.com.br" },
-        assignedTo: null, apontamentos: [], comments: [],
-    },
-    t003: {
-        id: "t003", ticketDescription: "Divergência nos valores de faturamento do mês de janeiro",
-        ticketStatus: "NOVO", ticketPriority: "HIGH", ticketType: "FINANCE",
-        ticketResolutionDate: null, reopenCount: 0, reopenReason: null, reopenDate: null, reopenById: null,
-        assignedToId: null, clientId: "9359", createdAt: "2026-01-31T09:15:00Z", updatedAt: "2026-01-31T09:15:00Z",
-        client: { id: "9359", name: "Maria Oliveira", cnpj: null, cpf: "987.654.321-11", type: "PESSOA_FISICA", city: "Rio de Janeiro", ownerPhone: "(21) 99887-7665", ownerEmail: "maria.oliveira@email.com" },
-        assignedTo: null, apontamentos: [], comments: [],
-    },
-    t004: {
-        id: "t004", ticketDescription: "Atualização do módulo de estoque para nova versão",
-        ticketStatus: "IN_PROGRESS", ticketPriority: "MEDIUM", ticketType: "MAINTENCE",
-        ticketResolutionDate: null, reopenCount: 0, reopenReason: null, reopenDate: null, reopenById: null,
-        assignedToId: "user-1", clientId: "9261", createdAt: "2026-02-01T08:00:00Z", updatedAt: "2026-02-05T16:00:00Z",
-        client: { id: "9261", name: "Tech Solutions ME", cnpj: "45.678.901/0001-23", cpf: null, type: "PESSOA_JURIDICA", city: "Belo Horizonte", ownerPhone: "(31) 3456-7890", ownerEmail: "ricardo@techsolutions.com.br" },
-        assignedTo: { id: "user-1", name: "Pedro Braga", email: "pedrobraga2016@gmail.com" },
-        apontamentos: SAMPLE_APONTAMENTOS.t004 || [], comments: SAMPLE_COMMENTS.t004 || [],
-    },
-    t005: {
-        id: "t005", ticketDescription: "Dúvida sobre como cadastrar novo produto no sistema",
-        ticketStatus: "CLOSED", ticketPriority: "LOW", ticketType: "SUPPORT",
-        ticketResolutionDate: "2026-02-10T17:00:00Z", reopenCount: 0, reopenReason: null, reopenDate: null, reopenById: null,
-        assignedToId: "user-1", clientId: "9151", createdAt: "2026-02-03T11:00:00Z", updatedAt: "2026-02-10T17:00:00Z",
-        client: { id: "9151", name: "Carlos Mendes", cnpj: null, cpf: "456.789.012-33", type: "PESSOA_FISICA", city: "Curitiba", ownerPhone: "(41) 99876-5432", ownerEmail: "carlos.mendes@email.com" },
-        assignedTo: { id: "user-1", name: "Pedro Braga", email: "pedrobraga2016@gmail.com" },
-        apontamentos: SAMPLE_APONTAMENTOS.t005 || [], comments: [],
-    },
-    t006: {
-        id: "t006", ticketDescription: "Solicitação de proposta para módulo de logística",
-        ticketStatus: "NOVO", ticketPriority: "HIGH", ticketType: "SALES",
-        ticketResolutionDate: null, reopenCount: 0, reopenReason: null, reopenDate: null, reopenById: null,
-        assignedToId: null, clientId: "8861", createdAt: "2026-02-07T13:00:00Z", updatedAt: "2026-02-07T13:00:00Z",
-        client: { id: "8861", name: "Distribuidora Norte Ltda", cnpj: "67.890.123/0001-45", cpf: null, type: "PESSOA_JURIDICA", city: "Porto Alegre", ownerPhone: "(51) 3210-9876", ownerEmail: "fernando@distnorte.com.br" },
-        assignedTo: null, apontamentos: [], comments: [],
-    },
-    t007: {
-        id: "t007", ticketDescription: "Problema na emissão de boletos bancários",
-        ticketStatus: "PENDING_EMPRESS", ticketPriority: "MEDIUM", ticketType: "SUPPORT",
-        ticketResolutionDate: null, reopenCount: 0, reopenReason: null, reopenDate: null, reopenById: null,
-        assignedToId: "user-1", clientId: "8829", createdAt: "2026-02-10T10:30:00Z", updatedAt: "2026-02-12T09:00:00Z",
-        client: { id: "8829", name: "Ana Paula Costa", cnpj: null, cpf: "789.012.345-66", type: "PESSOA_FISICA", city: "Brasília", ownerPhone: "(61) 98765-1234", ownerEmail: "ana.costa@email.com" },
-        assignedTo: { id: "user-1", name: "Pedro Braga", email: "pedrobraga2016@gmail.com" },
-        apontamentos: SAMPLE_APONTAMENTOS.t007 || [], comments: SAMPLE_COMMENTS.t007 || [],
-    },
-    t008: {
-        id: "t008", ticketDescription: "Migração de dados do sistema legado para o novo ERP",
-        ticketStatus: "IN_PROGRESS", ticketPriority: "HIGH", ticketType: "MAINTENCE",
-        ticketResolutionDate: null, reopenCount: 0, reopenReason: null, reopenDate: null, reopenById: null,
-        assignedToId: null, clientId: "8811", createdAt: "2026-02-04T15:00:00Z", updatedAt: "2026-02-15T10:00:00Z",
-        client: { id: "8811", name: "Logística Express SA", cnpj: "89.012.345/0001-67", cpf: null, type: "PESSOA_JURIDICA", city: "Salvador", ownerPhone: "(71) 3456-0987", ownerEmail: "marcos@logexpress.com.br" },
-        assignedTo: null, apontamentos: [], comments: [],
-    },
-    t009: {
-        id: "t009", ticketDescription: "Treinamento sobre funcionalidades do dashboard",
-        ticketStatus: "CLOSED", ticketPriority: "LOW", ticketType: "SUPPORT",
-        ticketResolutionDate: "2026-02-15T18:00:00Z", reopenCount: 0, reopenReason: null, reopenDate: null, reopenById: null,
-        assignedToId: "user-1", clientId: "8013", createdAt: "2026-02-11T08:00:00Z", updatedAt: "2026-02-15T18:00:00Z",
-        client: { id: "8013", name: "Roberto Almeida", cnpj: null, cpf: "012.345.678-99", type: "PESSOA_FISICA", city: "Recife", ownerPhone: "(81) 99654-3210", ownerEmail: "roberto.almeida@email.com" },
-        assignedTo: { id: "user-1", name: "Pedro Braga", email: "pedrobraga2016@gmail.com" },
-        apontamentos: SAMPLE_APONTAMENTOS.t009 || [], comments: [],
-    },
-    t010: {
-        id: "t010", ticketDescription: "Configuração de integração com gateway de pagamento",
-        ticketStatus: "NOVO", ticketPriority: "MEDIUM", ticketType: "FINANCE",
-        ticketResolutionDate: null, reopenCount: 0, reopenReason: null, reopenDate: null, reopenById: null,
-        assignedToId: null, clientId: "7791", createdAt: "2026-02-14T12:00:00Z", updatedAt: "2026-02-14T12:00:00Z",
-        client: { id: "7791", name: "Padaria Central ME", cnpj: "23.456.789/0001-01", cpf: null, type: "PESSOA_JURIDICA", city: "Belém", ownerPhone: "(91) 3321-6540", ownerEmail: "antonio@padariacentral.com.br" },
-        assignedTo: null, apontamentos: [], comments: [],
-    },
-}
 
 // ── Label maps ──
 const statusColors: Record<TicketStatus, string> = {
@@ -359,7 +246,58 @@ const STATUS_TRANSITIONS: Record<TicketStatus, TicketStatus[]> = {
 export default function TicketDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params)
     const router = useRouter()
-    const ticket = SAMPLE_TICKETS[id]
+    const queryClient = useQueryClient()
+
+    const { data: ticket, isLoading, isError } = useQuery({
+        queryKey: ["ticket", id],
+        queryFn: () => getTicketById(id),
+    })
+
+    const { data: usersList = [] } = useQuery({
+        queryKey: ["allUsers"],
+        queryFn: () => getAllUsers(),
+    })
+
+    const invalidate = () => {
+        queryClient.invalidateQueries({ queryKey: ["ticket", id] })
+        queryClient.invalidateQueries({ queryKey: ["tickets"] })
+    }
+
+    const claimMut = useMutation({
+        mutationFn: () => claimTicket(id),
+        onSuccess: () => { invalidate(); toast.success("Ticket assumido!"); setShowClaimModal(false) },
+        onError: (e: Error) => toast.error(e.message),
+    })
+
+    const statusMut = useMutation({
+        mutationFn: (s: TicketStatus) => updateTicketStatus(id, s),
+        onSuccess: () => { invalidate(); toast.success("Status atualizado!"); setShowCloseModal(false) },
+        onError: (e: Error) => toast.error(e.message),
+    })
+
+    const assignMut = useMutation({
+        mutationFn: (userId: string | null) => assignTicket(id, userId),
+        onSuccess: () => { invalidate(); toast.success("Ticket atribuído!"); setShowAssignModal(false); setShowTransferModal(false); setSelectedUserId("") },
+        onError: (e: Error) => toast.error(e.message),
+    })
+
+    const apontMut = useMutation({
+        mutationFn: addApontamento,
+        onSuccess: () => { invalidate(); toast.success("Apontamento salvo!"); setShowApontamentoModal(false); setApontDesc(""); setApontDuration(""); setApontStatusChange(""); setApontFiles([]) },
+        onError: (e: Error) => toast.error(e.message),
+    })
+
+    const commentMut = useMutation({
+        mutationFn: ({ content, parentId }: { content: string; parentId?: string | null }) => addComment(id, content, parentId),
+        onSuccess: () => { invalidate(); toast.success("Comentário adicionado!"); setNewComment(""); setReplyContent(""); setReplyingTo(null) },
+        onError: (e: Error) => toast.error(e.message),
+    })
+
+    const reopenMut = useMutation({
+        mutationFn: (reason: string) => reopenTicket(id, reason),
+        onSuccess: () => { invalidate(); toast.success("Ticket reaberto!"); setShowReopenModal(false); setReopenReason("") },
+        onError: (e: Error) => toast.error(e.message),
+    })
 
     const [showClaimModal, setShowClaimModal] = useState(false)
     const [showReopenModal, setShowReopenModal] = useState(false)
@@ -380,6 +318,8 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     const [replyingTo, setReplyingTo] = useState<string | null>(null)
     const [replyContent, setReplyContent] = useState("")
     const [activeTab, setActiveTab] = useState<"descricao" | "apontamentos" | "comentarios">("descricao")
+    const [apontFiles, setApontFiles] = useState<{ url: string; fileName: string; fileType: string; fileSize: number }[]>([])
+    const [apontUploading, setApontUploading] = useState(false)
 
     const handleCopy = (text: string, label: string) => {
         copyToClipboard(text)
@@ -387,7 +327,38 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
         setTimeout(() => setCopied(null), 2000)
     }
 
-    if (!ticket) {
+    const handleApontFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files
+        if (!files || files.length === 0) return
+        setApontUploading(true)
+        try {
+            const uploaded = await Promise.all(Array.from(files).map(f => uploadFile(f, "apontamentos")))
+            setApontFiles(prev => [...prev, ...uploaded])
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Erro no upload")
+        } finally {
+            setApontUploading(false)
+            e.target.value = ""
+        }
+    }
+
+    const formatFileSize = (bytes: number) => {
+        if (bytes < 1024) return `${bytes}B`
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`
+        return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+    }
+
+    const isImageFile = (fileType: string) => fileType.startsWith("image/")
+
+    if (isLoading) {
+        return (
+            <div className="flex items-center justify-center h-full">
+                <Loader2 size={24} className="animate-spin text-gray-400" />
+            </div>
+        )
+    }
+
+    if (isError || !ticket) {
         return (
             <div className="flex items-center justify-center h-full">
                 <div className="text-center">
@@ -401,14 +372,14 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
         )
     }
 
-    const status = ticket.ticketStatus || "NOVO"
-    const priority = ticket.ticketPriority || "MEDIUM"
-    const type = ticket.ticketType || "SUPPORT"
+    const status = (ticket.ticketStatus || "NOVO") as TicketStatus
+    const priority = (ticket.ticketPriority || "MEDIUM") as TicketPriority
+    const type = (ticket.ticketType || "SUPPORT") as TicketType
     const transitions = STATUS_TRANSITIONS[status]
-    const totalMinutes = ticket.apontamentos.reduce((sum, a) => sum + a.duration, 0)
-    const isAssignedToMe = ticket.assignedToId === "user-1"
+    const totalMinutes = ticket.apontamentos.reduce((sum: number, a: ApontamentoData) => sum + a.duration, 0)
+    const isAssignedToMe = ticket.assignedToId === ticket.currentUserId
     const clientDoc = ticket.client.cnpj || ticket.client.cpf || "—"
-    const totalComments = ticket.comments.reduce((s, c) => s + 1 + c.replies.length, 0)
+    const totalComments = ticket.comments.reduce((s: number, c: CommentData) => s + 1 + c.replies.length, 0)
 
     return (
         <div className="h-full overflow-hidden bg-gray-50/50">
@@ -416,7 +387,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
             <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-3 sticky top-0 z-10">
                 <button onClick={() => router.push("/dashboard/tickets")} className="text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"><ArrowLeft size={16} /></button>
                 <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <span className="text-xs font-mono text-gray-400 shrink-0">{ticket.id.toUpperCase()}</span>
+                    <span className="text-sm font-mono font-semibold text-gray-500 shrink-0">#{ticket.ticketNumber}</span>
                     <h1 className="text-sm font-semibold text-gray-900 truncate">{ticket.ticketDescription}</h1>
                     <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold text-white ${statusBadgeColors[status]}`}>{statusLabels[status]}</span>
                 </div>
@@ -440,9 +411,34 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Descrição</p>
                         <div className="flex items-center gap-2 mb-1.5">
                             <span className="text-sm font-medium text-gray-900">{ticket.client.name}</span>
+                            {ticket.requestedByContact && (
+                                <span className="text-[10px] text-gray-400">• Solicitante: <span className="font-medium text-gray-600">{ticket.requestedByContact.name}</span></span>
+                            )}
                             <span className="text-[10px] text-gray-400">{formatDate(ticket.createdAt)}</span>
                         </div>
                         <p className="text-sm text-gray-600 leading-relaxed">{ticket.ticketDescription}</p>
+                        {/* Ticket attachments */}
+                        {ticket.attachments && ticket.attachments.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-gray-100">
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Anexos</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {ticket.attachments.map((att: AttachmentData) => (
+                                        isImageFile(att.fileType) ? (
+                                            <a key={att.id} href={att.url} target="_blank" rel="noreferrer" className="block">
+                                                <img src={att.url} alt={att.fileName} className="max-w-35 max-h-25 rounded-lg object-cover border border-gray-200 hover:shadow-md transition-shadow" />
+                                            </a>
+                                        ) : (
+                                            <a key={att.id} href={att.url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors">
+                                                <FileText size={12} className="text-gray-400" />
+                                                <span className="text-[11px] text-gray-600 max-w-30 truncate">{att.fileName}</span>
+                                                <span className="text-[9px] text-gray-400">{formatFileSize(att.fileSize)}</span>
+                                                <Download size={10} className="text-gray-400" />
+                                            </a>
+                                        )
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                         {ticket.reopenCount > 0 && ticket.reopenDate && (
                             <div className="mt-3 pt-3 border-t border-gray-100 flex items-start gap-2">
                                 <RotateCcw size={12} className="text-amber-500 shrink-0 mt-0.5" />
@@ -514,13 +510,31 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                                 {status !== "CLOSED" && <button onClick={() => setShowApontamentoModal(true)} className="mt-1.5 text-[10px] text-emerald-600 hover:text-emerald-700 font-medium cursor-pointer">+ Adicionar</button>}
                             </div>
                         ) : (
-                            ticket.apontamentos.map((a, i) => (
+                            ticket.apontamentos.map((a: ApontamentoData, i: number) => (
                                 <div key={a.id} className={`px-4 py-3 ${i < ticket.apontamentos.length - 1 ? "border-b border-gray-50" : ""}`}>
                                     <div className="flex items-center gap-2 mb-1">
                                         <span className="text-xs font-medium text-gray-900">{a.user.name}</span>
                                         <span className="text-[10px] text-gray-400">{formatDate(a.date)}</span>
                                     </div>
                                     <p className="text-sm text-gray-600 leading-relaxed">{a.description}</p>
+                                    {/* Attachments */}
+                                    {a.attachments && a.attachments.length > 0 && (
+                                        <div className="flex flex-wrap gap-2 mt-2">
+                                            {a.attachments.map((att: AttachmentData) => (
+                                                isImageFile(att.fileType) ? (
+                                                    <a key={att.id} href={att.url} target="_blank" rel="noreferrer" className="block">
+                                                        <img src={att.url} alt={att.fileName} className="max-w-[120px] max-h-[80px] rounded-lg object-cover border border-gray-200 hover:shadow-md transition-shadow" />
+                                                    </a>
+                                                ) : (
+                                                    <a key={att.id} href={att.url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors">
+                                                        <FileText size={12} className="text-gray-400" />
+                                                        <span className="text-[10px] text-gray-600 max-w-[100px] truncate">{att.fileName}</span>
+                                                        <span className="text-[9px] text-gray-400">{formatFileSize(att.fileSize)}</span>
+                                                    </a>
+                                                )
+                                            ))}
+                                        </div>
+                                    )}
                                     <div className="flex items-center gap-3 mt-1.5 text-[10px] text-gray-400">
                                         <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${categoryColors[a.category]}`}>{categoryLabels[a.category]}</span>
                                         <span className="flex items-center gap-0.5"><Clock size={10} /> {formatDuration(a.duration)}</span>
@@ -543,10 +557,10 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                         <div className="px-4 py-3 border-b border-gray-100">
                             <div className="flex items-center gap-2">
                                 <Input placeholder="Escreva um comentário..." value={newComment} onChange={(e) => setNewComment(e.target.value)}
-                                    onKeyDown={(e) => { if (e.key === "Enter" && newComment.trim()) { console.log("New comment:", newComment); setNewComment("") } }}
+                                    onKeyDown={(e) => { if (e.key === "Enter" && newComment.trim()) { commentMut.mutate({ content: newComment }) } }}
                                     className="flex-1 h-8 text-xs" />
-                                <Button className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 px-2.5" disabled={!newComment.trim()}
-                                    onClick={() => { console.log("New comment:", newComment); setNewComment("") }}><Send size={12} /></Button>
+                                <Button className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 px-2.5" disabled={!newComment.trim() || commentMut.isPending}
+                                    onClick={() => commentMut.mutate({ content: newComment })}><Send size={12} /></Button>
                             </div>
                         </div>
                         {ticket.comments.length === 0 ? (
@@ -576,10 +590,10 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                                     {replyingTo === comment.id && (
                                         <div className="ml-8 pb-3 px-4 flex gap-2">
                                             <Input placeholder="Escreva uma resposta..." value={replyContent} onChange={(e) => setReplyContent(e.target.value)}
-                                                onKeyDown={(e) => { if (e.key === "Enter" && replyContent.trim()) { console.log("Reply:", comment.id, replyContent); setReplyContent(""); setReplyingTo(null) } }}
+                                                onKeyDown={(e) => { if (e.key === "Enter" && replyContent.trim()) { commentMut.mutate({ content: replyContent, parentId: comment.id }) } }}
                                                 className="flex-1 h-7 text-[10px]" autoFocus />
-                                            <Button size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-white h-7 px-2" disabled={!replyContent.trim()}
-                                                onClick={() => { console.log("Reply:", comment.id, replyContent); setReplyContent(""); setReplyingTo(null) }}><Send size={10} /></Button>
+                                            <Button size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-white h-7 px-2" disabled={!replyContent.trim() || commentMut.isPending}
+                                                onClick={() => commentMut.mutate({ content: replyContent, parentId: comment.id })}><Send size={10} /></Button>
                                         </div>
                                     )}
                                 </div>
@@ -618,30 +632,30 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
             {/* ── Modals ── */}
             <Dialog open={showClaimModal} onOpenChange={setShowClaimModal}>
                 <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Assumir Ticket</DialogTitle><DialogDescription>Deseja assumir a responsabilidade por este ticket?</DialogDescription></DialogHeader>
-                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setShowClaimModal(false)}>Cancelar</Button><Button className="bg-emerald-500 hover:bg-emerald-600 text-white" onClick={() => { console.log("Claiming:", ticket.id); setShowClaimModal(false) }}>Confirmar</Button></DialogFooter>
+                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setShowClaimModal(false)}>Cancelar</Button><Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={claimMut.isPending} onClick={() => claimMut.mutate()}>{claimMut.isPending ? <Loader2 size={14} className="animate-spin mr-1" /> : null}Confirmar</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
             <Dialog open={showReopenModal} onOpenChange={setShowReopenModal}>
                 <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Reabrir Ticket</DialogTitle><DialogDescription>Informe o motivo para reabrir este ticket.</DialogDescription></DialogHeader>
                     <Textarea placeholder="Motivo da reabertura..." value={reopenReason} onChange={(e) => setReopenReason(e.target.value)} className="min-h-25" />
-                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => { setShowReopenModal(false); setReopenReason("") }}>Cancelar</Button><Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={!reopenReason.trim()} onClick={() => { console.log("Reopening:", ticket.id, reopenReason); setShowReopenModal(false); setReopenReason("") }}>Reabrir</Button></DialogFooter>
+                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => { setShowReopenModal(false); setReopenReason("") }}>Cancelar</Button><Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={!reopenReason.trim() || reopenMut.isPending} onClick={() => reopenMut.mutate(reopenReason)}>{reopenMut.isPending ? <Loader2 size={14} className="animate-spin mr-1" /> : null}Reabrir</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
             <Dialog open={showCloseModal} onOpenChange={setShowCloseModal}>
                 <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Fechar Ticket</DialogTitle><DialogDescription>Tem certeza que deseja fechar este ticket?</DialogDescription></DialogHeader>
-                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setShowCloseModal(false)}>Cancelar</Button><Button className="bg-red-600 hover:bg-red-700 text-white" onClick={() => { console.log("Closing:", ticket.id); setShowCloseModal(false) }}>Fechar Ticket</Button></DialogFooter>
+                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setShowCloseModal(false)}>Cancelar</Button><Button className="bg-red-600 hover:bg-red-700 text-white" disabled={statusMut.isPending} onClick={() => statusMut.mutate("CLOSED")}>{statusMut.isPending ? <Loader2 size={14} className="animate-spin mr-1" /> : null}Fechar Ticket</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
             <Dialog open={showAssignModal} onOpenChange={(open) => { setShowAssignModal(open); if (!open) setSelectedUserId("") }}>
                 <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Atribuir Ticket</DialogTitle><DialogDescription>Selecione o responsável.</DialogDescription></DialogHeader>
-                    <Select value={selectedUserId} onValueChange={setSelectedUserId}><SelectTrigger className="w-full"><SelectValue placeholder="Selecione um usuário" /></SelectTrigger><SelectContent>{SAMPLE_USERS.map((u) => (<SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>))}</SelectContent></Select>
-                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => { setShowAssignModal(false); setSelectedUserId("") }}>Cancelar</Button><Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={!selectedUserId} onClick={() => { console.log("Assigning:", selectedUserId); setShowAssignModal(false); setSelectedUserId("") }}>Atribuir</Button></DialogFooter>
+                    <Select value={selectedUserId} onValueChange={setSelectedUserId}><SelectTrigger className="w-full"><SelectValue placeholder="Selecione um usuário" /></SelectTrigger><SelectContent>{usersList.map((u: {id: string; name: string}) => (<SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>))}</SelectContent></Select>
+                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => { setShowAssignModal(false); setSelectedUserId("") }}>Cancelar</Button><Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={!selectedUserId || assignMut.isPending} onClick={() => assignMut.mutate(selectedUserId)}>{assignMut.isPending ? <Loader2 size={14} className="animate-spin mr-1" /> : null}Atribuir</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
             <Dialog open={showTransferModal} onOpenChange={(open) => { setShowTransferModal(open); if (!open) setSelectedUserId("") }}>
                 <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Transferir Ticket</DialogTitle><DialogDescription>Selecione para quem transferir.</DialogDescription></DialogHeader>
-                    <Select value={selectedUserId} onValueChange={setSelectedUserId}><SelectTrigger className="w-full"><SelectValue placeholder="Selecione um usuário" /></SelectTrigger><SelectContent>{SAMPLE_USERS.filter((u) => u.id !== ticket.assignedToId).map((u) => (<SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>))}</SelectContent></Select>
-                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => { setShowTransferModal(false); setSelectedUserId("") }}>Cancelar</Button><Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={!selectedUserId} onClick={() => { console.log("Transferring:", selectedUserId); setShowTransferModal(false); setSelectedUserId("") }}>Transferir</Button></DialogFooter>
+                    <Select value={selectedUserId} onValueChange={setSelectedUserId}><SelectTrigger className="w-full"><SelectValue placeholder="Selecione um usuário" /></SelectTrigger><SelectContent>{usersList.filter((u: {id: string; name: string}) => u.id !== ticket.assignedToId).map((u: {id: string; name: string}) => (<SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>))}</SelectContent></Select>
+                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => { setShowTransferModal(false); setSelectedUserId("") }}>Cancelar</Button><Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={!selectedUserId || assignMut.isPending} onClick={() => assignMut.mutate(selectedUserId)}>{assignMut.isPending ? <Loader2 size={14} className="animate-spin mr-1" /> : null}Transferir</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
             <Dialog open={showChangeClientModal} onOpenChange={setShowChangeClientModal}>
@@ -649,16 +663,44 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                     <DialogFooter><Button variant="outline" onClick={() => setShowChangeClientModal(false)}>Fechar</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
-            <Dialog open={showApontamentoModal} onOpenChange={(open) => { if (!open) { setShowApontamentoModal(false); setApontDesc(""); setApontDuration(""); setApontStatusChange("") } }}>
+            <Dialog open={showApontamentoModal} onOpenChange={(open) => { if (!open) { setShowApontamentoModal(false); setApontDesc(""); setApontDuration(""); setApontStatusChange(""); setApontFiles([]) } }}>
                 <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Novo Apontamento</DialogTitle><DialogDescription>Registre o trabalho realizado.</DialogDescription></DialogHeader>
                     <div className="space-y-3">
                         <Textarea placeholder="Descreva o trabalho realizado..." value={apontDesc} onChange={(e) => setApontDesc(e.target.value)} className="min-h-25" />
                         <Select value={apontCategory} onValueChange={(v) => setApontCategory(v as ApontamentoCategory)}><SelectTrigger className="w-full"><SelectValue placeholder="Categoria" /></SelectTrigger><SelectContent>{(Object.keys(categoryLabels) as ApontamentoCategory[]).map((cat) => (<SelectItem key={cat} value={cat}>{categoryLabels[cat]}</SelectItem>))}</SelectContent></Select>
                         <div className="grid grid-cols-2 gap-3"><Input type="number" placeholder="Duração (min)" value={apontDuration} onChange={(e) => setApontDuration(e.target.value)} min={1} /><Input type="datetime-local" value={apontDate} onChange={(e) => setApontDate(e.target.value)} /></div>
                         <Select value={apontStatusChange} onValueChange={(v) => setApontStatusChange(v as TicketStatus | "")}><SelectTrigger className="w-full"><SelectValue placeholder="Alterar status (opcional)" /></SelectTrigger><SelectContent><SelectItem value="none">Manter status atual</SelectItem>{transitions.map((s) => (<SelectItem key={s} value={s}>{statusLabels[s]}</SelectItem>))}</SelectContent></Select>
+                        {/* File attachments */}
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Anexos</label>
+                            <div className="flex items-center gap-2">
+                                <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-gray-300 text-gray-500 text-[11px] font-medium hover:bg-gray-50 transition-all cursor-pointer">
+                                    {apontUploading ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />}
+                                    {apontUploading ? "Enviando..." : "Anexar arquivo"}
+                                    <input type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" multiple className="hidden" onChange={handleApontFileUpload} disabled={apontUploading} />
+                                </label>
+                            </div>
+                            {apontFiles.length > 0 && (
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                    {apontFiles.map((f, idx) => (
+                                        <div key={idx} className="relative group/file shrink-0">
+                                            {isImageFile(f.fileType) ? (
+                                                <img src={f.url} alt={f.fileName} className="w-14 h-14 rounded-lg object-cover border border-gray-200" />
+                                            ) : (
+                                                <div className="w-14 h-14 rounded-lg bg-gray-50 border border-gray-200 flex flex-col items-center justify-center p-1">
+                                                    <FileText size={14} className="text-gray-400" />
+                                                    <span className="text-[7px] text-gray-400 mt-0.5 truncate max-w-12">{f.fileName}</span>
+                                                </div>
+                                            )}
+                                            <button onClick={() => setApontFiles(prev => prev.filter((_, i) => i !== idx))} className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover/file:opacity-100 transition-opacity cursor-pointer"><X size={8} /></button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     </div>
-                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => { setShowApontamentoModal(false); setApontDesc(""); setApontDuration(""); setApontStatusChange("") }}>Cancelar</Button>
-                        <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={!apontDesc.trim() || !apontDuration} onClick={() => { console.log("Creating apontamento:", { description: apontDesc, category: apontCategory, duration: parseInt(apontDuration), date: apontDate, statusChange: apontStatusChange || null }); setShowApontamentoModal(false); setApontDesc(""); setApontDuration(""); setApontStatusChange("") }}>Salvar</Button>
+                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => { setShowApontamentoModal(false); setApontDesc(""); setApontDuration(""); setApontStatusChange(""); setApontFiles([]) }}>Cancelar</Button>
+                        <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={!apontDesc.trim() || !apontDuration || apontMut.isPending} onClick={() => apontMut.mutate({ ticketId: id, description: apontDesc, category: apontCategory, duration: parseInt(apontDuration), date: apontDate, statusChange: apontStatusChange || null, attachments: apontFiles.length > 0 ? apontFiles : undefined })}>{apontMut.isPending ? <Loader2 size={14} className="animate-spin mr-1" /> : null}Salvar</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

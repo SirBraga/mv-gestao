@@ -10,26 +10,12 @@ export default async function FuncionariosPage() {
 
     const currentUser = await prisma.user.findUnique({
         where: { id: session.user.id },
-        select: { role: true, id: true },
-    })
-
-    const users = await prisma.user.findMany({
-        orderBy: { createdAt: "desc" },
-        select: {
-            id: true,
-            name: true,
-            email: true,
-            role: true,
-            image: true,
-            emailVerified: true,
-            createdAt: true,
-        },
+        select: { role: true },
     })
     const isAdmin = currentUser?.role === "ADMIN"
 
     return (
         <FuncionariosClient
-            users={users}
             isAdmin={isAdmin}
             currentUserId={session.user.id}
         />

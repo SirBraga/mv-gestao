@@ -27,7 +27,9 @@ model User {
   comments      TicketComment[]
   sessions      Session[]
   accounts      Account[]
-  
+  sentMessages     ChatMessage[] @relation("SentMessages")
+  receivedMessages ChatMessage[] @relation("ReceivedMessages")
+  onlineStatus     UserStatus?
 
   @@unique([email])
   @@map("user")
@@ -100,6 +102,8 @@ model Clients {
   tickets Tickets[]
   contability Contability[]
   products Products[]
+  contacts ClientContact[]
+  attachments Attachment[]
   hasContract Boolean?
   supportReleased Boolean?
   ownerName String?
@@ -120,9 +124,27 @@ model Clients {
   @@map("clients")
 }
 
+model ClientContact {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Clients  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name      String
+  phone     String?
+  email     String?
+  role      String?  // e.g. "Suporte", "Financeiro", "Proprietário"
+  isDefault Boolean  @default(false)
+  ticketsRequested Tickets[] @relation("RequestedByContact")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@map("client_contact")
+}
+
 
 model Tickets {
-  id String @id @default(cuid())
+  id           String @id @default(cuid())
+  ticketNumber Int    @default(autoincrement())
   clientId String
   client Clients @relation(fields: [clientId], references: [id])
   ticketStatus Ticket_Status? @default(NOVO)
@@ -136,8 +158,14 @@ model Tickets {
   reopenById String?
   apontamentos Apontamento[]
   comments TicketComment[]
+  attachments Attachment[]
   assignedTo User? @relation(fields: [assignedToId], references: [id], onDelete: Cascade)
   assignedToId String?
+  // Solicitante: pode ser um contato do cliente ou uma contabilidade
+  requestedByContactId String?
+  requestedByContact   ClientContact? @relation("RequestedByContact", fields: [requestedByContactId], references: [id])
+  requestedByContabilityId String?
+  requestedByContability   Contability? @relation("RequestedByContability", fields: [requestedByContabilityId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -157,6 +185,7 @@ model Apontamento {
   duration Int // duration in minutes
   date DateTime @default(now())
   statusChange Ticket_Status? // optional: change ticket status with this entry
+  attachments Attachment[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -196,6 +225,7 @@ model Contability {
   cpf String
   ie String
   type CType? @default(PESSOA_JURIDICA)
+  ticketsRequested Tickets[] @relation("RequestedByContability")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -213,7 +243,9 @@ model Products {
   category String?
   status String?
   supportContact String?
-  price Float
+  priceMonthly    Float?  // Preço mensal
+  priceQuarterly  Float?  // Preço trimestral
+  priceYearly     Float?  // Preço anual
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -258,4 +290,61 @@ enum Apontamento_Category {
   REUNIAO
   TIRA_DUVIDAS
   DESENVOLVIMENTO
+}
+
+// ── Chat Interno ──
+
+model ChatMessage {
+  id         String   @id @default(cuid())
+  senderId   String
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId String
+  receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  content    String
+  read       Boolean  @default(false)
+  replyToId  String?
+  replyTo    ChatMessage?  @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies    ChatMessage[] @relation("MessageReplies")
+  attachments Attachment[]
+  createdAt  DateTime @default(now())
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([senderId, receiverId])
+  @@map("chat_message")
+}
+
+model Attachment {
+  id         String   @id @default(cuid())
+  url        String
+  fileName   String
+  fileType   String   // e.g. "image/png", "application/pdf"
+  fileSize   Int      // in bytes
+  // Optional relations
+  chatMessageId   String?
+  chatMessage     ChatMessage? @relation(fields: [chatMessageId], references: [id], onDelete: Cascade)
+  ticketId        String?
+  ticket          Tickets?     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  apontamentoId   String?
+  apontamento     Apontamento? @relation(fields: [apontamentoId], references: [id], onDelete: Cascade)
+  clientId        String?
+  client          Clients?     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@index([chatMessageId])
+  @@index([ticketId])
+  @@index([apontamentoId])
+  @@index([clientId])
+  @@map("attachment")
+}
+
+model UserStatus {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isOnline  Boolean  @default(false)
+  lastSeen  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("user_status")
 }

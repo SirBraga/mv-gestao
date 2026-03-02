@@ -1,66 +1,29 @@
 "use client"
 
-import { Users, Ticket, Package, Calculator, TrendingUp, TrendingDown, Clock, CheckCircle, AlertTriangle, ArrowRight, Activity, Zap } from "lucide-react"
+import { useState } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { getDashboardStats } from "@/app/actions/dashboard"
+import { Users, Ticket, Package, Calculator, ArrowRight, Activity, Zap, Calendar, Building2, User, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Input } from "@/components/ui/input"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
 
 function getInitials(name: string) { return name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase() }
 
-const stats = [
-  { label: "Clientes", value: "47", change: "+3", trend: "up" as const, icon: Users, lightColor: "bg-sky-50", textColor: "text-sky-600", href: "/dashboard/clientes" },
-  { label: "Tickets Abertos", value: "12", change: "-2", trend: "down" as const, icon: Ticket, lightColor: "bg-amber-50", textColor: "text-amber-600", href: "/dashboard/tickets" },
-  { label: "Produtos", value: "8", change: "+1", trend: "up" as const, icon: Package, lightColor: "bg-rose-50", textColor: "text-rose-600", href: "/dashboard/produtos" },
-  { label: "Escritórios", value: "7", change: "0", trend: "up" as const, icon: Calculator, lightColor: "bg-violet-50", textColor: "text-violet-600", href: "/dashboard/contabilidade" },
+type PeriodType = "day" | "week" | "month" | "custom"
+type ViewMode = "mine" | "company"
+
+const PERIOD_OPTIONS = [
+    { key: "day" as PeriodType, label: "Hoje" },
+    { key: "week" as PeriodType, label: "Semana" },
+    { key: "month" as PeriodType, label: "Mês" },
+    { key: "custom" as PeriodType, label: "Personalizado" },
 ]
 
-const recentTickets = [
-  { id: "t001", title: "Erro ao gerar relatório fiscal", client: "Empresa ABC Ltda", status: "NOVO", priority: "HIGH", date: "Hoje, 14:32" },
-  { id: "t002", title: "Dúvida sobre módulo de estoque", client: "Tech Solutions ME", status: "IN_PROGRESS", priority: "MEDIUM", date: "Hoje, 11:15" },
-  { id: "t003", title: "Solicitação de nova funcionalidade", client: "Distribuidora Norte Ltda", status: "PENDING_CLIENT", priority: "LOW", date: "Ontem, 18:40" },
-  { id: "t004", title: "Problema na emissão de NF-e", client: "Logística Express SA", status: "NOVO", priority: "HIGH", date: "Ontem, 09:22" },
-  { id: "t005", title: "Treinamento do módulo financeiro", client: "Carlos Mendes", status: "IN_PROGRESS", priority: "MEDIUM", date: "22/02" },
-]
-
-const statusTag: Record<string, string> = { NOVO: "bg-sky-500", PENDING_CLIENT: "bg-amber-500", IN_PROGRESS: "bg-orange-500", CLOSED: "bg-gray-400" }
-const statusLabel: Record<string, string> = { NOVO: "Novo", PENDING_CLIENT: "Pend. Cliente", IN_PROGRESS: "Em Progresso", CLOSED: "Fechado" }
+const statusTag: Record<string, string> = { NOVO: "bg-sky-500", PENDING_CLIENT: "bg-amber-500", PENDING_EMPRESS: "bg-violet-500", IN_PROGRESS: "bg-orange-500", CLOSED: "bg-gray-400" }
+const statusLabel: Record<string, string> = { NOVO: "Novo", PENDING_CLIENT: "Pend. Cliente", PENDING_EMPRESS: "Pend. Empresa", IN_PROGRESS: "Em Progresso", CLOSED: "Fechado" }
 const priorityTag: Record<string, string> = { LOW: "bg-emerald-500", MEDIUM: "bg-amber-500", HIGH: "bg-red-500" }
-
-const activityFeed = [
-  { user: "Pedro Braga", action: "assumiu o ticket", target: "#t001 — Erro ao gerar relatório fiscal", time: "5 min atrás", icon: Zap, iconColor: "text-amber-500" },
-  { user: "Ana Costa", action: "fechou o ticket", target: "#t009 — Configuração de backup automático", time: "23 min atrás", icon: CheckCircle, iconColor: "text-emerald-500" },
-  { user: "Carlos Silva", action: "adicionou apontamento em", target: "#t002 — Dúvida sobre módulo de estoque", time: "1h atrás", icon: Clock, iconColor: "text-sky-500" },
-  { user: "Pedro Braga", action: "criou novo cliente", target: "Logística Express SA", time: "2h atrás", icon: Users, iconColor: "text-violet-500" },
-  { user: "Ana Costa", action: "reabriu o ticket", target: "#t005 — Treinamento do módulo financeiro", time: "3h atrás", icon: AlertTriangle, iconColor: "text-rose-500" },
-  { user: "Sistema", action: "certificado expira em 7 dias para", target: "Empresa ABC Ltda", time: "5h atrás", icon: AlertTriangle, iconColor: "text-amber-500" },
-]
-
-const topClients = [
-  { name: "Empresa ABC Ltda", tickets: 8, products: 3 },
-  { name: "Tech Solutions ME", tickets: 5, products: 2 },
-  { name: "Distribuidora Norte Ltda", tickets: 4, products: 2 },
-  { name: "Logística Express SA", tickets: 3, products: 1 },
-  { name: "Carlos Mendes", tickets: 2, products: 1 },
-]
-
-const weeklyData = [
-  { day: "Seg", abertos: 3, resolvidos: 2 },
-  { day: "Ter", abertos: 5, resolvidos: 4 },
-  { day: "Qua", abertos: 2, resolvidos: 3 },
-  { day: "Qui", abertos: 7, resolvidos: 5 },
-  { day: "Sex", abertos: 4, resolvidos: 6 },
-  { day: "Sáb", abertos: 1, resolvidos: 2 },
-  { day: "Dom", abertos: 0, resolvidos: 1 },
-]
-
-const monthlyData = [
-  { month: "Set", abertos: 18, resolvidos: 15 },
-  { month: "Out", abertos: 24, resolvidos: 20 },
-  { month: "Nov", abertos: 20, resolvidos: 22 },
-  { month: "Dez", abertos: 28, resolvidos: 25 },
-  { month: "Jan", abertos: 22, resolvidos: 24 },
-  { month: "Fev", abertos: 19, resolvidos: 17 },
-]
 
 function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; dataKey: string; color: string }>; label?: string }) {
   if (!active || !payload) return null
@@ -79,17 +42,93 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
 }
 
 export default function Dashboard() {
+  const [period, setPeriod] = useState<PeriodType>("week")
+  const [viewMode, setViewMode] = useState<ViewMode>("mine")
+  const [customStart, setCustomStart] = useState("")
+  const [customEnd, setCustomEnd] = useState("")
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["dashboard", viewMode, period, customStart, customEnd],
+    queryFn: () => getDashboardStats(viewMode, period, customStart || undefined, customEnd || undefined),
+    refetchInterval: 30000,
+  })
+
+  const isAdmin = true
+  const userName = data?.userName || ""
+  const stats = [
+    { label: "Clientes", value: String(data?.stats.totalClients || 0), icon: Users, lightColor: "bg-sky-50", textColor: "text-sky-600", href: "/dashboard/clientes" },
+    { label: "Tickets Abertos", value: String(data?.stats.openTickets || 0), icon: Ticket, lightColor: "bg-amber-50", textColor: "text-amber-600", href: "/dashboard/tickets" },
+    { label: "Produtos", value: String(data?.stats.totalProducts || 0), icon: Package, lightColor: "bg-rose-50", textColor: "text-rose-600", href: "/dashboard/produtos" },
+    { label: "Escritórios", value: String(data?.stats.totalContabilities || 0), icon: Calculator, lightColor: "bg-violet-50", textColor: "text-violet-600", href: "/dashboard/contabilidade" },
+  ]
+  const recentTickets = data?.recentTickets || []
+  const topClients = data?.topClients || []
+  const weeklyData = data?.weeklyData || []
+  const monthlyData = data?.monthlyData || []
+  const activity = data?.activity || []
+
   return (
     <div className="h-full overflow-y-auto bg-gray-50/50">
       <div className="p-6 max-w-350">
 
         {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-lg font-bold text-gray-900">Dashboard</h1>
-          <p className="text-xs text-gray-400 mt-0.5">Visão geral do sistema</p>
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <h1 className="text-lg font-bold text-gray-900">Dashboard</h1>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {viewMode === "mine" ? `Relatórios de ${userName}` : "Visão geral da empresa"}
+              {period === "day" && " — Hoje"}
+              {period === "week" && " — Últimos 7 dias"}
+              {period === "month" && " — Últimos 30 dias"}
+              {period === "custom" && customStart && customEnd && ` — ${customStart} a ${customEnd}`}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* View Mode Toggle (admin only) */}
+            {isAdmin && (
+              <div className="flex items-center bg-white border border-gray-200 rounded-lg overflow-hidden">
+                <button onClick={() => setViewMode("mine")} className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${viewMode === "mine" ? "bg-blue-600 text-white" : "text-gray-500 hover:bg-gray-50"}`}>
+                  <User size={12} /> Meus
+                </button>
+                <button onClick={() => setViewMode("company")} className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${viewMode === "company" ? "bg-blue-600 text-white" : "text-gray-500 hover:bg-gray-50"}`}>
+                  <Building2 size={12} /> Empresa
+                </button>
+              </div>
+            )}
+
+            {/* Period Filter */}
+            <div className="flex items-center bg-white border border-gray-200 rounded-lg overflow-hidden">
+              {PERIOD_OPTIONS.map((opt) => (
+                <button key={opt.key} onClick={() => setPeriod(opt.key)} className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${period === opt.key ? "bg-blue-600 text-white" : "text-gray-500 hover:bg-gray-50"}`}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Custom Date Range */}
+            {period === "custom" && (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2 py-1">
+                  <Calendar size={12} className="text-gray-400" />
+                  <Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="border-0 h-6 text-xs p-0 w-28 shadow-none focus-visible:ring-0" />
+                </div>
+                <span className="text-xs text-gray-400">até</span>
+                <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2 py-1">
+                  <Calendar size={12} className="text-gray-400" />
+                  <Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="border-0 h-6 text-xs p-0 w-28 shadow-none focus-visible:ring-0" />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Stat Cards */}
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12 mb-6">
+            <Loader2 size={24} className="animate-spin text-gray-400" />
+          </div>
+        ) : (
         <div className="grid grid-cols-4 gap-4 mb-6">
           {stats.map((stat) => {
             const Icon = stat.icon
@@ -99,10 +138,6 @@ export default function Dashboard() {
                   <div className={`w-9 h-9 rounded-lg ${stat.lightColor} flex items-center justify-center`}>
                     <Icon size={16} className={stat.textColor} strokeWidth={2} />
                   </div>
-                  <div className={`flex items-center gap-1 text-xs font-medium ${stat.trend === "up" && stat.change !== "0" ? "text-emerald-600" : stat.change === "0" ? "text-gray-400" : "text-emerald-600"}`}>
-                    {stat.change !== "0" && (stat.trend === "up" ? <TrendingUp size={12} /> : <TrendingDown size={12} />)}
-                    <span>{stat.change}</span>
-                  </div>
                 </div>
                 <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
                 <p className="text-xs text-gray-400 mt-0.5">{stat.label}</p>
@@ -110,6 +145,7 @@ export default function Dashboard() {
             )
           })}
         </div>
+        )}
 
         {/* Main Grid */}
         <div className="grid grid-cols-3 gap-4 mb-6">
@@ -118,8 +154,10 @@ export default function Dashboard() {
           <div className="col-span-2 bg-white border border-gray-200 rounded-xl p-5">
             <div className="flex items-center justify-between mb-1">
               <div>
-                <h2 className="text-sm font-bold text-gray-900">Tickets da Semana</h2>
-                <p className="text-[10px] text-gray-400 mt-0.5">Abertos vs Resolvidos</p>
+                <h2 className="text-sm font-bold text-gray-900">
+                  {period === "day" ? "Tickets de Hoje" : period === "week" ? "Tickets da Semana" : period === "month" ? "Tickets do Mês" : "Tickets do Período"}
+                </h2>
+                <p className="text-[10px] text-gray-400 mt-0.5">{viewMode === "mine" ? `Seus tickets — ` : "Todos os tickets — "}Abertos vs Resolvidos</p>
               </div>
             </div>
             <div className="h-52 mt-2">
@@ -156,7 +194,7 @@ export default function Dashboard() {
               </Link>
             </div>
             <div className="space-y-2.5">
-              {topClients.map((client, i) => (
+              {topClients.map((client: { name: string; tickets: number; products: number }, i: number) => (
                 <div key={client.name} className="flex items-center gap-3">
                   <span className="text-[10px] text-gray-300 w-4 text-right font-mono">{i + 1}</span>
                   <Avatar className="h-7 w-7 shrink-0">
@@ -179,7 +217,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-1">
             <div>
               <h2 className="text-sm font-bold text-gray-900">Evolução Mensal</h2>
-              <p className="text-[10px] text-gray-400 mt-0.5">Últimos 6 meses — tickets abertos vs resolvidos</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">{viewMode === "mine" ? "Seus dados" : "Dados da empresa"} — Últimos 6 meses</p>
             </div>
           </div>
           <div className="h-48 mt-2">
@@ -218,17 +256,17 @@ export default function Dashboard() {
                 Ver todos <ArrowRight size={10} />
               </Link>
             </div>
-            {recentTickets.map((ticket) => (
+            {recentTickets.map((ticket: { id: string; title: string; client: string; status: string; priority: string; date: string }) => (
               <Link key={ticket.id} href={`/dashboard/tickets/${ticket.id}`} className="flex items-center gap-3 px-5 py-2.5 border-b border-gray-50 last:border-b-0 hover:bg-gray-50 transition-colors">
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityTag[ticket.priority]}`} />
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityTag[ticket.priority] || "bg-gray-400"}`} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate">{ticket.title}</p>
                   <p className="text-[10px] text-gray-400">{ticket.client}</p>
                 </div>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold text-white shrink-0 ${statusTag[ticket.status]}`}>
-                  {statusLabel[ticket.status]}
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold text-white shrink-0 ${statusTag[ticket.status] || "bg-gray-400"}`}>
+                  {statusLabel[ticket.status] || ticket.status}
                 </span>
-                <span className="text-[10px] text-gray-400 shrink-0 w-16 text-right">{ticket.date}</span>
+                <span className="text-[10px] text-gray-400 shrink-0 w-20 text-right">{new Date(ticket.date).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</span>
               </Link>
             ))}
           </div>
@@ -240,24 +278,21 @@ export default function Dashboard() {
               <h2 className="text-sm font-bold text-gray-900">Atividade Recente</h2>
             </div>
             <div className="divide-y divide-gray-50">
-              {activityFeed.map((item, i) => {
-                const Icon = item.icon
-                return (
-                  <div key={i} className="flex gap-3 px-5 py-2.5">
+              {activity.map((item: { id: string; description: string; clientName: string; assignedTo: string | null; status: string | null; updatedAt: string }, i: number) => (
+                  <div key={item.id + i} className="flex gap-3 px-5 py-2.5">
                     <div className="mt-0.5 shrink-0">
-                      <Icon size={14} className={item.iconColor} />
+                      <Zap size={14} className="text-amber-500" />
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs text-gray-600 leading-relaxed">
-                        <span className="font-semibold text-gray-900">{item.user}</span>{" "}
-                        {item.action}{" "}
-                        <span className="font-medium text-gray-700">{item.target}</span>
+                        {item.assignedTo && <span className="font-semibold text-gray-900">{item.assignedTo} </span>}
+                        <span className="font-medium text-gray-700">{item.description}</span>
+                        <span className="text-gray-400"> — {item.clientName}</span>
                       </p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">{item.time}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{new Date(item.updatedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>
                     </div>
                   </div>
-                )
-              })}
+              ))}
             </div>
           </div>
         </div>

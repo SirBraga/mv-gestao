@@ -19,7 +19,7 @@ export default async function DashboardLayout({
 
     return (
         <div className="flex h-screen">
-            <Sidebar avatar={session?.user.image || ""} name={session?.user.name || ""} />
+            <Sidebar avatar={session?.user.image || ""} name={session?.user.name || ""} userId={session.user.id} role={(session.session as unknown as Record<string, string>).role || "USER"} />
             <main className="flex-1 bg-white h-full overflow-hidden">{children}</main>
         </div>
     )

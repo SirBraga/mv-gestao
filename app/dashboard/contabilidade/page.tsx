@@ -1,33 +1,63 @@
 "use client"
 
 import { useState, useMemo } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { getContabilities, createContability } from "@/app/actions/contability"
+import { getClients } from "@/app/actions/clients"
 import AccountingCard, { type AccountingData } from "../_components/accountingCard"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
-import { Search, Calculator, Plus } from "lucide-react"
+import { Search, Calculator, Plus, Loader2 } from "lucide-react"
+import { toast } from "react-toastify"
 
-const SAMPLE_ACCOUNTING: AccountingData[] = [
-    { id: "c001", name: "Contábil Souza & Associados", cnpj: "12.345.678/0001-90", phone: "(11) 3456-7890", email: "contato@souzacontabil.com.br", city: "São Paulo", state: "SP", clients: 5, type: "PJ" },
-    { id: "c002", name: "Escritório Oliveira Contabilidade", cnpj: "23.456.789/0001-01", phone: "(21) 2345-6789", email: "oliveira@contabil.com.br", city: "Rio de Janeiro", state: "RJ", clients: 3, type: "PJ" },
-    { id: "c003", name: "Contabilidade Moderna Ltda", cnpj: "34.567.890/0001-12", phone: "(31) 3456-7890", email: "moderna@contabil.com.br", city: "Belo Horizonte", state: "MG", clients: 2, type: "PJ" },
-    { id: "c004", name: "Ana Costa Contabilidade", cnpj: "45.678.901/0001-23", phone: "(41) 4567-8901", email: "ana@costacontabil.com.br", city: "Curitiba", state: "PR", clients: 4, type: "PJ" },
-    { id: "c005", name: "Carlos Mendes Contador", cnpj: "123.456.789-00", phone: "(51) 5678-9012", email: "carlos@mendescontador.com.br", city: "Porto Alegre", state: "RS", clients: 1, type: "PF" },
-    { id: "c006", name: "Contábil Express", cnpj: "56.789.012/0001-34", phone: "(11) 9876-5432", email: "express@contabil.com.br", city: "São Paulo", state: "SP", clients: 3, type: "PJ" },
-    { id: "c007", name: "Escritório Fiscal Norte", cnpj: "67.890.123/0001-45", phone: "(92) 3456-7890", email: "norte@fiscal.com.br", city: "Manaus", state: "AM", clients: 2, type: "PJ" },
-]
+const INITIAL_FORM = {
+    clientId: "", type: "PJ" as "PF" | "PJ", cnpj: "", cpf: "",
+    phone: "", email: "", city: "", state: "",
+    address: "", houseNumber: "", neighborhood: "", zipCode: "", complement: "", ie: "",
+}
 
 export default function ContabilidadePage() {
+    const queryClient = useQueryClient()
     const [search, setSearch] = useState("")
     const [drawerOpen, setDrawerOpen] = useState(false)
+    const [form, setForm] = useState(INITIAL_FORM)
+
+    const { data: contabilities = [], isLoading } = useQuery({
+        queryKey: ["contabilities"],
+        queryFn: () => getContabilities(),
+    })
+
+    const { data: clientsList = [] } = useQuery({
+        queryKey: ["clients-simple"],
+        queryFn: () => getClients(),
+    })
+
+    const createMutation = useMutation({
+        mutationFn: createContability,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["contabilities"] })
+            setDrawerOpen(false)
+            setForm(INITIAL_FORM)
+            toast.success("Escritório cadastrado com sucesso!")
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const handleSubmit = () => {
+        if (!form.clientId) return toast.error("Selecione um cliente")
+        createMutation.mutate(form)
+    }
+
+    const allContabilities = contabilities as AccountingData[]
 
     const filtered = useMemo(() => {
-        return SAMPLE_ACCOUNTING.filter((item) => {
-            return item.name.toLowerCase().includes(search.toLowerCase()) ||
-                item.cnpj.toLowerCase().includes(search.toLowerCase()) ||
-                item.city.toLowerCase().includes(search.toLowerCase())
+        return allContabilities.filter((item) => {
+            return item.clientName.toLowerCase().includes(search.toLowerCase()) ||
+                (item.cnpj || "").toLowerCase().includes(search.toLowerCase()) ||
+                (item.city || "").toLowerCase().includes(search.toLowerCase())
         })
-    }, [search])
+    }, [allContabilities, search])
 
     return (
         <div className="flex flex-col h-full bg-white">
@@ -45,7 +75,7 @@ export default function ContabilidadePage() {
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-400">{SAMPLE_ACCOUNTING.length} escritórios</span>
+                    <span className="text-xs text-gray-400">{allContabilities.length} escritórios</span>
                     <button onClick={() => setDrawerOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors cursor-pointer">
                         <Plus size={13} /> Novo Escritório
                     </button>
@@ -64,7 +94,11 @@ export default function ContabilidadePage() {
 
             {/* Rows */}
             <div className="flex-1 overflow-y-auto">
-                {filtered.length === 0 ? (
+                {isLoading ? (
+                    <div className="flex items-center justify-center py-16">
+                        <Loader2 size={20} className="animate-spin text-gray-400" />
+                    </div>
+                ) : filtered.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-16 text-gray-400">
                         <Calculator size={24} className="mb-2 text-gray-300" />
                         <p className="text-sm">Nenhum escritório encontrado</p>
@@ -81,55 +115,75 @@ export default function ContabilidadePage() {
                     </SheetHeader>
                     <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
                         <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome / Razão social</label>
-                            <Input placeholder="Ex: Contábil Souza & Associados" className="h-10 rounded-lg text-sm" />
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Cliente</label>
+                            <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.clientId} onChange={e => setForm({...form, clientId: e.target.value})}>
+                                <option value="">Selecione o cliente...</option>
+                                {clientsList.map((c: { id: string; name: string }) => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                            </select>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo</label>
-                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white">
+                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.type} onChange={e => setForm({...form, type: e.target.value as "PF"|"PJ"})}>
                                     <option value="PJ">Pessoa Jurídica</option>
                                     <option value="PF">Pessoa Física</option>
                                 </select>
                             </div>
                             <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">CNPJ / CPF</label>
-                                <Input placeholder="00.000.000/0001-00" className="h-10 rounded-lg text-sm" />
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">{form.type === "PJ" ? "CNPJ" : "CPF"}</label>
+                                <Input placeholder={form.type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"} className="h-10 rounded-lg text-sm" value={form.type === "PJ" ? form.cnpj : form.cpf} onChange={e => form.type === "PJ" ? setForm({...form, cnpj: e.target.value}) : setForm({...form, cpf: e.target.value})} />
                             </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Telefone</label>
-                                <Input placeholder="(00) 0000-0000" className="h-10 rounded-lg text-sm" />
+                                <Input placeholder="(00) 0000-0000" className="h-10 rounded-lg text-sm" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} />
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Email</label>
-                                <Input placeholder="contato@escritorio.com" className="h-10 rounded-lg text-sm" />
+                                <Input placeholder="contato@escritorio.com" className="h-10 rounded-lg text-sm" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
                             </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Cidade</label>
-                                <Input placeholder="São Paulo" className="h-10 rounded-lg text-sm" />
+                                <Input placeholder="São Paulo" className="h-10 rounded-lg text-sm" value={form.city} onChange={e => setForm({...form, city: e.target.value})} />
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Estado</label>
-                                <Input placeholder="SP" className="h-10 rounded-lg text-sm" />
+                                <Input placeholder="SP" className="h-10 rounded-lg text-sm" value={form.state} onChange={e => setForm({...form, state: e.target.value})} />
                             </div>
                         </div>
-                        <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Endereço</label>
-                            <Input placeholder="Rua, número, bairro" className="h-10 rounded-lg text-sm" />
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Endereço</label>
+                                <Input placeholder="Rua..." className="h-10 rounded-lg text-sm" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Número</label>
+                                <Input placeholder="123" className="h-10 rounded-lg text-sm" value={form.houseNumber} onChange={e => setForm({...form, houseNumber: e.target.value})} />
+                            </div>
                         </div>
-                        <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Observações</label>
-                            <textarea placeholder="Informações adicionais..." className="w-full h-20 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 bg-white resize-none" />
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Bairro</label>
+                                <Input placeholder="Centro" className="h-10 rounded-lg text-sm" value={form.neighborhood} onChange={e => setForm({...form, neighborhood: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">CEP</label>
+                                <Input placeholder="00000-000" className="h-10 rounded-lg text-sm" value={form.zipCode} onChange={e => setForm({...form, zipCode: e.target.value})} />
+                            </div>
                         </div>
                     </div>
                     <SheetFooter className="px-6 py-4 border-t border-gray-100">
                         <div className="flex gap-2 w-full">
                             <Button variant="outline" className="flex-1 h-10 rounded-lg text-sm" onClick={() => setDrawerOpen(false)}>Cancelar</Button>
-                            <Button className="flex-1 h-10 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm" onClick={() => { console.log("Creating accounting"); setDrawerOpen(false) }}>Salvar Escritório</Button>
+                            <Button className="flex-1 h-10 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm" onClick={handleSubmit} disabled={createMutation.isPending}>
+                                {createMutation.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
+                                Salvar Escritório
+                            </Button>
                         </div>
                     </SheetFooter>
                 </SheetContent>

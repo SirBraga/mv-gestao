@@ -3,12 +3,17 @@ import { UserPlus } from "lucide-react"
 
 export interface TicketData {
   id: string
+  ticketNumber: number
   ticketDescription: string
   clientName: string
+  clientId: string
   priority: "LOW" | "MEDIUM" | "HIGH"
   status: "NOVO" | "PENDING_CLIENT" | "PENDING_EMPRESS" | "IN_PROGRESS" | "CLOSED"
   assigneeName: string | null
+  assigneeId: string | null
+  requesterName: string | null
   date: string
+  createdAt: string
 }
 
 const priorityTag: Record<TicketData["priority"], string> = {
@@ -53,10 +58,10 @@ export default function TicketCard({ ticket, onClaim, onNavigate }: TicketCardPr
   return (
     <div
       onClick={() => onNavigate?.(ticket.id)}
-      className="grid grid-cols-[70px_80px_1fr_110px_140px_80px] items-center border-b border-gray-100 hover:bg-gray-50 transition-colors px-4 py-3 gap-3 cursor-pointer"
+      className="grid grid-cols-[70px_80px_1fr_110px_120px_120px_110px] items-center border-b border-gray-100 hover:bg-gray-50 transition-colors px-4 py-3 gap-3 cursor-pointer"
     >
       {/* ID */}
-      <span className="text-xs text-gray-400 font-mono">#{ticket.id.slice(-4)}</span>
+      <span className="text-xs text-gray-500 font-mono font-semibold">#{ticket.ticketNumber}</span>
 
       {/* Prioridade */}
       <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[10px] font-bold text-white w-fit ${priorityTag[ticket.priority]}`}>
@@ -93,6 +98,15 @@ export default function TicketCard({ ticket, onClaim, onNavigate }: TicketCardPr
             <UserPlus size={12} />
             <span>Assumir</span>
           </button>
+        )}
+      </div>
+
+      {/* Solicitante */}
+      <div className="min-w-0">
+        {ticket.requesterName ? (
+          <span className="text-xs text-gray-500 truncate block">{ticket.requesterName}</span>
+        ) : (
+          <span className="text-xs text-gray-300">—</span>
         )}
       </div>
 

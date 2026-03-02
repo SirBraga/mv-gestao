@@ -3,10 +3,14 @@
 import { useState, useMemo } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { getTickets, createTicket, claimTicket } from "@/app/actions/tickets"
+import { getClients, getClientContacts } from "@/app/actions/clients"
 import TicketCard from "../_components/ticketCard"
 import type { TicketData } from "../_components/ticketCard"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { toast } from "react-toastify"
 import {
     Dialog,
     DialogContent,
@@ -32,103 +36,19 @@ import {
     ArrowDown,
     AlertTriangle,
     Plus,
+    Loader2,
 } from "lucide-react"
 
-const SAMPLE_TICKETS: TicketData[] = [
-    {
-        id: "t001",
-        ticketDescription: "Sistema apresentando lentidão ao gerar relatórios mensais",
-        clientName: "João Silva",
-        priority: "HIGH",
-        status: "NOVO",
-        assigneeName: "Pedro Braga",
-        date: "01/15",
-    },
-    {
-        id: "t002",
-        ticketDescription: "Erro ao importar notas fiscais no módulo contábil",
-        clientName: "Empresa ABC Ltda",
-        priority: "MEDIUM",
-        status: "PENDING_CLIENT",
-        assigneeName: null,
-        date: "01/28",
-    },
-    {
-        id: "t003",
-        ticketDescription: "Divergência nos valores de faturamento do mês de janeiro",
-        clientName: "Maria Oliveira",
-        priority: "HIGH",
-        status: "NOVO",
-        assigneeName: null,
-        date: "01/31",
-    },
-    {
-        id: "t004",
-        ticketDescription: "Atualização do módulo de estoque para nova versão",
-        clientName: "Tech Solutions ME",
-        priority: "MEDIUM",
-        status: "IN_PROGRESS",
-        assigneeName: "Pedro Braga",
-        date: "10/28",
-    },
-    {
-        id: "t005",
-        ticketDescription: "Dúvida sobre como cadastrar novo produto no sistema",
-        clientName: "Carlos Mendes",
-        priority: "LOW",
-        status: "CLOSED",
-        assigneeName: "Pedro Braga",
-        date: "10/06",
-    },
-    {
-        id: "t006",
-        ticketDescription: "Solicitação de proposta para módulo de logística",
-        clientName: "Distribuidora Norte Ltda",
-        priority: "HIGH",
-        status: "NOVO",
-        assigneeName: null,
-        date: "11/07",
-    },
-    {
-        id: "t007",
-        ticketDescription: "Problema na emissão de boletos bancários",
-        clientName: "Ana Paula Costa",
-        priority: "MEDIUM",
-        status: "PENDING_EMPRESS",
-        assigneeName: "Pedro Braga",
-        date: "12/10",
-    },
-    {
-        id: "t008",
-        ticketDescription: "Migração de dados do sistema legado para o novo ERP",
-        clientName: "Logística Express SA",
-        priority: "HIGH",
-        status: "IN_PROGRESS",
-        assigneeName: null,
-        date: "12/04",
-    },
-    {
-        id: "t009",
-        ticketDescription: "Treinamento sobre funcionalidades do dashboard",
-        clientName: "Roberto Almeida",
-        priority: "LOW",
-        status: "CLOSED",
-        assigneeName: "Pedro Braga",
-        date: "02/11",
-    },
-    {
-        id: "t010",
-        ticketDescription: "Configuração de integração com gateway de pagamento",
-        clientName: "Padaria Central ME",
-        priority: "MEDIUM",
-        status: "NOVO",
-        assigneeName: null,
-        date: "03/04",
-    },
-]
+const INITIAL_FORM = {
+    clientId: "",
+    requestedByContactId: "",
+    ticketDescription: "",
+    ticketPriority: "MEDIUM" as "LOW" | "MEDIUM" | "HIGH",
+    ticketType: "SUPPORT" as "SUPPORT" | "SALES" | "FINANCE" | "MAINTENCE",
+}
 
 type FilterType = "all" | "open" | "pending_client" | "pending_empress" | "in_progress" | "closed" | "mine"
-type SortKey = "id" | "priority" | "ticketDescription" | "status" | "assignee" | "date"
+type SortKey = "id" | "priority" | "ticketDescription" | "status" | "assignee" | "requester" | "date"
 type SortDir = "asc" | "desc"
 
 const FILTERS = [
@@ -140,7 +60,6 @@ const FILTERS = [
     { key: "closed" as FilterType, label: "Fechados", icon: XCircle },
 ]
 
-const CURRENT_USER = "Pedro Braga"
 
 const filterStatusMap: Record<FilterType, TicketData["status"][]> = {
     all: ["NOVO", "PENDING_CLIENT", "PENDING_EMPRESS", "IN_PROGRESS", "CLOSED"],
@@ -158,6 +77,7 @@ const COLUMNS: { key: SortKey; label: string }[] = [
     { key: "ticketDescription", label: "Ticket" },
     { key: "status", label: "Status" },
     { key: "assignee", label: "Responsável" },
+    { key: "requester", label: "Solicitante" },
     { key: "date", label: "Data" },
 ]
 
@@ -175,6 +95,7 @@ function compareTickets(a: TicketData, b: TicketData, key: SortKey, dir: SortDir
         case "ticketDescription": cmp = a.clientName.localeCompare(b.clientName, "pt-BR"); break
         case "status": cmp = a.status.localeCompare(b.status, "pt-BR"); break
         case "assignee": cmp = (a.assigneeName || "").localeCompare(b.assigneeName || "", "pt-BR"); break
+        case "requester": cmp = (a.requesterName || "").localeCompare(b.requesterName || "", "pt-BR"); break
         case "date": cmp = a.date.localeCompare(b.date, "pt-BR"); break
     }
     return dir === "asc" ? cmp : -cmp
@@ -182,14 +103,53 @@ function compareTickets(a: TicketData, b: TicketData, key: SortKey, dir: SortDir
 
 export default function TicketsPage() {
     const router = useRouter()
+    const queryClient = useQueryClient()
     const [activeFilter, setActiveFilter] = useState<FilterType>("all")
     const [defaultOpen, setDefaultOpen] = useState(true)
     const [myTicketsOpen, setMyTicketsOpen] = useState(true)
     const [searchQuery, setSearchQuery] = useState("")
-    const [sortKey, setSortKey] = useState<SortKey>("id")
+    const [sortKey, setSortKey] = useState<SortKey>("date")
     const [sortDir, setSortDir] = useState<SortDir>("desc")
     const [claimTicketId, setClaimTicketId] = useState<string | null>(null)
     const [drawerOpen, setDrawerOpen] = useState(false)
+    const [form, setForm] = useState(INITIAL_FORM)
+
+    const { data: tickets = [], isLoading } = useQuery({
+        queryKey: ["tickets"],
+        queryFn: () => getTickets(),
+    })
+
+    const { data: clientsList = [] } = useQuery({
+        queryKey: ["clients-simple"],
+        queryFn: () => getClients(),
+    })
+
+    const { data: clientContacts = [] } = useQuery({
+        queryKey: ["client-contacts", form.clientId],
+        queryFn: () => getClientContacts(form.clientId),
+        enabled: !!form.clientId,
+    })
+
+    const createMutation = useMutation({
+        mutationFn: createTicket,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["tickets"] })
+            setDrawerOpen(false)
+            setForm(INITIAL_FORM)
+            toast.success("Ticket criado com sucesso!")
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const claimMutation = useMutation({
+        mutationFn: claimTicket,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["tickets"] })
+            setClaimTicketId(null)
+            toast.success("Ticket assumido!")
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
 
     const handleNavigate = (ticketId: string) => {
         router.push(`/dashboard/tickets/${ticketId}`)
@@ -209,20 +169,32 @@ export default function TicketsPage() {
     }
 
     const handleClaimConfirm = () => {
-        // TODO: call claimTicket server action with real userId
-        console.log("Claiming ticket:", claimTicketId)
-        setClaimTicketId(null)
+        if (claimTicketId) claimMutation.mutate(claimTicketId)
     }
 
+    const handleSubmit = () => {
+        if (!form.clientId) return toast.error("Selecione um cliente")
+        if (!form.requestedByContactId) return toast.error("Selecione o solicitante")
+        if (!form.ticketDescription.trim()) return toast.error("Descrição é obrigatória")
+        createMutation.mutate({
+            clientId: form.clientId,
+            ticketDescription: form.ticketDescription,
+            ticketPriority: form.ticketPriority,
+            ticketType: form.ticketType,
+            requestedByContactId: form.requestedByContactId,
+        })
+    }
+
+    const allTickets = tickets as TicketData[]
+
     const myTickets = useMemo(() => {
-        return SAMPLE_TICKETS.filter((t) => t.assigneeName === CURRENT_USER)
-    }, [])
+        return allTickets.filter((t) => t.assigneeId != null)
+    }, [allTickets])
 
     const filteredTickets = useMemo(() => {
-        return SAMPLE_TICKETS
+        return allTickets
             .filter((ticket) => {
                 const matchesFilter = filterStatusMap[activeFilter].includes(ticket.status)
-                const matchesMine = activeFilter === "mine" ? ticket.assigneeName === CURRENT_USER : true
 
                 const matchesSearch =
                     !searchQuery ||
@@ -231,18 +203,18 @@ export default function TicketsPage() {
                     ticket.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
                     (ticket.assigneeName || "").toLowerCase().includes(searchQuery.toLowerCase())
 
-                return matchesFilter && matchesMine && matchesSearch
+                return matchesFilter && matchesSearch
             })
             .sort((a, b) => compareTickets(a, b, sortKey, sortDir))
-    }, [activeFilter, searchQuery, sortKey, sortDir])
+    }, [allTickets, activeFilter, searchQuery, sortKey, sortDir])
 
     const counts: Record<FilterType, number> = {
-        all: SAMPLE_TICKETS.length,
-        open: SAMPLE_TICKETS.filter((t) => t.status === "NOVO").length,
-        pending_client: SAMPLE_TICKETS.filter((t) => t.status === "PENDING_CLIENT").length,
-        pending_empress: SAMPLE_TICKETS.filter((t) => t.status === "PENDING_EMPRESS").length,
-        in_progress: SAMPLE_TICKETS.filter((t) => t.status === "IN_PROGRESS").length,
-        closed: SAMPLE_TICKETS.filter((t) => t.status === "CLOSED").length,
+        all: allTickets.length,
+        open: allTickets.filter((t) => t.status === "NOVO").length,
+        pending_client: allTickets.filter((t) => t.status === "PENDING_CLIENT").length,
+        pending_empress: allTickets.filter((t) => t.status === "PENDING_EMPRESS").length,
+        in_progress: allTickets.filter((t) => t.status === "IN_PROGRESS").length,
+        closed: allTickets.filter((t) => t.status === "CLOSED").length,
         mine: myTickets.length,
     }
 
@@ -256,7 +228,7 @@ export default function TicketsPage() {
         mine: "bg-cyan-100 text-cyan-600",
     }
 
-    const claimingTicket = SAMPLE_TICKETS.find((t) => t.id === claimTicketId)
+    const claimingTicket = allTickets.find((t) => t.id === claimTicketId)
 
     return (
         <div className="flex h-full">
@@ -366,7 +338,7 @@ export default function TicketsPage() {
                 </div>
 
                 {/* Column Headers */}
-                <div className="grid grid-cols-[70px_80px_1fr_110px_140px_80px] gap-3 px-4 py-2.5 border-b border-gray-200 bg-gray-50/80">
+                <div className="grid grid-cols-[70px_80px_1fr_110px_120px_120px_110px] gap-3 px-4 py-2.5 border-b border-gray-200 bg-gray-50/80">
                     {COLUMNS.map((col) => (
                         <button
                             key={col.key}
@@ -385,14 +357,18 @@ export default function TicketsPage() {
 
                 {/* Rows */}
                 <div className="flex-1 overflow-y-auto">
-                    {filteredTickets.map((ticket) => (
-                        <TicketCard key={ticket.id} ticket={ticket} onClaim={handleClaimRequest} onNavigate={handleNavigate} />
-                    ))}
-
-                    {filteredTickets.length === 0 && (
+                    {isLoading ? (
+                        <div className="flex items-center justify-center py-16">
+                            <Loader2 size={20} className="animate-spin text-gray-400" />
+                        </div>
+                    ) : filteredTickets.length === 0 ? (
                         <div className="flex items-center justify-center py-16 text-gray-400 text-sm">
                             Nenhum ticket encontrado
                         </div>
+                    ) : (
+                        filteredTickets.map((ticket) => (
+                            <TicketCard key={ticket.id} ticket={ticket} onClaim={handleClaimRequest} onNavigate={handleNavigate} />
+                        ))
                     )}
                 </div>
             </div>
@@ -405,25 +381,31 @@ export default function TicketsPage() {
                     </SheetHeader>
                     <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
                         <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Cliente</label>
-                            <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white">
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Cliente <span className="text-red-400">*</span></label>
+                            <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.clientId} onChange={e => setForm({...form, clientId: e.target.value, requestedByContactId: ""})}>
                                 <option value="">Selecione o cliente...</option>
-                                <option value="9462">João Silva</option>
-                                <option value="9374">Empresa ABC Ltda</option>
-                                <option value="9359">Maria Oliveira</option>
-                                <option value="9261">Tech Solutions ME</option>
-                                <option value="9151">Carlos Mendes</option>
-                                <option value="8861">Distribuidora Norte Ltda</option>
+                                {clientsList.map((c: { id: string; name: string }) => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
                             </select>
                         </div>
                         <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Descrição do problema</label>
-                            <textarea placeholder="Descreva o problema ou solicitação..." className="w-full h-24 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 bg-white resize-none" />
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Solicitante <span className="text-red-400">*</span></label>
+                            <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white disabled:bg-gray-50 disabled:text-gray-400" value={form.requestedByContactId} onChange={e => setForm({...form, requestedByContactId: e.target.value})} disabled={!form.clientId}>
+                                <option value="">{form.clientId ? (clientContacts.length === 0 ? "Nenhum contato cadastrado" : "Selecione o solicitante...") : "Selecione um cliente primeiro"}</option>
+                                {clientContacts.map((ct: { id: string; name: string; role: string | null }) => (
+                                    <option key={ct.id} value={ct.id}>{ct.name}{ct.role ? ` (${ct.role})` : ""}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Descrição do problema <span className="text-red-400">*</span></label>
+                            <textarea placeholder="Descreva o problema ou solicitação..." className="w-full h-24 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 bg-white resize-none" value={form.ticketDescription} onChange={e => setForm({...form, ticketDescription: e.target.value})} />
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Prioridade</label>
-                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white">
+                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.ticketPriority} onChange={e => setForm({...form, ticketPriority: e.target.value as "LOW"|"MEDIUM"|"HIGH"})}>
                                     <option value="LOW">Baixa</option>
                                     <option value="MEDIUM">Média</option>
                                     <option value="HIGH">Alta</option>
@@ -431,7 +413,7 @@ export default function TicketsPage() {
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo</label>
-                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white">
+                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.ticketType} onChange={e => setForm({...form, ticketType: e.target.value as "SUPPORT"|"SALES"|"FINANCE"|"MAINTENCE"})}>
                                     <option value="SUPPORT">Suporte</option>
                                     <option value="SALES">Vendas</option>
                                     <option value="FINANCE">Financeiro</option>
@@ -439,24 +421,14 @@ export default function TicketsPage() {
                                 </select>
                             </div>
                         </div>
-                        <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Responsável</label>
-                            <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white">
-                                <option value="">Não atribuído</option>
-                                <option value="pedro">Pedro Braga</option>
-                                <option value="ana">Ana Costa</option>
-                                <option value="carlos">Carlos Silva</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Observações internas</label>
-                            <textarea placeholder="Notas internas sobre o ticket..." className="w-full h-16 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 bg-white resize-none" />
-                        </div>
                     </div>
                     <SheetFooter className="px-6 py-4 border-t border-gray-100">
                         <div className="flex gap-2 w-full">
                             <Button variant="outline" className="flex-1 h-10 rounded-lg text-sm" onClick={() => setDrawerOpen(false)}>Cancelar</Button>
-                            <Button className="flex-1 h-10 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm" onClick={() => { console.log("Creating ticket"); setDrawerOpen(false) }}>Criar Ticket</Button>
+                            <Button className="flex-1 h-10 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm" onClick={handleSubmit} disabled={createMutation.isPending}>
+                                {createMutation.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
+                                Criar Ticket
+                            </Button>
                         </div>
                     </SheetFooter>
                 </SheetContent>
@@ -475,7 +447,10 @@ export default function TicketsPage() {
                     </DialogHeader>
                     <DialogFooter className="gap-2">
                         <Button variant="outline" onClick={() => setClaimTicketId(null)}>Cancelar</Button>
-                        <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" onClick={handleClaimConfirm}>Confirmar</Button>
+                        <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" onClick={handleClaimConfirm} disabled={claimMutation.isPending}>
+                            {claimMutation.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
+                            Confirmar
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
