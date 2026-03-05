@@ -41,6 +41,7 @@ import {
     Loader2,
     Paperclip,
     X,
+    Ticket,
 } from "lucide-react"
 
 const INITIAL_FORM = {
@@ -53,7 +54,7 @@ const INITIAL_FORM = {
 }
 
 type FilterType = "all" | "open" | "pending_client" | "pending_empress" | "in_progress" | "closed" | "mine"
-type SortKey = "id" | "priority" | "ticketDescription" | "status" | "assignee" | "requester" | "date"
+type SortKey = "id" | "priority" | "ticketDescription" | "status" | "assignee" | "date"
 type SortDir = "asc" | "desc"
 
 const FILTERS = [
@@ -82,7 +83,6 @@ const COLUMNS: { key: SortKey; label: string }[] = [
     { key: "ticketDescription", label: "Ticket" },
     { key: "status", label: "Status" },
     { key: "assignee", label: "Responsável" },
-    { key: "requester", label: "Solicitante" },
     { key: "date", label: "Data" },
 ]
 
@@ -100,7 +100,6 @@ function compareTickets(a: TicketData, b: TicketData, key: SortKey, dir: SortDir
         case "ticketDescription": cmp = a.clientName.localeCompare(b.clientName, "pt-BR"); break
         case "status": cmp = a.status.localeCompare(b.status, "pt-BR"); break
         case "assignee": cmp = (a.assigneeName || "").localeCompare(b.assigneeName || "", "pt-BR"); break
-        case "requester": cmp = (a.requesterName || "").localeCompare(b.requesterName || "", "pt-BR"); break
         case "date": cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(); break
     }
     return dir === "asc" ? cmp : -cmp
@@ -267,21 +266,27 @@ export default function TicketsPage() {
     const claimingTicket = allTickets.find((t) => t.id === claimTicketId)
 
     return (
-        <div className="flex h-full">
-            {/* Left Filter Panel — like reference sidebar sections */}
-            <div className="w-56 min-w-56 bg-white h-full flex flex-col px-3 pt-4 border-r border-gray-200">
+        <div className="flex h-full bg-slate-50">
+            {/* Left Filter Panel */}
+            <div className="w-60 min-w-60 bg-white h-full flex flex-col px-4 pt-6 border-r border-slate-200">
+                {/* Header */}
+                <div className="mb-6">
+                    <h1 className="text-lg font-bold text-slate-900">Tickets</h1>
+                    <p className="text-xs text-slate-500 mt-0.5">{counts.all} no total</p>
+                </div>
+
                 {/* Support section */}
-                <div className="mb-4">
+                <div className="mb-6">
                     <button
                         onClick={() => setDefaultOpen(!defaultOpen)}
-                        className="flex items-center justify-between w-full px-2 mb-1"
+                        className="flex items-center justify-between w-full px-2 mb-2"
                     >
-                        <span className="text-xs font-bold text-gray-900">Suporte</span>
-                        {defaultOpen ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</span>
+                        {defaultOpen ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
                     </button>
 
                     {defaultOpen && (
-                        <div className="flex flex-col">
+                        <div className="flex flex-col gap-0.5">
                             {FILTERS.map((filter) => {
                                 const Icon = filter.icon
                                 const isActive = activeFilter === filter.key
@@ -289,18 +294,18 @@ export default function TicketsPage() {
                                     <button
                                         key={filter.key}
                                         onClick={() => setActiveFilter(filter.key)}
-                                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] transition-all ${
+                                        className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all cursor-pointer ${
                                             isActive
-                                                ? "bg-emerald-50 text-emerald-700 font-medium"
-                                                : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                                                ? "bg-indigo-50 text-indigo-700 font-medium"
+                                                : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                                         }`}
                                     >
-                                        <div className="flex items-center gap-2.5">
-                                            <Icon size={14} strokeWidth={1.5} />
+                                        <div className="flex items-center gap-3">
+                                            <Icon size={16} strokeWidth={1.5} />
                                             <span>{filter.label}</span>
                                         </div>
-                                        <span className={`text-xs min-w-5 text-center rounded-full px-1.5 py-0.5 font-medium ${
-                                            isActive ? "bg-emerald-500 text-white" : "text-gray-400"
+                                        <span className={`text-xs min-w-6 text-center rounded-full px-2 py-0.5 font-semibold ${
+                                            isActive ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
                                         }`}>{counts[filter.key]}</span>
                                     </button>
                                 )
@@ -309,34 +314,46 @@ export default function TicketsPage() {
                     )}
                 </div>
 
-                {/* Meus Tickets Section */}
+                {/* My Tickets Section */}
                 <div>
                     <button
                         onClick={() => setMyTicketsOpen(!myTicketsOpen)}
-                        className="flex items-center justify-between w-full px-2 mb-1"
+                        className="flex items-center justify-between w-full px-2 mb-2"
                     >
-                        <span className="text-xs font-bold text-gray-900">Meus Tickets</span>
-                        {myTicketsOpen ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Meus Tickets</span>
+                        {myTicketsOpen ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronUp size={14} className="text-slate-400" />}
                     </button>
 
                     {myTicketsOpen && (
-                        <div className="flex flex-col">
+                        <div className="space-y-1">
                             {myTickets.length === 0 ? (
-                                <div className="flex items-center gap-2 px-2.5 py-1.5 text-gray-400 text-xs">
-                                    <User size={13} />
+                                <div className="flex items-center gap-2.5 px-3 py-3 text-slate-400 text-sm bg-slate-50 rounded-xl">
+                                    <Ticket size={16} />
                                     <span>Nenhum ticket atribuído</span>
                                 </div>
                             ) : (
-                                myTickets.map((ticket) => (
+                                myTickets.slice(0, 5).map((ticket) => (
                                     <Link
                                         key={ticket.id}
                                         href={`/dashboard/tickets/${ticket.id}`}
-                                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors text-left"
+                                        className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
                                     >
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                                        <span className="truncate">{ticket.ticketDescription}</span>
+                                        <span className="text-xs text-slate-400 font-mono">#{ticket.ticketNumber}</span>
+                                        <span className="truncate flex-1">{ticket.ticketDescription}</span>
+                                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium ${
+                                            ticket.priority === "HIGH" ? "bg-red-50 text-red-600" :
+                                            ticket.priority === "MEDIUM" ? "bg-amber-50 text-amber-600" :
+                                            "bg-emerald-50 text-emerald-600"
+                                        }`}>
+                                            {ticket.priority === "HIGH" ? "Alta" : ticket.priority === "MEDIUM" ? "Média" : "Baixa"}
+                                        </span>
                                     </Link>
                                 ))
+                            )}
+                            {myTickets.length > 5 && (
+                                <div className="px-3 py-1 text-xs text-slate-400 text-center">
+                                    +{myTickets.length - 5} mais...
+                                </div>
                             )}
                         </div>
                     )}
@@ -344,62 +361,65 @@ export default function TicketsPage() {
             </div>
 
             {/* Right Content Area */}
-            <div className="flex-1 flex flex-col h-full overflow-hidden bg-white">
-                {/* Top Bar — like reference: search left, sort right */}
-                <div className="flex items-center justify-between px-4 h-12 border-b border-gray-200">
-                    <div className="flex items-center gap-3">
+            <div className="flex-1 flex flex-col h-full overflow-hidden">
+                {/* Top Bar */}
+                <div className="flex items-center justify-between px-6 h-16 bg-white border-b border-slate-200">
+                    <div className="flex items-center gap-4">
                         <div className="relative">
-                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                             <Input
-                                placeholder="Buscar..."
-                                className="pl-8 pr-3 w-56 bg-white border-0 shadow-none h-8 text-sm focus-visible:ring-0 placeholder:text-gray-400"
+                                placeholder="Buscar tickets..."
+                                className="pl-10 pr-4 w-72 bg-slate-50 border-slate-200 h-10 text-sm rounded-xl focus-visible:ring-indigo-500 placeholder:text-slate-400"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                             />
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="sm" className="text-gray-400 hover:text-gray-600 h-8 w-8 p-0">
-                            <Printer size={15} />
+                    <div className="flex items-center gap-3">
+                        <Button variant="outline" size="sm" className="text-slate-600 border-slate-200 hover:bg-slate-50 h-10 px-3 rounded-xl">
+                            <Printer size={16} />
                         </Button>
-                        <Button variant="ghost" size="sm" className="text-gray-400 hover:text-gray-600 gap-1 h-8 px-2">
-                            <FileDown size={15} />
-                            <span className="text-xs">CSV</span>
+                        <Button variant="outline" size="sm" className="text-slate-600 border-slate-200 hover:bg-slate-50 gap-2 h-10 px-4 rounded-xl">
+                            <FileDown size={16} />
+                            <span className="text-sm">Exportar</span>
                         </Button>
-                        <button onClick={() => setDrawerOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors cursor-pointer">
-                            <Plus size={13} /> Novo Ticket
+                        <button onClick={() => setDrawerOpen(true)} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer shadow-sm shadow-indigo-600/25">
+                            <Plus size={16} /> Novo Ticket
                         </button>
                     </div>
                 </div>
 
                 {/* Column Headers */}
-                <div className="grid grid-cols-[70px_80px_1fr_110px_120px_120px_110px] gap-3 px-4 py-2.5 border-b border-gray-200 bg-gray-50/80">
+                <div className="grid grid-cols-[70px_120px_2fr_110px_160px_100px] gap-3 px-6 py-3 border-b border-slate-200 bg-slate-50">
                     {COLUMNS.map((col) => (
                         <button
                             key={col.key}
                             onClick={() => handleSort(col.key)}
-                            className={`flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors cursor-pointer select-none ${col.key === "date" ? "justify-end" : ""}`}
+                            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors cursor-pointer select-none uppercase tracking-wider"
                         >
                             {col.label}
                             {sortKey === col.key && (
                                 sortDir === "desc"
-                                    ? <ArrowDown size={10} />
-                                    : <ArrowUp size={10} />
+                                    ? <ArrowDown size={12} />
+                                    : <ArrowUp size={12} />
                             )}
                         </button>
                     ))}
                 </div>
 
                 {/* Rows */}
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 overflow-y-auto bg-white">
                     {isLoading ? (
-                        <div className="flex items-center justify-center py-16">
-                            <Loader2 size={20} className="animate-spin text-gray-400" />
+                        <div className="flex flex-col items-center justify-center py-20">
+                            <Loader2 size={28} className="animate-spin text-indigo-600" />
+                            <p className="text-sm text-slate-500 mt-3">Carregando tickets...</p>
                         </div>
                     ) : filteredTickets.length === 0 ? (
-                        <div className="flex items-center justify-center py-16 text-gray-400 text-sm">
-                            Nenhum ticket encontrado
+                        <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                            <Ticket size={40} className="text-slate-300 mb-3" />
+                            <p className="text-sm font-medium text-slate-600">Nenhum ticket encontrado</p>
+                            <p className="text-xs text-slate-400 mt-1">Tente ajustar os filtros ou busca</p>
                         </div>
                     ) : (
                         filteredTickets.map((ticket) => (

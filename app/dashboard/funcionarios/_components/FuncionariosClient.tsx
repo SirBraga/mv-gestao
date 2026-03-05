@@ -42,11 +42,23 @@ import {
     Eye,
     EyeOff,
     Loader2,
+    ChevronUp,
+    ChevronDown,
+    Printer,
+    FileDown,
+    ArrowUp,
+    ArrowDown,
+    Users,
+    Star,
+    Pencil,
 } from "lucide-react"
 import { toast } from "react-toastify"
 import { getUsers, createUser, updateUserRole, deleteUser } from "@/app/actions/users"
 
 type Role = "ADMIN" | "MODERATOR" | "USER"
+type FilterType = "all" | "admin" | "moderator" | "user"
+type SortKey = "name" | "email" | "role" | "createdAt"
+type SortDir = "asc" | "desc"
 
 interface UserData {
     id: string
@@ -70,15 +82,40 @@ const roleLabels: Record<Role, string> = {
 }
 
 const roleBadgeColors: Record<Role, string> = {
-    ADMIN: "bg-red-50 text-red-700 border-red-200",
-    MODERATOR: "bg-amber-50 text-amber-700 border-amber-200",
-    USER: "bg-gray-50 text-gray-600 border-gray-200",
+    ADMIN: "bg-red-500",
+    MODERATOR: "bg-amber-500",
+    USER: "bg-slate-400",
 }
 
 const roleIcons: Record<Role, typeof Shield> = {
     ADMIN: Crown,
     MODERATOR: ShieldCheck,
     USER: User,
+}
+
+const FILTERS = [
+    { key: "all" as FilterType, label: "Todos", icon: Users },
+    { key: "admin" as FilterType, label: "Administradores", icon: Crown },
+    { key: "moderator" as FilterType, label: "Moderadores", icon: ShieldCheck },
+    { key: "user" as FilterType, label: "Usuários", icon: User },
+]
+
+const COLUMNS: { key: SortKey; label: string }[] = [
+    { key: "name", label: "Funcionário" },
+    { key: "email", label: "Email" },
+    { key: "role", label: "Permissão" },
+    { key: "createdAt", label: "Criado em" },
+]
+
+function compareUsers(a: UserData, b: UserData, key: SortKey, dir: SortDir): number {
+    let cmp = 0
+    switch (key) {
+        case "name": cmp = a.name.localeCompare(b.name, "pt-BR"); break
+        case "email": cmp = a.email.localeCompare(b.email); break
+        case "role": cmp = a.role.localeCompare(b.role); break
+        case "createdAt": cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(); break
+    }
+    return dir === "asc" ? cmp : -cmp
 }
 
 function getInitials(name: string) {
@@ -95,8 +132,12 @@ function formatDate(date: Date) {
 
 export default function FuncionariosClient({ isAdmin, currentUserId }: Props) {
     const queryClient = useQueryClient()
-    const [search, setSearch] = useState("")
-    const [roleFilter, setRoleFilter] = useState<Role | "ALL">("ALL")
+    const [searchQuery, setSearchQuery] = useState("")
+    const [activeFilter, setActiveFilter] = useState<FilterType>("all")
+    const [sortKey, setSortKey] = useState<SortKey>("name")
+    const [sortDir, setSortDir] = useState<SortDir>("asc")
+    const [defaultOpen, setDefaultOpen] = useState(true)
+    const [favoritesOpen, setFavoritesOpen] = useState(false)
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [deleteModal, setDeleteModal] = useState<string | null>(null)
     const [roleModal, setRoleModal] = useState<{ userId: string; currentRole: Role } | null>(null)
@@ -115,21 +156,39 @@ export default function FuncionariosClient({ isAdmin, currentUserId }: Props) {
     const [formPassword, setFormPassword] = useState("")
     const [formRole, setFormRole] = useState<Role>("USER")
 
-    const filtered = useMemo(() => {
-        return users.filter((u) => {
-            const matchesSearch = !search ||
-                u.name.toLowerCase().includes(search.toLowerCase()) ||
-                u.email.toLowerCase().includes(search.toLowerCase())
-            const matchesRole = roleFilter === "ALL" || u.role === roleFilter
-            return matchesSearch && matchesRole
-        })
-    }, [users, search, roleFilter])
+    const handleSort = (key: SortKey) => {
+        if (sortKey === key) {
+            setSortDir(sortDir === "asc" ? "desc" : "asc")
+        } else {
+            setSortKey(key)
+            setSortDir("asc")
+        }
+    }
 
-    const counts = {
-        ALL: users.length,
-        ADMIN: users.filter(u => u.role === "ADMIN").length,
-        MODERATOR: users.filter(u => u.role === "MODERATOR").length,
-        USER: users.filter(u => u.role === "USER").length,
+    const filteredUsers = useMemo(() => {
+        const filterRoleMap: Record<FilterType, Role[]> = {
+            all: ["ADMIN", "MODERATOR", "USER"],
+            admin: ["ADMIN"],
+            moderator: ["MODERATOR"],
+            user: ["USER"],
+        }
+
+        return users
+            .filter((u) => {
+                const matchesFilter = filterRoleMap[activeFilter].includes(u.role)
+                const matchesSearch = searchQuery === "" ||
+                    u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    u.email.toLowerCase().includes(searchQuery.toLowerCase())
+                return matchesFilter && matchesSearch
+            })
+            .sort((a, b) => compareUsers(a, b, sortKey, sortDir))
+    }, [users, activeFilter, searchQuery, sortKey, sortDir])
+
+    const counts: Record<FilterType, number> = {
+        all: users.length,
+        admin: users.filter(u => u.role === "ADMIN").length,
+        moderator: users.filter(u => u.role === "MODERATOR").length,
+        user: users.filter(u => u.role === "USER").length,
     }
 
     function resetForm() {
@@ -192,178 +251,229 @@ export default function FuncionariosClient({ isAdmin, currentUserId }: Props) {
     const userToDelete = users.find(u => u.id === deleteModal)
 
     return (
-        <div className="flex flex-col h-full overflow-hidden bg-white">
-            {/* Top Bar */}
-            <div className="flex items-center justify-between px-6 h-14 border-b border-gray-200">
-                <div className="flex items-center gap-4">
-                    <h1 className="text-sm font-bold text-gray-900">Funcionários</h1>
-                    <div className="relative">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-                        <Input
-                            placeholder="Buscar por nome ou email..."
-                            className="pl-8 pr-3 w-64 bg-white border-0 shadow-none h-8 text-sm focus-visible:ring-0 placeholder:text-gray-400"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                        />
-                    </div>
+        <div className="flex h-full bg-slate-50">
+            {/* Left Filter Panel */}
+            <div className="w-60 min-w-60 bg-white h-full flex flex-col px-4 pt-6 border-r border-slate-200">
+                {/* Header */}
+                <div className="mb-6">
+                    <h1 className="text-lg font-bold text-slate-900">Funcionários</h1>
+                    <p className="text-xs text-slate-500 mt-0.5">{counts.all} cadastrados</p>
                 </div>
-                <div className="flex items-center gap-3">
-                    {/* Role Filter */}
-                    <div className="flex items-center gap-1">
-                        {(["ALL", "ADMIN", "MODERATOR", "USER"] as const).map((r) => (
-                            <button
-                                key={r}
-                                onClick={() => setRoleFilter(r)}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                                    roleFilter === r
-                                        ? "bg-blue-50 text-blue-700"
-                                        : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
-                                }`}
-                            >
-                                {r === "ALL" ? "Todos" : roleLabels[r]}
-                                <span className={`ml-1 text-[10px] ${roleFilter === r ? "text-blue-500" : "text-gray-300"}`}>
-                                    {counts[r]}
-                                </span>
-                            </button>
-                        ))}
-                    </div>
 
-                    {isAdmin && (
-                        <button
-                            onClick={() => setDrawerOpen(true)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors cursor-pointer"
-                        >
-                            <Plus size={13} /> Novo Funcionário
-                        </button>
+                {/* Filtros section */}
+                <div className="mb-6">
+                    <button
+                        onClick={() => setDefaultOpen(!defaultOpen)}
+                        className="flex items-center justify-between w-full px-2 mb-2"
+                    >
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Filtros</span>
+                        {defaultOpen ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+                    </button>
+
+                    {defaultOpen && (
+                        <div className="flex flex-col gap-0.5">
+                            {FILTERS.map((filter) => {
+                                const Icon = filter.icon
+                                const isActive = activeFilter === filter.key
+                                return (
+                                    <button
+                                        key={filter.key}
+                                        onClick={() => setActiveFilter(filter.key)}
+                                        className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all cursor-pointer ${
+                                            isActive
+                                                ? "bg-indigo-50 text-indigo-700 font-medium"
+                                                : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <Icon size={16} strokeWidth={1.5} />
+                                            <span>{filter.label}</span>
+                                        </div>
+                                        <span className={`text-xs min-w-6 text-center rounded-full px-2 py-0.5 font-semibold ${
+                                            isActive ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
+                                        }`}>{counts[filter.key]}</span>
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                {/* Favourites Section */}
+                <div>
+                    <button
+                        onClick={() => setFavoritesOpen(!favoritesOpen)}
+                        className="flex items-center justify-between w-full px-2 mb-2"
+                    >
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Favoritos</span>
+                        {favoritesOpen ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronUp size={14} className="text-slate-400" />}
+                    </button>
+
+                    {favoritesOpen && (
+                        <div className="flex items-center gap-2.5 px-3 py-3 text-slate-400 text-sm bg-slate-50 rounded-xl">
+                            <Star size={16} />
+                            <span>Nenhum favorito</span>
+                        </div>
                     )}
                 </div>
             </div>
 
-            {/* Column Headers */}
-            <div className="grid grid-cols-[1.5fr_1.2fr_120px_120px_80px] gap-3 px-6 py-2.5 border-b border-gray-200 bg-gray-50/80">
-                <span className="text-xs font-medium text-gray-500">Funcionário</span>
-                <span className="text-xs font-medium text-gray-500">Email</span>
-                <span className="text-xs font-medium text-gray-500">Permissão</span>
-                <span className="text-xs font-medium text-gray-500">Criado em</span>
-                <span className="text-xs font-medium text-gray-500 text-right">Ações</span>
-            </div>
-
-            {/* Rows */}
-            <div className="flex-1 overflow-y-auto">
-                {isLoading ? (
-                    <div className="flex flex-col">
-                        {[...Array(6)].map((_, i) => (
-                            <div key={i} className="grid grid-cols-[1.5fr_1.2fr_120px_120px_80px] items-center border-b border-gray-100 px-6 py-3 gap-3">
-                                <div className="flex items-center gap-2.5">
-                                    <div className="w-8 h-8 rounded-full bg-gray-100 animate-pulse shrink-0" />
-                                    <div className="space-y-1.5 flex-1">
-                                        <div className="h-3 bg-gray-100 rounded animate-pulse w-3/4" />
-                                        <div className="h-2.5 bg-gray-100 rounded animate-pulse w-1/2" />
-                                    </div>
-                                </div>
-                                <div className="h-3 bg-gray-100 rounded animate-pulse w-4/5" />
-                                <div className="h-5 bg-gray-100 rounded-full animate-pulse w-20" />
-                                <div className="h-3 bg-gray-100 rounded animate-pulse w-16" />
-                                <div className="h-7 bg-gray-100 rounded animate-pulse w-8 ml-auto" />
-                            </div>
-                        ))}
+            {/* Right Content Area */}
+            <div className="flex-1 flex flex-col h-full overflow-hidden">
+                {/* Top Bar */}
+                <div className="flex items-center justify-between px-6 h-16 bg-white border-b border-slate-200">
+                    <div className="flex items-center gap-4">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                            <Input
+                                placeholder="Buscar funcionários..."
+                                className="pl-10 pr-4 w-72 bg-slate-50 border-slate-200 h-10 text-sm rounded-xl focus-visible:ring-indigo-500 placeholder:text-slate-400"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                            />
+                        </div>
                     </div>
-                ) : null}
-                {!isLoading && filtered.map((user) => {
-                    const isMe = user.id === currentUserId
-                    const RoleIcon = roleIcons[user.role]
-                    return (
-                        <div
-                            key={user.id}
-                            className="grid grid-cols-[1.5fr_1.2fr_120px_120px_80px] items-center border-b border-gray-100 hover:bg-gray-50 transition-colors px-6 py-3 gap-3"
+
+                    <div className="flex items-center gap-3">
+                        <Button variant="outline" size="sm" className="text-slate-600 border-slate-200 hover:bg-slate-50 h-10 px-3 rounded-xl">
+                            <Printer size={16} />
+                        </Button>
+                        <Button variant="outline" size="sm" className="text-slate-600 border-slate-200 hover:bg-slate-50 gap-2 h-10 px-4 rounded-xl">
+                            <FileDown size={16} />
+                            <span className="text-sm">Exportar</span>
+                        </Button>
+                        {isAdmin && (
+                            <button onClick={() => setDrawerOpen(true)} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer shadow-sm shadow-indigo-600/25">
+                                <Plus size={16} /> Novo Funcionário
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* Column Headers */}
+                <div className="grid grid-cols-[1.5fr_1.2fr_120px_120px_50px] gap-3 px-6 py-3 border-b border-slate-200 bg-slate-50">
+                    {COLUMNS.map((col) => (
+                        <button
+                            key={col.key}
+                            onClick={() => handleSort(col.key)}
+                            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors cursor-pointer select-none uppercase tracking-wider"
                         >
-                            {/* Name + Avatar */}
-                            <div className="flex items-center gap-2.5 min-w-0">
-                                <Avatar className="h-8 w-8 shrink-0">
-                                    <AvatarImage src={user.image || undefined} />
-                                    <AvatarFallback className="text-[10px] font-bold text-white bg-blue-600">
-                                        {getInitials(user.name)}
-                                    </AvatarFallback>
-                                </Avatar>
-                                <div className="min-w-0">
+                            {col.label}
+                            {sortKey === col.key && (
+                                sortDir === "desc"
+                                    ? <ArrowDown size={12} />
+                                    : <ArrowUp size={12} />
+                            )}
+                        </button>
+                    ))}
+                    <span></span>
+                </div>
+
+                {/* Rows */}
+                <div className="flex-1 overflow-y-auto bg-white">
+                {isLoading ? (
+                        <div className="flex flex-col items-center justify-center py-20">
+                            <Loader2 size={28} className="animate-spin text-indigo-600" />
+                            <p className="text-sm text-slate-500 mt-3">Carregando funcionários...</p>
+                        </div>
+                    ) : filteredUsers.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                            <Users size={40} className="text-slate-300 mb-3" />
+                            <p className="text-sm font-medium text-slate-600">Nenhum funcionário encontrado</p>
+                            <p className="text-xs text-slate-400 mt-1">Tente ajustar os filtros ou busca</p>
+                        </div>
+                    ) : (
+                        filteredUsers.map((user) => {
+                            const isMe = user.id === currentUserId
+                            const RoleIcon = roleIcons[user.role]
+                            return (
+                                <div
+                                    key={user.id}
+                                    className="group grid grid-cols-[1.5fr_1.2fr_120px_120px_50px] items-center border-b border-slate-100 hover:bg-slate-50/50 transition-all px-6 py-3.5 gap-3"
+                                >
+                                    {/* Name + Avatar */}
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <Avatar className="h-9 w-9 shrink-0 ring-2 ring-white shadow-sm">
+                                            <AvatarImage src={user.image || undefined} />
+                                            <AvatarFallback className="text-[10px] font-bold text-white bg-indigo-600">
+                                                {getInitials(user.name)}
+                                            </AvatarFallback>
+                                        </Avatar>
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-1.5">
+                                                <p className="text-sm font-medium text-slate-900 truncate">{user.name}</p>
+                                                {isMe && (
+                                                    <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full">Você</span>
+                                                )}
+                                            </div>
+                                            <p className="text-xs text-slate-400 truncate">{user.email}</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Email */}
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                        <Mail size={12} className="text-slate-300 shrink-0" />
+                                        <span className="text-sm text-slate-600 truncate">{user.email}</span>
+                                    </div>
+
+                                    {/* Role Badge */}
+                                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white w-fit ${roleBadgeColors[user.role]}`}>
+                                        <RoleIcon size={10} />
+                                        {roleLabels[user.role]}
+                                    </span>
+
+                                    {/* Created */}
                                     <div className="flex items-center gap-1.5">
-                                        <p className="text-sm font-medium text-gray-900 truncate">{user.name}</p>
-                                        {isMe && (
-                                            <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">Você</span>
+                                        <Calendar size={11} className="text-slate-300" />
+                                        <span className="text-xs text-slate-500">{formatDate(user.createdAt)}</span>
+                                    </div>
+
+                                    {/* Actions */}
+                                    <div className="flex justify-end">
+                                        {isAdmin && !isMe ? (
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <button className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors opacity-0 group-hover:opacity-100 cursor-pointer">
+                                                        <MoreHorizontal size={16} />
+                                                    </button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end" className="w-48">
+                                                    <DropdownMenuItem
+                                                        onClick={() => setRoleModal({ userId: user.id, currentRole: user.role })}
+                                                        className="gap-2 text-sm cursor-pointer"
+                                                    >
+                                                        <Shield size={14} /> Alterar Permissão
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuSeparator />
+                                                    <DropdownMenuItem
+                                                        onClick={() => setDeleteModal(user.id)}
+                                                        className="gap-2 text-sm text-red-600 focus:text-red-600 cursor-pointer"
+                                                    >
+                                                        <Trash2 size={14} /> Remover
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        ) : (
+                                            <span className="text-[10px] text-slate-300">—</span>
                                         )}
                                     </div>
-                                    <p className="text-xs text-gray-400 truncate lg:hidden">{user.email}</p>
                                 </div>
-                            </div>
-
-                            {/* Email */}
-                            <div className="flex items-center gap-1.5 min-w-0">
-                                <Mail size={12} className="text-gray-300 shrink-0" />
-                                <span className="text-sm text-gray-600 truncate">{user.email}</span>
-                            </div>
-
-                            {/* Role Badge */}
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold w-fit ${roleBadgeColors[user.role]}`}>
-                                <RoleIcon size={10} />
-                                {roleLabels[user.role]}
-                            </span>
-
-                            {/* Created */}
-                            <div className="flex items-center gap-1.5">
-                                <Calendar size={11} className="text-gray-300" />
-                                <span className="text-xs text-gray-500">{formatDate(user.createdAt)}</span>
-                            </div>
-
-                            {/* Actions */}
-                            <div className="flex justify-end">
-                                {isAdmin && !isMe ? (
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <button className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors cursor-pointer">
-                                                <MoreHorizontal size={14} />
-                                            </button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end" className="w-48">
-                                            <DropdownMenuItem
-                                                onClick={() => setRoleModal({ userId: user.id, currentRole: user.role })}
-                                                className="gap-2 text-sm"
-                                            >
-                                                <Shield size={14} /> Alterar Permissão
-                                            </DropdownMenuItem>
-                                            <DropdownMenuSeparator />
-                                            <DropdownMenuItem
-                                                onClick={() => setDeleteModal(user.id)}
-                                                className="gap-2 text-sm text-red-600 focus:text-red-600"
-                                            >
-                                                <Trash2 size={14} /> Remover
-                                            </DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                ) : (
-                                    <span className="text-[10px] text-gray-300">—</span>
-                                )}
-                            </div>
-                        </div>
-                    )
-                })}
-
-                {filtered.length === 0 && (
-                    <div className="flex items-center justify-center py-16 text-gray-400 text-sm">
-                        Nenhum funcionário encontrado
-                    </div>
-                )}
+                            )
+                        })
+                    )}
             </div>
 
+            </div>
             {/* ── Create Drawer ── */}
             <Sheet open={drawerOpen} onOpenChange={(open) => { if (!open) { setDrawerOpen(false); resetForm() } }}>
-                <SheetContent className="sm:max-w-md overflow-y-auto">
-                    <SheetHeader className="px-6 pt-6 pb-4 border-b border-gray-100">
-                        <SheetTitle className="text-base font-bold">Novo Funcionário</SheetTitle>
-                        <SheetDescription className="text-xs text-gray-400">Crie uma conta para um novo colaborador.</SheetDescription>
+                <SheetContent side="right" className="sm:max-w-md w-full p-0">
+                    <SheetHeader className="px-6 pt-6 pb-4 border-b border-slate-100">
+                        <SheetTitle className="text-base">Novo Funcionário</SheetTitle>
+                        <SheetDescription className="text-xs">Crie uma conta para um novo colaborador.</SheetDescription>
                     </SheetHeader>
-                    <div className="px-6 py-5 space-y-4">
+                    <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
                         <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome completo *</label>
+                            <label className="text-xs font-medium text-slate-500 mb-1.5 block">Nome completo *</label>
                             <Input
                                 placeholder="Ex: João da Silva"
                                 value={formName}
@@ -372,7 +482,7 @@ export default function FuncionariosClient({ isAdmin, currentUserId }: Props) {
                             />
                         </div>
                         <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Email *</label>
+                            <label className="text-xs font-medium text-slate-500 mb-1.5 block">Email *</label>
                             <Input
                                 type="email"
                                 placeholder="joao@empresa.com.br"
@@ -382,7 +492,7 @@ export default function FuncionariosClient({ isAdmin, currentUserId }: Props) {
                             />
                         </div>
                         <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Senha *</label>
+                            <label className="text-xs font-medium text-slate-500 mb-1.5 block">Senha *</label>
                             <div className="relative">
                                 <Input
                                     type={showPassword ? "text" : "password"}
@@ -394,14 +504,14 @@ export default function FuncionariosClient({ isAdmin, currentUserId }: Props) {
                                 <button
                                     type="button"
                                     onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                                 >
                                     {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                                 </button>
                             </div>
                         </div>
                         <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Permissão</label>
+                            <label className="text-xs font-medium text-slate-500 mb-1.5 block">Permissão</label>
                             <div className="grid grid-cols-3 gap-2">
                                 {(["USER", "MODERATOR", "ADMIN"] as Role[]).map((r) => {
                                     const Icon = roleIcons[r]
@@ -412,32 +522,32 @@ export default function FuncionariosClient({ isAdmin, currentUserId }: Props) {
                                             onClick={() => setFormRole(r)}
                                             className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all cursor-pointer ${
                                                 formRole === r
-                                                    ? "border-blue-600 bg-blue-50"
-                                                    : "border-gray-200 bg-white hover:border-gray-300"
+                                                    ? "border-indigo-600 bg-indigo-50"
+                                                    : "border-slate-200 bg-white hover:border-slate-300"
                                             }`}
                                         >
-                                            <Icon size={16} className={formRole === r ? "text-blue-600" : "text-gray-400"} />
-                                            <span className={`text-[10px] font-bold ${formRole === r ? "text-blue-600" : "text-gray-500"}`}>
+                                            <Icon size={16} className={formRole === r ? "text-indigo-600" : "text-slate-400"} />
+                                            <span className={`text-[10px] font-bold ${formRole === r ? "text-indigo-600" : "text-slate-500"}`}>
                                                 {roleLabels[r]}
                                             </span>
                                         </button>
                                     )
                                 })}
                             </div>
-                            <div className="mt-2 text-[10px] text-gray-400 space-y-0.5">
+                            <div className="mt-2 text-[10px] text-slate-400 space-y-0.5">
                                 <p><strong>Usuário:</strong> Acesso básico ao sistema</p>
                                 <p><strong>Moderador:</strong> Pode gerenciar tickets e clientes</p>
                                 <p><strong>Admin:</strong> Acesso total, incluindo gerenciar funcionários</p>
                             </div>
                         </div>
                     </div>
-                    <SheetFooter className="px-6 py-4 border-t border-gray-100">
+                    <SheetFooter className="px-6 py-4 border-t border-slate-100">
                         <div className="flex gap-2 w-full">
                             <Button variant="outline" className="flex-1 h-10 rounded-lg text-sm" onClick={() => { setDrawerOpen(false); resetForm() }}>
                                 Cancelar
                             </Button>
                             <Button
-                                className="flex-1 h-10 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm"
+                                className="flex-1 h-10 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm"
                                 disabled={isPending || !formName.trim() || !formEmail.trim() || !formPassword.trim()}
                                 onClick={handleCreate}
                             >
@@ -453,7 +563,7 @@ export default function FuncionariosClient({ isAdmin, currentUserId }: Props) {
                 <DialogContent className="sm:max-w-sm">
                     <DialogHeader>
                         <DialogTitle className="text-base">Alterar Permissão</DialogTitle>
-                        <DialogDescription className="text-xs text-gray-400">
+                        <DialogDescription className="text-xs text-slate-500">
                             Selecione a nova permissão para este funcionário.
                         </DialogDescription>
                     </DialogHeader>
@@ -469,15 +579,15 @@ export default function FuncionariosClient({ isAdmin, currentUserId }: Props) {
                                     onClick={() => roleModal && handleRoleChange(roleModal.userId, r)}
                                     className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                                         isCurrent
-                                            ? "border-blue-600 bg-blue-50"
-                                            : "border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/50"
+                                            ? "border-indigo-600 bg-indigo-50"
+                                            : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/50"
                                     }`}
                                 >
-                                    <Icon size={16} className={isCurrent ? "text-blue-600" : "text-gray-400"} />
-                                    <span className={`text-[10px] font-bold ${isCurrent ? "text-blue-600" : "text-gray-500"}`}>
+                                    <Icon size={16} className={isCurrent ? "text-indigo-600" : "text-slate-400"} />
+                                    <span className={`text-[10px] font-bold ${isCurrent ? "text-indigo-600" : "text-slate-500"}`}>
                                         {roleLabels[r]}
                                     </span>
-                                    {isCurrent && <span className="text-[8px] text-blue-500 font-medium">Atual</span>}
+                                    {isCurrent && <span className="text-[8px] text-indigo-500 font-medium">Atual</span>}
                                 </button>
                             )
                         })}
@@ -493,7 +603,7 @@ export default function FuncionariosClient({ isAdmin, currentUserId }: Props) {
                 <DialogContent className="sm:max-w-sm">
                     <DialogHeader>
                         <DialogTitle className="text-base text-red-600">Remover Funcionário</DialogTitle>
-                        <DialogDescription className="text-xs text-gray-500">
+                        <DialogDescription className="text-xs text-slate-500">
                             Tem certeza que deseja remover <strong>{userToDelete?.name}</strong> ({userToDelete?.email})?
                             Esta ação não pode ser desfeita. Todas as sessões e dados de acesso serão removidos.
                         </DialogDescription>

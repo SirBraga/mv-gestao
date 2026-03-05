@@ -16,14 +16,17 @@ export async function getContabilities() {
     const contabilities = await prisma.contability.findMany({
         orderBy: { createdAt: "desc" },
         include: {
-            client: { select: { id: true, name: true } },
+            clients: {
+                select: { id: true, name: true }
+            },
             _count: { select: { ticketsRequested: true } },
         },
     })
     return contabilities.map(c => ({
         id: c.id,
-        clientId: c.clientId,
-        clientName: c.client.name,
+        name: c.name,
+        clientCount: c.clients.length,
+        clientNames: c.clients.map(cl => cl.name).join(", "),
         phone: c.phone,
         email: c.email,
         address: c.address,
@@ -43,7 +46,7 @@ export async function getContabilities() {
 }
 
 export async function createContability(data: {
-    clientId: string
+    name?: string
     phone: string
     email: string
     address: string
@@ -61,7 +64,7 @@ export async function createContability(data: {
     await getSession()
     const contability = await prisma.contability.create({
         data: {
-            clientId: data.clientId,
+            name: data.name,
             phone: data.phone,
             email: data.email,
             address: data.address,

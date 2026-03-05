@@ -28,6 +28,7 @@ export async function getProducts() {
         priceMonthly: p.priceMonthly,
         priceQuarterly: p.priceQuarterly,
         priceYearly: p.priceYearly,
+        hasSerialControl: p.hasSerialControl,
         clientId: p.clientId,
         createdAt: p.createdAt.toISOString(),
     }))
@@ -41,6 +42,7 @@ export async function createProduct(data: {
     priceMonthly?: number
     priceQuarterly?: number
     priceYearly?: number
+    hasSerialControl?: boolean
 }) {
     await getSession()
     const product = await prisma.products.create({
@@ -52,6 +54,7 @@ export async function createProduct(data: {
             priceMonthly: data.priceMonthly || null,
             priceQuarterly: data.priceQuarterly || null,
             priceYearly: data.priceYearly || null,
+            hasSerialControl: data.hasSerialControl || false,
         },
     })
     revalidatePath("/dashboard/produtos")
@@ -66,6 +69,7 @@ export async function updateProduct(id: string, data: {
     priceMonthly?: number | null
     priceQuarterly?: number | null
     priceYearly?: number | null
+    hasSerialControl?: boolean
 }) {
     await getSession()
     await prisma.products.update({ where: { id }, data })
@@ -77,5 +81,60 @@ export async function deleteProduct(id: string) {
     await getSession()
     await prisma.products.delete({ where: { id } })
     revalidatePath("/dashboard/produtos")
+    return { success: true }
+}
+
+// Actions para ClientProductSerial
+export async function getClientProductSerials(clientId: string) {
+    await getSession()
+    const serials = await prisma.clientProductSerial.findMany({
+        where: { clientId },
+        include: {
+            product: { select: { id: true, name: true, hasSerialControl: true } },
+        },
+        orderBy: { createdAt: "desc" },
+    })
+    return serials.map(s => ({
+        id: s.id,
+        productId: s.productId,
+        productName: s.product.name,
+        productHasSerialControl: s.product.hasSerialControl,
+        serial: s.serial,
+        expiresAt: s.expiresAt?.toISOString(),
+        createdAt: s.createdAt.toISOString(),
+    }))
+}
+
+export async function createClientProductSerial(data: {
+    clientId: string
+    productId: string
+    serial: string
+    expiresAt?: Date
+}) {
+    await getSession()
+    const serial = await prisma.clientProductSerial.create({
+        data: {
+            clientId: data.clientId,
+            productId: data.productId,
+            serial: data.serial,
+            expiresAt: data.expiresAt || null,
+        },
+    })
+    revalidatePath(`/dashboard/clientes/${data.clientId}`)
+    return { success: true, id: serial.id }
+}
+
+export async function updateClientProductSerial(id: string, data: {
+    serial?: string
+    expiresAt?: Date | null
+}) {
+    await getSession()
+    await prisma.clientProductSerial.update({ where: { id }, data })
+    return { success: true }
+}
+
+export async function deleteClientProductSerial(id: string) {
+    await getSession()
+    await prisma.clientProductSerial.delete({ where: { id } })
     return { success: true }
 }

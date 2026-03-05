@@ -103,26 +103,24 @@ model Clients {
   zipCode String
   complement String
   cnae String?
+  businessSector String?
   type CType? @default(PESSOA_JURIDICA)
+  contabilityId String?
+  contability Contability? @relation(fields: [contabilityId], references: [id])
   tickets Tickets[]
-  contability Contability[]
   products Products[]
   contacts ClientContact[]
   attachments Attachment[]
+  clientProductSerials ClientProductSerial[]
   hasContract Boolean?
   contractType ContractType?
   supportReleased Boolean?
   blockReason BlockReason?
   photoUrl String?
   ownerName String?
-  ownerAddress String?
   ownerPhone String?
   ownerEmail String?
   ownerCpf String?
-  ownerNeighborhood String?
-  ownerCity String?
-  ownerState String?
-  ownerZipCode String?
   certificateExpiresDate DateTime?
   certificateType String?
 
@@ -219,8 +217,7 @@ model TicketComment {
 
 model Contability {
   id String @id @default(cuid())
-  clientId String
-  client Clients @relation(fields: [clientId], references: [id])
+  name String?
   phone String
   email String
   address String
@@ -234,6 +231,7 @@ model Contability {
   cpf String
   ie String
   type CType? @default(PESSOA_JURIDICA)
+  clients Clients[]
   ticketsRequested Tickets[] @relation("RequestedByContability")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -255,10 +253,28 @@ model Products {
   priceMonthly    Float?  // Preço mensal
   priceQuarterly  Float?  // Preço trimestral
   priceYearly     Float?  // Preço anual
+  hasSerialControl Boolean @default(false)  // Controla se produto exige serial
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  clientProductSerials ClientProductSerial[]
+
   @@map("products")
+}
+
+model ClientProductSerial {
+  id String @id @default(cuid())
+  clientId String
+  client Clients @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  productId String
+  product Products @relation(fields: [productId], references: [id])
+  serial String  // Número do serial
+  expiresAt DateTime?  // Data de expiração do serial
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clientId, productId, serial])  // Um serial não pode se repetir para o mesmo cliente/produto
+  @@map("client_product_serials")
 }
 
 enum Role {
@@ -303,8 +319,9 @@ enum Apontamento_Category {
 
 enum ContractType {
   MENSAL
-  TRIMESTRAL
   ANUAL
+  AVULSO
+  CANCELADO
 }
 
 enum BlockReason {

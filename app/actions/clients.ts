@@ -17,6 +17,7 @@ export async function getClients() {
         orderBy: { createdAt: "desc" },
         include: {
             contacts: true,
+            clientProductSerials: true,
             _count: { select: { tickets: true } },
         },
     })
@@ -27,6 +28,7 @@ export async function getClients() {
         cpf: c.cpf,
         ie: c.ie,
         cnae: c.cnae,
+        businessSector: c.businessSector,
         type: c.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
         city: c.city,
         address: c.address,
@@ -37,6 +39,7 @@ export async function getClients() {
         phone: c.contacts.find(ct => ct.isDefault)?.phone || c.ownerPhone || null,
         email: c.contacts.find(ct => ct.isDefault)?.email || c.ownerEmail || null,
         hasContract: c.hasContract ?? false,
+        contractType: c.contractType,
         supportReleased: c.supportReleased ?? false,
         ownerName: c.ownerName,
         ownerPhone: c.ownerPhone,
@@ -45,6 +48,7 @@ export async function getClients() {
         certificateType: c.certificateType,
         ticketCount: c._count.tickets,
         contactCount: c.contacts.length,
+        clientProductSerials: c.clientProductSerials,
         createdAt: c.createdAt.toISOString(),
     }))
 }
@@ -83,6 +87,7 @@ export async function getClientById(id: string) {
         codigoCSC: client.codigoCSC,
         tokenCSC: client.tokenCSC,
         cnae: client.cnae,
+        businessSector: client.businessSector,
         aditionalInfo: client.aditionalInfo,
         contractType: client.contractType,
         blockReason: client.blockReason,
@@ -97,14 +102,9 @@ export async function getClientById(id: string) {
         hasContract: client.hasContract ?? false,
         supportReleased: client.supportReleased ?? false,
         ownerName: client.ownerName,
-        ownerAddress: client.ownerAddress,
         ownerPhone: client.ownerPhone,
         ownerEmail: client.ownerEmail,
         ownerCpf: client.ownerCpf,
-        ownerNeighborhood: client.ownerNeighborhood,
-        ownerCity: client.ownerCity,
-        ownerState: client.ownerState,
-        ownerZipCode: client.ownerZipCode,
         certificateExpiresDate: client.certificateExpiresDate?.toISOString() || null,
         certificateType: client.certificateType,
         createdAt: client.createdAt.toISOString(),
@@ -143,6 +143,7 @@ export async function createClient(data: {
     codigoCSC?: string
     tokenCSC?: string
     cnae?: string
+    businessSector?: string
     type: "PF" | "PJ"
     address: string
     city: string
@@ -151,17 +152,14 @@ export async function createClient(data: {
     zipCode: string
     complement: string
     aditionalInfo?: string
-    contractType?: "MENSAL" | "TRIMESTRAL" | "ANUAL"
+    contractType?: "MENSAL" | "ANUAL" | "AVULSO" | "CANCELADO"
+    certificateType?: string
+    certificateExpiresDate?: Date
     photoUrl?: string
     ownerName?: string
     ownerPhone?: string
     ownerEmail?: string
     ownerCpf?: string
-    ownerAddress?: string
-    ownerNeighborhood?: string
-    ownerCity?: string
-    ownerState?: string
-    ownerZipCode?: string
     hasContract?: boolean
     supportReleased?: boolean
 }) {
@@ -192,11 +190,6 @@ export async function createClient(data: {
             ownerPhone: data.ownerPhone || null,
             ownerEmail: data.ownerEmail || null,
             ownerCpf: data.ownerCpf || null,
-            ownerAddress: data.ownerAddress || null,
-            ownerNeighborhood: data.ownerNeighborhood || null,
-            ownerCity: data.ownerCity || null,
-            ownerState: data.ownerState || null,
-            ownerZipCode: data.ownerZipCode || null,
             hasContract: data.hasContract ?? false,
             supportReleased: data.supportReleased ?? false,
         },
@@ -264,9 +257,15 @@ export async function getClientContacts(clientId: string) {
 
 export async function getClientContability(clientId: string) {
     await getSession()
-    return prisma.contability.findMany({
-        where: { clientId },
-        select: { id: true, cnpj: true, cpf: true, email: true, phone: true },
+    const client = await prisma.clients.findUnique({
+        where: { id: clientId },
+        select: { contability: true }
+    })
+    if (!client?.contability) return null
+    
+    return prisma.contability.findUnique({
+        where: { id: client.contability.id },
+        select: { id: true, name: true, cnpj: true, cpf: true, email: true, phone: true },
     })
 }
 

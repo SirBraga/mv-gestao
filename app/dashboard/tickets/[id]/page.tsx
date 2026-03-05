@@ -289,7 +289,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
         enabled: !!activeClientId,
     })
 
-    const { data: changeContability = [] } = useQuery({
+    const { data: changeContability } = useQuery({
         queryKey: ["client-contability", activeClientId],
         queryFn: () => getClientContability(activeClientId || ""),
         enabled: !!activeClientId,
@@ -448,21 +448,21 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     const totalComments = ticket.comments.reduce((s: number, c: CommentData) => s + 1 + c.replies.length, 0)
 
     return (
-        <div className="h-full overflow-hidden bg-gray-50/50">
+        <div className="h-full overflow-hidden bg-slate-50/50">
             {/* Top bar */}
-            <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-3 sticky top-0 z-10">
-                <button onClick={() => router.push("/dashboard/tickets")} className="text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"><ArrowLeft size={16} /></button>
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <span className="text-sm font-mono font-semibold text-gray-500 shrink-0">#{ticket.ticketNumber}</span>
-                    <h1 className="text-sm font-semibold text-gray-900 truncate">{ticket.ticketDescription}</h1>
-                    <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold text-white ${statusBadgeColors[status]}`}>{statusLabels[status]}</span>
+            <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center gap-3 sticky top-0 z-10 shadow-sm">
+                <button onClick={() => router.push("/dashboard/tickets")} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all cursor-pointer"><ArrowLeft size={16} /></button>
+                <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                    <span className="text-sm font-mono font-bold text-indigo-600 shrink-0">#{ticket.ticketNumber}</span>
+                    <h1 className="text-sm font-semibold text-slate-900 truncate">{ticket.ticketDescription}</h1>
+                    <span className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold text-white shadow-sm ${statusBadgeColors[status]}`}>{statusLabels[status]}</span>
                 </div>
-                <div className="flex items-center gap-1.5 flex-wrap shrink-0">
-                    {status !== "CLOSED" && <button onClick={() => setShowApontamentoModal(true)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-[11px] font-medium hover:bg-gray-50 transition-all cursor-pointer"><Plus size={11} /> Apontamento</button>}
-                    {!ticket.assignedTo && <button onClick={() => setShowClaimModal(true)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-[11px] font-medium hover:bg-gray-50 transition-all cursor-pointer"><UserPlus size={11} /> Assumir</button>}
-                    <button onClick={() => setShowAssignModal(true)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-[11px] font-medium hover:bg-gray-50 transition-all cursor-pointer"><UserCheck size={11} /> Atribuir</button>
-                    {status !== "CLOSED" && ticket.apontamentos.length > 0 && <button onClick={() => setShowCloseModal(true)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-red-500 text-[11px] font-medium hover:bg-gray-50 transition-all cursor-pointer"><XCircle size={11} /> Fechar</button>}
-                    {status === "CLOSED" && <button onClick={() => setShowReopenModal(true)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-[11px] font-medium hover:bg-gray-50 transition-all cursor-pointer"><RotateCcw size={11} /> Reabrir</button>}
+                <div className="flex items-center gap-2 flex-wrap shrink-0">
+                    {status !== "CLOSED" && <button onClick={() => setShowApontamentoModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-all cursor-pointer"><Plus size={12} /> Apontamento</button>}
+                    {!ticket.assignedTo && <button onClick={() => setShowClaimModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-all cursor-pointer"><UserPlus size={12} /> Assumir</button>}
+                    <button onClick={() => setShowAssignModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-all cursor-pointer"><UserCheck size={12} /> Atribuir</button>
+                    {status !== "CLOSED" && ticket.apontamentos.length > 0 && <button onClick={() => setShowCloseModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-red-500 text-xs font-medium hover:bg-slate-50 transition-all cursor-pointer"><XCircle size={12} /> Fechar</button>}
+                    {status === "CLOSED" && <button onClick={() => setShowReopenModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-all cursor-pointer"><RotateCcw size={12} /> Reabrir</button>}
                 </div>
             </div>
 
@@ -789,11 +789,9 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                                 ))}
                             </optgroup>
                         )}
-                        {changeContability.length > 0 && (
+                        {changeContability && (
                             <optgroup label="Contabilidade">
-                                {changeContability.map((cont: { id: string; cnpj: string | null; cpf: string | null }) => (
-                                    <option key={cont.id} value={`contability:${cont.id}`}>{cont.cnpj || cont.cpf || "Contabilidade"}</option>
-                                ))}
+                                <option value={`contability:${changeContability.id}`}>{changeContability.cnpj || changeContability.cpf || changeContability.name || "Contabilidade"}</option>
                             </optgroup>
                         )}
                     </select>
