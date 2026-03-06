@@ -80,7 +80,7 @@ const INITIAL_FORM = {
     name: "", type: "PJ" as "PF" | "PJ", cnpj: "", cpf: "", ie: "", state: "",
     codigoCSC: "", tokenCSC: "",
     cnae: "", businessSector: "",
-    phone: "", email: "", aditionalInfo: "",
+    phone: "", mobile: "", email: "", aditionalInfo: "",
     address: "", city: "", houseNumber: "", neighborhood: "", zipCode: "", complement: "",
     ownerName: "", ownerPhone: "", ownerEmail: "", ownerCpf: "",
     hasContract: false, contractType: "" as "" | "MENSAL" | "ANUAL" | "AVULSO" | "CANCELADO",
@@ -597,7 +597,7 @@ export default function Clientes() {
                                     <Input placeholder="Código CSC" className="h-9 rounded-lg text-sm" value={form.codigoCSC} onChange={e => setForm({...form, codigoCSC: e.target.value})} />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Token CSC</label>
+                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Token</label>
                                     <Input placeholder="Token" className="h-9 rounded-lg text-sm" value={form.tokenCSC} onChange={e => setForm({...form, tokenCSC: e.target.value})} />
                                 </div>
                             </div>
@@ -652,30 +652,24 @@ export default function Clientes() {
                             <Input placeholder="Sala 1" className="h-9 rounded-lg text-sm" value={form.complement} onChange={e => setForm({...form, complement: e.target.value})} />
                         </div>
 
-                        {/* Contrato */}
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Contrato</p>
-                        <div className="grid grid-cols-2 gap-3">
-                            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                                <input type="checkbox" checked={form.hasContract} onChange={e => setForm({...form, hasContract: e.target.checked})} className="rounded" /> Tem contrato
-                            </label>
-                            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                                <input type="checkbox" checked={form.supportReleased} onChange={e => setForm({...form, supportReleased: e.target.checked})} className="rounded" /> Suporte liberado
-                            </label>
+                        {/* Contatos */}
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Contatos</p>
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Email</label>
+                            <Input placeholder="email@empresa.com" className="h-9 rounded-lg text-sm" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
                         </div>
-                        {form.hasContract && (
+                        <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo de Contrato</label>
-                                <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.contractType} onChange={e => setForm({...form, contractType: e.target.value as "" | "MENSAL" | "ANUAL" | "AVULSO" | "CANCELADO"})}>
-                                    <option value="">Selecione</option>
-                                    <option value="MENSAL">Mensal</option>
-                                    <option value="ANUAL">Anual</option>
-                                    <option value="AVULSO">Avulso</option>
-                                    <option value="CANCELADO">Cancelado</option>
-                                </select>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Telefone</label>
+                                <Input placeholder="(00) 00000-0000" className="h-9 rounded-lg text-sm" value={form.phone} onChange={e => setForm({...form, phone: maskPhone(e.target.value)})} />
                             </div>
-                        )}
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Celular</label>
+                                <Input placeholder="(00) 00000-0000" className="h-9 rounded-lg text-sm" value={form.mobile} onChange={e => setForm({...form, mobile: maskPhone(e.target.value)})} />
+                            </div>
+                        </div>
 
-                        {/* Proprietário */}
+                        {/* Dados do Proprietário */}
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Dados do Proprietário</p>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
@@ -697,7 +691,7 @@ export default function Clientes() {
                                 <Input placeholder="email@proprietario.com" className="h-9 rounded-lg text-sm" value={form.ownerEmail} onChange={e => setForm({...form, ownerEmail: e.target.value})} />
                             </div>
                         </div>
-                        
+
                         {/* Produtos contratados (opcional) */}
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Produtos Contratados <span className="normal-case font-normal">(opcional)</span></p>
                         <div>
@@ -793,6 +787,43 @@ export default function Clientes() {
                             )}
                         </div>
 
+                        {/* Contrato */}
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Contrato</p>
+                        <div className="grid grid-cols-2 gap-3">
+                            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                <input type="checkbox" checked={form.hasContract} onChange={e => setForm({...form, hasContract: e.target.checked})} className="rounded" /> Tem contrato
+                            </label>
+                            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                <input type="checkbox" checked={form.supportReleased} onChange={e => setForm({...form, supportReleased: e.target.checked})} className="rounded" /> Suporte liberado
+                            </label>
+                        </div>
+                        {form.hasContract && (
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo de Contrato</label>
+                                <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.contractType} onChange={e => setForm({...form, contractType: e.target.value as "" | "MENSAL" | "ANUAL" | "AVULSO" | "CANCELADO"})}>
+                                    <option value="">Selecione</option>
+                                    <option value="MENSAL">Mensal</option>
+                                    <option value="ANUAL">Anual</option>
+                                    <option value="AVULSO">Avulso</option>
+                                    <option value="CANCELADO">Cancelado</option>
+                                </select>
+                            </div>
+                        )}
+
+                        {/* CSC / Token (only PJ) */}
+                        {form.type === "PJ" && (
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Código CSC</label>
+                                    <Input placeholder="Código CSC" className="h-9 rounded-lg text-sm" value={form.codigoCSC} onChange={e => setForm({...form, codigoCSC: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Token</label>
+                                    <Input placeholder="Token" className="h-9 rounded-lg text-sm" value={form.tokenCSC} onChange={e => setForm({...form, tokenCSC: e.target.value})} />
+                                </div>
+                            </div>
+                        )}
+
                         {/* Contabilidades (opcional) */}
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Contabilidades <span className="normal-case font-normal">(opcional)</span></p>
                         <div>
@@ -841,33 +872,34 @@ export default function Clientes() {
                             )}
                         </div>
 
-                        {/* Certificado Digital */}
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Certificado Digital (Opcional)</p>
+                        {/* Certificado Digital (Opcional) */}
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Certificado Digital <span className="normal-case font-normal">(Opcional)</span></p>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo de Certificado</label>
-                                <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.certificateType || ""} onChange={e => setForm({...form, certificateType: e.target.value})}>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo</label>
+                                <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.certificateType} onChange={e => setForm({...form, certificateType: e.target.value})}>
                                     <option value="">Selecione</option>
                                     <option value="A1">A1</option>
                                     <option value="A3">A3</option>
+                                    <option value="B1">B1</option>
                                 </select>
                             </div>
                             <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Data de Expiração</label>
-                                <Input 
-                                    type="date" 
-                                    className="h-9 rounded-lg text-sm" 
-                                    value={form.certificateExpiresDate || ""} 
-                                    onChange={e => setForm({...form, certificateExpiresDate: e.target.value})} 
-                                />
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Data de Vencimento</label>
+                                <Input type="date" className="h-9 rounded-lg text-sm" value={form.certificateExpiresDate} onChange={e => setForm({...form, certificateExpiresDate: e.target.value})} />
                             </div>
                         </div>
 
-                        {/* Descrição */}
+                        {/* Informações Adicionais */}
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Informações Adicionais</p>
                         <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Descrição / Observações</label>
-                            <textarea placeholder="Observações sobre o cliente..." className="w-full min-h-20 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 bg-white resize-y" value={form.aditionalInfo} onChange={e => setForm({...form, aditionalInfo: e.target.value})} />
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Observações</label>
+                            <textarea 
+                                placeholder="Informações adicionais..." 
+                                className="w-full h-20 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 bg-white resize-none" 
+                                value={form.aditionalInfo} 
+                                onChange={e => setForm({...form, aditionalInfo: e.target.value})}
+                            />
                         </div>
                     </div>
                     <SheetFooter className="px-6 py-4 border-t border-gray-100">
@@ -875,7 +907,6 @@ export default function Clientes() {
                             <Button variant="outline" className="flex-1 h-10 rounded-lg text-sm" onClick={() => setDrawerOpen(false)}>Cancelar</Button>
                             <Button className="flex-1 h-10 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm" onClick={handleSubmit} disabled={createMutation.isPending || uploading}>
                                 {(createMutation.isPending || uploading) ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
-                                Salvar Cliente
                             </Button>
                         </div>
                     </SheetFooter>

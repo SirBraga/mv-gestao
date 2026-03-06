@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { use } from "react"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getClientById, updateClient, toggleClientSupport, addClientContact, deleteClientContact, addClientAttachment, deleteClientAttachment } from "@/app/actions/clients"
+import { getClientById, updateClient, toggleClientSupport, addClientContact, deleteClientContact, addClientAttachment, deleteClientAttachment, cancelContract } from "@/app/actions/clients"
 import { getProducts, createClientProductSerial, getClientProductSerials } from "@/app/actions/products"
 import { maskCPF, maskCNPJ, maskPhone, maskCEP } from "@/app/utils/masks"
 import { Button } from "@/components/ui/button"
@@ -114,16 +114,53 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     })
 
     const toggleSupportMutation = useMutation({
-        mutationFn: ({ released, reason }: { released: boolean; reason?: "CONTRATO_CANCELADO" | "INADIMPLENCIA" | "SOLICITACAO_CLIENTE" | "OUTROS" }) => toggleClientSupport(id, released, reason),
+        mutationFn: ({ released, reason }: { released: boolean; reason?: string }) => toggleClientSupport(id, released, reason as any),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["client", id] })
             queryClient.invalidateQueries({ queryKey: ["clients"] })
             toast.success(client?.supportReleased ? "Suporte bloqueado" : "Suporte liberado")
             setShowBlockModal(false)
             setBlockReason("")
+            setContractCancelReason("")
+            setContractCancelDate("")
         },
         onError: (err: Error) => toast.error(err.message),
     })
+
+    const handleBlockWithContractCancel = async () => {
+        if (!client) return
+        
+        if (client.supportReleased && !blockReason) {
+            return toast.error("Selecione o motivo do bloqueio")
+        }
+
+        if (blockReason === "CONTRATO_CANCELADO") {
+            if (!contractCancelReason) {
+                return toast.error("Selecione o motivo do cancelamento")
+            }
+            if (!contractCancelDate) {
+                return toast.error("Informe a data do cancelamento")
+            }
+            
+            // Primeiro cancela o contrato
+            await cancelContract(id, contractCancelReason, contractCancelDate)
+            toast.success("Contrato cancelado e suporte bloqueado!")
+        } else {
+            // Apenas bloqueia/libera o suporte
+            toggleSupportMutation.mutate({ released: !client.supportReleased, reason: blockReason || undefined })
+            return
+        }
+
+        // Limpa os estados
+        setShowBlockModal(false)
+        setBlockReason("")
+        setContractCancelReason("")
+        setContractCancelDate("")
+        
+        // Invalida as queries
+        queryClient.invalidateQueries({ queryKey: ["client", id] })
+        queryClient.invalidateQueries({ queryKey: ["clients"] })
+    }
 
     const addContactMut = useMutation({
         mutationFn: (data: { name: string; phone?: string; email?: string; role?: string }) => addClientContact(id, data),
@@ -178,6 +215,8 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     const [copied, setCopied] = useState<string | null>(null)
     const [showBlockModal, setShowBlockModal] = useState(false)
     const [blockReason, setBlockReason] = useState<"" | "CONTRATO_CANCELADO" | "INADIMPLENCIA" | "SOLICITACAO_CLIENTE" | "OUTROS">("")
+    const [contractCancelReason, setContractCancelReason] = useState("")
+    const [contractCancelDate, setContractCancelDate] = useState("")
     const [editing, setEditing] = useState(false)
     const [editForm, setEditForm] = useState<Record<string, string>>({})
     const [showContactModal, setShowContactModal] = useState(false)
@@ -231,8 +270,10 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             cnae: client.cnae || "",
             businessSector: client.businessSector || "",
             contractType: client.contractType || "",
+            contractCancelReason: client.contractCancelReason || "",
             certificateType: client.certificateType || "",
             certificateExpiresDate: client.certificateExpiresDate ? client.certificateExpiresDate.split('T')[0] : "",
+            contractCancelDate: client.contractCancelDate ? new Date(client.contractCancelDate + 'T12:00:00').toISOString().split('T')[0] : "",
             address: client.address || "",
             houseNumber: client.houseNumber || "",
             neighborhood: client.neighborhood || "",
@@ -279,22 +320,34 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             }
         }
 
-        // Salvar dados do cliente
-        const data: Record<string, unknown> = {}
-        const fields = ["name", "cnpj", "cpf", "ie", "state", "codigoCSC", "tokenCSC", "cnae", "businessSector", "contractType", "certificateType", "address", "houseNumber", "neighborhood", "city", "zipCode", "complement", "aditionalInfo", "ownerName", "ownerCpf", "ownerPhone", "ownerEmail"]
-        for (const f of fields) {
-            data[f] = editForm[f] || null
-        }
-        data.name = editForm.name
-        data.address = editForm.address || ""
-        data.city = editForm.city || ""
-        data.houseNumber = editForm.houseNumber || ""
-        data.neighborhood = editForm.neighborhood || ""
-        data.zipCode = editForm.zipCode || ""
-        data.complement = editForm.complement || ""
-        data.certificateExpiresDate = editForm.certificateExpiresDate ? new Date(editForm.certificateExpiresDate) : null
+        // Se o contrato foi cancelado, usar função especial de cancelamento
+        if (editForm.contractType === "CANCELADO") {
+            if (!editForm.contractCancelReason) {
+                return toast.error("Motivo do cancelamento é obrigatório")
+            }
+            await cancelContract(id, editForm.contractCancelReason, editForm.contractCancelDate)
+        } else {
+            // Salvar dados do cliente normally
+            const data: Record<string, unknown> = {}
+            const fields = ["name", "cnpj", "cpf", "ie", "state", "codigoCSC", "tokenCSC", "cnae", "businessSector", "contractType", "contractCancelReason", "contractCancelDate", "certificateType", "address", "houseNumber", "neighborhood", "city", "zipCode", "complement", "aditionalInfo", "ownerName", "ownerCpf", "ownerPhone", "ownerEmail"]
+            for (const f of fields) {
+                data[f] = editForm[f] || null
+            }
+            data.name = editForm.name
+            data.address = editForm.address || ""
+            data.city = editForm.city || ""
+            data.houseNumber = editForm.houseNumber || ""
+            data.neighborhood = editForm.neighborhood || ""
+            data.zipCode = editForm.zipCode || ""
+            data.complement = editForm.complement || ""
+            data.aditionalInfo = editForm.aditionalInfo || ""
+            data.ownerName = editForm.ownerName || ""
+            data.ownerPhone = editForm.ownerPhone || ""
+            data.ownerEmail = editForm.ownerEmail || ""
+            data.ownerCpf = editForm.ownerCpf || ""
 
-        await updateMutation.mutateAsync(data)
+            await updateClient(id, data)
+        }
 
         // Salvar seriais dos produtos
         for (const productId of selectedProductIds) {
@@ -553,8 +606,8 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                             <Input className="h-9 text-sm font-mono" value={editForm.codigoCSC || ""} onChange={e => setEditForm({ ...editForm, codigoCSC: e.target.value })} placeholder="Código CSC" />
                                         </div>
                                         <div>
-                                            <label className="text-xs text-slate-600 mb-1.5 block font-medium">Token CSC</label>
-                                            <Input className="h-9 text-sm font-mono" value={editForm.tokenCSC || ""} onChange={e => setEditForm({ ...editForm, tokenCSC: e.target.value })} placeholder="Token CSC" />
+                                            <label className="text-xs text-slate-600 mb-1.5 block font-medium">Token</label>
+                                            <Input className="h-9 text-sm font-mono" value={editForm.tokenCSC || ""} onChange={e => setEditForm({ ...editForm, tokenCSC: e.target.value })} placeholder="Token" />
                                         </div>
                                     </div>
                                 )}
@@ -577,6 +630,34 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                             <option value="CANCELADO">Cancelado</option>
                                         </select>
                                     </div>
+                                    {editForm.contractType === "CANCELADO" && (
+                                        <div className="space-y-3">
+                                            <div>
+                                                <label className="text-xs text-slate-600 mb-1.5 block font-medium">Motivo do Cancelamento</label>
+                                                <select className="w-full h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 bg-white" value={editForm.contractCancelReason || ""} onChange={e => setEditForm({ ...editForm, contractCancelReason: e.target.value })}>
+                                                    <option value="">Selecione o motivo</option>
+                                                    <option value="INADIMPLENCIA">Inadimplência</option>
+                                                    <option value="FIM_DE_CONTRATO">Fim de Contrato</option>
+                                                    <option value="MUTUO_ACORDO">Mútuo Acordo</option>
+                                                    <option value="DESCUMPRIMENTO">Descumprimento de Cláusulas</option>
+                                                    <option value="INSATISFACAO_COM_SERVICO">Insatisfação com o Serviço</option>
+                                                    <option value="MUDANCA_DE_FOCO">Mudança de Foco do Negócio</option>
+                                                    <option value="FUSAO_AQUISICAO">Fusão ou Aquisição</option>
+                                                    <option value="ENCERRAMENTO_ATIVIDADES">Encerramento de Atividades</option>
+                                                    <option value="OUTRO">Outro</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs text-slate-600 mb-1.5 block font-medium">Data do Cancelamento</label>
+                                                <Input 
+                                                    type="date" 
+                                                    className="w-full h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 bg-white" 
+                                                    value={editForm.contractCancelDate || ""} 
+                                                    onChange={e => setEditForm({ ...editForm, contractCancelDate: e.target.value })} 
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ) : (
@@ -617,7 +698,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                 )}
                                 {client.tokenCSC && (
                                     <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
-                                        <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">Token CSC</span>
+                                        <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">Token</span>
                                         <span className="text-sm text-slate-900 font-mono">{client.tokenCSC}</span>
                                     </div>
                                 )}
@@ -631,6 +712,30 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                     <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
                                         <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">Tipo de Contrato</span>
                                         <span className="text-sm text-slate-900">{client.contractType}</span>
+                                    </div>
+                                )}
+                                {client.contractType === "CANCELADO" && client.contractCancelReason && (
+                                    <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
+                                        <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">Motivo do Cancelamento</span>
+                                        <span className="text-sm text-red-600">
+                                            {client.contractCancelReason === "INADIMPLENCIA" && "Inadimplência"}
+                                            {client.contractCancelReason === "FIM_DE_CONTRATO" && "Fim de Contrato"}
+                                            {client.contractCancelReason === "MUTUO_ACORDO" && "Mútuo Acordo"}
+                                            {client.contractCancelReason === "DESCUMPRIMENTO" && "Descumprimento de Cláusulas"}
+                                            {client.contractCancelReason === "INSATISFACAO_COM_SERVICO" && "Insatisfação com o Serviço"}
+                                            {client.contractCancelReason === "MUDANCA_DE_FOCO" && "Mudança de Foco do Negócio"}
+                                            {client.contractCancelReason === "FUSAO_AQUISICAO" && "Fusão ou Aquisição"}
+                                            {client.contractCancelReason === "ENCERRAMENTO_ATIVIDADES" && "Encerramento de Atividades"}
+                                            {client.contractCancelReason === "OUTRO" && "Outro"}
+                                        </span>
+                                    </div>
+                                )}
+                                {client.contractType === "CANCELADO" && client.contractCancelDate && (
+                                    <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
+                                        <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">Data do Cancelamento</span>
+                                        <span className="text-sm text-red-600">
+                                            {new Date(client.contractCancelDate + 'T12:00:00').toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+                                        </span>
                                     </div>
                                 )}
                             </div>
@@ -1269,22 +1374,53 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             </div>
 
             {/* Modal Bloquear/Liberar */}
-            <Dialog open={showBlockModal} onOpenChange={(open) => { setShowBlockModal(open); if (!open) setBlockReason("") }}>
+            <Dialog open={showBlockModal} onOpenChange={(open) => { setShowBlockModal(open); if (!open) { setBlockReason(""); setContractCancelReason(""); setContractCancelDate("") } }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle>{client.supportReleased ? "Bloquear Suporte" : "Liberar Suporte"}</DialogTitle>
                         <DialogDescription>{client.supportReleased ? `Deseja bloquear o suporte para ${client.name}?` : `Deseja liberar o suporte para ${client.name}?`}</DialogDescription>
                     </DialogHeader>
                     {client.supportReleased && (
-                        <div className="py-2">
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Motivo do bloqueio *</label>
-                            <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={blockReason} onChange={e => setBlockReason(e.target.value as typeof blockReason)}>
-                                <option value="">Selecione o motivo</option>
-                                <option value="CONTRATO_CANCELADO">Contrato cancelado</option>
-                                <option value="INADIMPLENCIA">Inadimplência</option>
-                                <option value="SOLICITACAO_CLIENTE">Solicitação do cliente</option>
-                                <option value="OUTROS">Outros</option>
-                            </select>
+                        <div className="py-2 space-y-3">
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Motivo do bloqueio *</label>
+                                <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={blockReason} onChange={e => setBlockReason(e.target.value as typeof blockReason)}>
+                                    <option value="">Selecione o motivo</option>
+                                    <option value="CONTRATO_CANCELADO">Contrato cancelado</option>
+                                    <option value="INADIMPLENCIA">Inadimplência</option>
+                                    <option value="SOLICITACAO_CLIENTE">Solicitação do cliente</option>
+                                    <option value="OUTROS">Outros</option>
+                                </select>
+                            </div>
+                            
+                            {blockReason === "CONTRATO_CANCELADO" && (
+                                <div className="space-y-3 border-t pt-3">
+                                    <div>
+                                        <label className="text-xs font-medium text-gray-500 mb-1.5 block">Motivo do cancelamento *</label>
+                                        <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={contractCancelReason} onChange={e => setContractCancelReason(e.target.value)}>
+                                            <option value="">Selecione o motivo</option>
+                                            <option value="INADIMPLENCIA">Inadimplência</option>
+                                            <option value="FIM_DE_CONTRATO">Fim de Contrato</option>
+                                            <option value="MUTUO_ACORDO">Mútuo Acordo</option>
+                                            <option value="DESCUMPRIMENTO">Descumprimento de Cláusulas</option>
+                                            <option value="INSATISFACAO_COM_SERVICO">Insatisfação com o Serviço</option>
+                                            <option value="MUDANCA_DE_FOCO">Mudança de Foco do Negócio</option>
+                                            <option value="FUSAO_AQUISICAO">Fusão ou Aquisição</option>
+                                            <option value="ENCERRAMENTO_ATIVIDADES">Encerramento de Atividades</option>
+                                            <option value="OUTRO">Outro</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-medium text-gray-500 mb-1.5 block">Data do cancelamento *</label>
+                                        <Input 
+                                            type="date" 
+                                            className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" 
+                                            value={contractCancelDate} 
+                                            onChange={e => setContractCancelDate(e.target.value)} 
+                                        />
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                     <DialogFooter className="gap-2">
@@ -1292,13 +1428,9 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                         <Button
                             className={client.supportReleased ? "bg-red-500 hover:bg-red-600 text-white" : "bg-emerald-500 hover:bg-emerald-600 text-white"}
                             disabled={toggleSupportMutation.isPending || (client.supportReleased && !blockReason)}
-                            onClick={() => {
-                                if (client.supportReleased && !blockReason) return toast.error("Selecione o motivo do bloqueio")
-                                toggleSupportMutation.mutate({ released: !client.supportReleased, reason: blockReason || undefined })
-                            }}
+                            onClick={handleBlockWithContractCancel}
                         >
-                            {toggleSupportMutation.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
-                            {client.supportReleased ? "Bloquear" : "Liberar"}
+                            {toggleSupportMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : (client.supportReleased ? "Bloquear" : "Liberar")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

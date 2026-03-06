@@ -90,6 +90,8 @@ export async function getClientById(id: string) {
         businessSector: client.businessSector,
         aditionalInfo: client.aditionalInfo,
         contractType: client.contractType,
+        contractCancelReason: client.contractCancelReason,
+        contractCancelDate: client.contractCancelDate?.toISOString(),
         blockReason: client.blockReason,
         photoUrl: client.photoUrl,
         type: client.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
@@ -253,6 +255,33 @@ export async function getClientContacts(clientId: string) {
         select: { id: true, name: true, phone: true, email: true, role: true, isDefault: true },
     })
     return contacts
+}
+
+export async function cancelContract(clientId: string, cancelReason: string, cancelDate?: string) {
+    await getSession()
+    
+    // Tratar a data no timezone local (Brasil/São Paulo)
+    let dateToSave: Date
+    if (cancelDate) {
+        // Criar a data no timezone local para evitar conversão UTC
+        const [year, month, day] = cancelDate.split('-').map(Number)
+        dateToSave = new Date(year, month - 1, day, 12, 0, 0) // Meio-dia para evitar problemas com DST
+    } else {
+        dateToSave = new Date()
+    }
+    
+    await prisma.clients.update({
+        where: { id: clientId },
+        data: {
+            contractType: "CANCELADO",
+            contractCancelReason: cancelReason,
+            contractCancelDate: dateToSave,
+            supportReleased: false,
+        },
+    })
+    revalidatePath("/dashboard/clientes")
+    revalidatePath(`/dashboard/clientes/${clientId}`)
+    return { success: true }
 }
 
 export async function getClientContability(clientId: string) {

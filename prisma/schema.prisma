@@ -115,6 +115,8 @@ model Clients {
   hasContract Boolean?
   contractType ContractType?
   supportReleased Boolean?
+  contractCancelReason String?
+  contractCancelDate DateTime?
   blockReason BlockReason?
   photoUrl String?
   ownerName String?
