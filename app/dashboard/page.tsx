@@ -435,7 +435,7 @@ export default function Dashboard() {
                 const status = statusConfig[ticket.status] || { bg: "bg-slate-100", text: "text-slate-600", dot: "bg-slate-400" }
                 const priority = priorityConfig[ticket.priority] || { color: "text-slate-400", label: "" }
                 return (
-                  <Link key={`${ticket.id}-${ticket.date}-${ticket.status}`} href={`/dashboard/tickets/${ticket.id}`} className="group flex min-h-[68px] items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-50/50">
+                  <Link key={`${ticket.id}-${ticket.date}-${ticket.status}`} href={`/dashboard/tickets/${ticket.id}`} className="group flex min-h-17 items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-50/50">
                     <div className="shrink-0">
                       <div className={`flex h-6 w-6 items-center justify-center rounded-full ${status.bg}`}>
                         <span className={`h-1.5 w-1.5 rounded-full ${priority.color.replace("text-", "bg-")}`} />
@@ -471,7 +471,7 @@ export default function Dashboard() {
             </div>
             <div className="divide-y divide-slate-50">
               {activity.map((item: { id: number; description: string; clientName: string; assignedTo: string | null; status: string | null; updatedAt: string }, i: number) => (
-                <div key={`${item.id}-${item.updatedAt}-${i}`} className="flex min-h-[68px] items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-50/50">
+                <div key={`${item.id}-${item.updatedAt}-${i}`} className="flex min-h-17 items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-50/50">
                   <div className="shrink-0">
                     <div className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100">
                       <TrendingUp size={12} className="text-amber-600" />
