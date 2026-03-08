@@ -174,6 +174,7 @@ model Tickets {
   reopenById String?
   apontamentos Apontamento[]
   comments TicketComment[]
+  schedules TicketSchedule[]
   attachments Attachment[]
   assignedTo User? @relation(fields: [assignedToId], references: [id], onDelete: Cascade)
   assignedToId String?
@@ -225,6 +226,24 @@ model TicketComment {
   updatedAt DateTime @updatedAt
 
   @@map("ticket_comment")
+}
+
+model TicketSchedule {
+  id         String                 @id @default(cuid())
+  ticketId   Int
+  ticket     Tickets                @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  title      String
+  description String?
+  type       Ticket_Schedule_Type
+  format     Ticket_Schedule_Format
+  scheduledAt DateTime
+  durationMinutes Int?
+  location   String?
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+
+  @@index([ticketId, scheduledAt])
+  @@map("ticket_schedule")
 }
 
 model Contability {
@@ -375,6 +394,21 @@ enum ContractType {
   ANUAL
   AVULSO
   CANCELADO
+}
+
+enum Ticket_Schedule_Type {
+  TREINAMENTO
+  TIRA_DUVIDAS
+  CONSULTORIA
+  IMPLANTACAO
+  PARAMETRIZACAO
+  REUNIAO_ALINHAMENTO
+  VISITA_TECNICA
+}
+
+enum Ticket_Schedule_Format {
+  PRESENCIAL
+  ONLINE
 }
 
 enum BlockReason {

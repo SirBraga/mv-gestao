@@ -133,6 +133,114 @@ export async function claimTicket(ticketId: string | number) {
     return { success: true }
 }
 
+export async function getTicketSchedules(ticketId: string | number) {
+    await getSession()
+    const normalizedTicketId = normalizeTicketId(ticketId)
+
+    const schedules = await prismaAny.ticketSchedule.findMany({
+        where: { ticketId: normalizedTicketId },
+        orderBy: { scheduledAt: "asc" },
+    })
+
+    return (schedules as any[]).map((schedule) => ({
+        id: schedule.id,
+        title: schedule.title,
+        description: schedule.description,
+        type: schedule.type,
+        format: schedule.format,
+        scheduledAt: schedule.scheduledAt.toISOString(),
+        durationMinutes: schedule.durationMinutes,
+        location: schedule.location,
+        createdAt: schedule.createdAt.toISOString(),
+    }))
+}
+
+export async function createTicketSchedule(data: {
+    ticketId: string | number
+    title?: string
+    description?: string
+    type: "TREINAMENTO" | "TIRA_DUVIDAS" | "CONSULTORIA" | "IMPLANTACAO" | "PARAMETRIZACAO" | "REUNIAO_ALINHAMENTO" | "VISITA_TECNICA"
+    format: "PRESENCIAL" | "ONLINE"
+    scheduledAt: string
+    durationMinutes?: number | null
+}) {
+    await getSession()
+    const normalizedTicketId = normalizeTicketId(data.ticketId)
+
+    if (!data.scheduledAt) throw new Error("Data do agendamento é obrigatória")
+
+    const scheduledAt = new Date(data.scheduledAt)
+    if (Number.isNaN(scheduledAt.getTime())) throw new Error("Data do agendamento inválida")
+    if (scheduledAt.getTime() < Date.now()) throw new Error("Não é possível criar agendamento com data/hora retroativa")
+
+    const ticket = await prismaAny.tickets.findUnique({
+        where: { id: normalizedTicketId },
+        select: {
+            client: {
+                select: {
+                    address: true,
+                    houseNumber: true,
+                    neighborhood: true,
+                    city: true,
+                    state: true,
+                    zipCode: true,
+                    complement: true,
+                },
+            },
+        },
+    })
+
+    if (!ticket) throw new Error("Ticket não encontrado")
+
+    const presencialLocation = [
+        ticket.client.address,
+        ticket.client.houseNumber,
+        ticket.client.neighborhood,
+        ticket.client.city,
+        ticket.client.state,
+        ticket.client.zipCode,
+        ticket.client.complement,
+    ].filter(Boolean).join(", ")
+
+    const scheduleTypeLabelMap: Record<typeof data.type, string> = {
+        TREINAMENTO: "Treinamento",
+        TIRA_DUVIDAS: "Tira dúvidas",
+        CONSULTORIA: "Consultoria",
+        IMPLANTACAO: "Implantação",
+        PARAMETRIZACAO: "Parametrização",
+        REUNIAO_ALINHAMENTO: "Reunião de alinhamento",
+        VISITA_TECNICA: "Visita técnica",
+    }
+
+    const title = data.title?.trim() || `${scheduleTypeLabelMap[data.type]} ${data.format === "PRESENCIAL" ? "presencial" : "online"}`
+
+    const schedule = await prismaAny.ticketSchedule.create({
+        data: {
+            ticketId: normalizedTicketId,
+            title,
+            description: data.description?.trim() || null,
+            type: data.type,
+            format: data.format,
+            scheduledAt,
+            durationMinutes: data.durationMinutes && data.durationMinutes > 0 ? data.durationMinutes : null,
+            location: data.format === "PRESENCIAL" ? presencialLocation || null : "Online",
+        },
+    })
+
+    return {
+        success: true,
+        id: schedule.id,
+    }
+}
+
+export async function deleteTicketSchedule(scheduleId: string) {
+    await getSession()
+    await prismaAny.ticketSchedule.delete({
+        where: { id: scheduleId },
+    })
+    return { success: true }
+}
+
 export async function updateTicketStatus(ticketId: string | number, status: "NOVO" | "PENDING_CLIENT" | "PENDING_EMPRESS" | "IN_PROGRESS" | "CLOSED") {
     await getSession()
     const data: Record<string, unknown> = { ticketStatus: status, cancelReason: null }
@@ -215,7 +323,7 @@ export async function deleteTicket(ticketId: string | number) {
 export async function getTicketById(id: string | number) {
     const session = await getSession()
     const normalizedTicketId = normalizeTicketId(id)
-    const [ticketResult, apontamentoMetrics, totalComments] = await Promise.all([
+    const [ticketResult, apontamentoMetrics, totalComments, schedules] = await Promise.all([
         prismaAny.tickets.findUnique({
             where: { id: normalizedTicketId },
             select: {
@@ -275,6 +383,10 @@ export async function getTicketById(id: string | number) {
         prismaAny.ticketComment.count({
             where: { ticketId: normalizedTicketId },
         }),
+        prismaAny.ticketSchedule.findMany({
+            where: { ticketId: normalizedTicketId },
+            orderBy: { scheduledAt: "asc" },
+        }),
     ])
     const ticket = ticketResult as any
     if (!ticket) throw new Error("Ticket não encontrado")
@@ -323,6 +435,17 @@ export async function getTicketById(id: string | number) {
         totalApontamentos: ticket._count.apontamentos,
         totalMinutes: apontamentoMetrics._sum.duration || 0,
         totalComments,
+        schedules: (schedules as any[]).map((schedule) => ({
+            id: schedule.id,
+            title: schedule.title,
+            description: schedule.description,
+            type: schedule.type,
+            format: schedule.format,
+            scheduledAt: schedule.scheduledAt.toISOString(),
+            durationMinutes: schedule.durationMinutes,
+            location: schedule.location,
+            createdAt: schedule.createdAt.toISOString(),
+        })),
         currentUserId: session.user.id,
     }
 }

@@ -4,70 +4,166 @@ import { prisma } from "@/app/utils/prisma"
 import { auth } from "@/app/utils/auth"
 import { headers } from "next/headers"
 
+type DashboardPeriod = "day" | "week" | "month"
+type ChartBucket = {
+    label: string
+    start: Date
+    end: Date
+}
+
 async function getSession() {
     const session = await auth.api.getSession({ headers: await headers() })
     if (!session) throw new Error("Não autenticado")
     return session
 }
 
-export async function getDashboardStats(viewMode: "mine" | "company", period: "day" | "week" | "month" | "custom", customStart?: string, customEnd?: string) {
+function startOfDay(date: Date) {
+    const next = new Date(date)
+    next.setHours(0, 0, 0, 0)
+    return next
+}
+
+function endOfDay(date: Date) {
+    const next = new Date(date)
+    next.setHours(23, 59, 59, 999)
+    return next
+}
+
+function shiftDays(date: Date, amount: number) {
+    const next = new Date(date)
+    next.setDate(next.getDate() + amount)
+    return next
+}
+
+function buildPrimaryBuckets(period: DashboardPeriod, now: Date): ChartBucket[] {
+    const dayNames = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
+
+    if (period === "day") {
+        const todayStart = startOfDay(now)
+        return Array.from({ length: 6 }, (_, index) => {
+            const start = new Date(todayStart)
+            start.setHours(index * 4, 0, 0, 0)
+            const end = new Date(todayStart)
+            end.setHours(index * 4 + 3, 59, 59, 999)
+            return {
+                label: `${String(start.getHours()).padStart(2, "0")}h`,
+                start,
+                end,
+            }
+        })
+    }
+
+    if (period === "week") {
+        return Array.from({ length: 7 }, (_, index) => {
+            const target = shiftDays(now, -(6 - index))
+            const start = startOfDay(target)
+            const end = endOfDay(target)
+            return {
+                label: dayNames[start.getDay()],
+                start,
+                end,
+            }
+        })
+    }
+
+    return Array.from({ length: 6 }, (_, index) => {
+        const start = startOfDay(shiftDays(now, -(29 - index * 5)))
+        const end = endOfDay(shiftDays(now, -(25 - index * 5)))
+        return {
+            label: `${String(start.getDate()).padStart(2, "0")}/${String(start.getMonth() + 1).padStart(2, "0")}`,
+            start,
+            end,
+        }
+    })
+}
+
+function buildSecondaryBuckets(period: DashboardPeriod, now: Date): ChartBucket[] {
+    if (period === "day") {
+        const todayStart = startOfDay(now)
+        return Array.from({ length: 4 }, (_, index) => {
+            const start = new Date(todayStart)
+            start.setHours(index * 6, 0, 0, 0)
+            const end = new Date(todayStart)
+            end.setHours(index * 6 + 5, 59, 59, 999)
+            return {
+                label: `${String(start.getHours()).padStart(2, "0")}h`,
+                start,
+                end,
+            }
+        })
+    }
+
+    if (period === "week") {
+        const ranges = [
+            { startOffset: 6, endOffset: 5 },
+            { startOffset: 4, endOffset: 3 },
+            { startOffset: 2, endOffset: 1 },
+            { startOffset: 0, endOffset: 0 },
+        ]
+
+        return ranges.map(({ startOffset, endOffset }) => {
+            const start = startOfDay(shiftDays(now, -startOffset))
+            const end = endOfDay(shiftDays(now, -endOffset))
+            return {
+                label: `${String(start.getDate()).padStart(2, "0")}/${String(start.getMonth() + 1).padStart(2, "0")}`,
+                start,
+                end,
+            }
+        })
+    }
+
+    const ranges = [
+        { startOffset: 27, endOffset: 21 },
+        { startOffset: 20, endOffset: 14 },
+        { startOffset: 13, endOffset: 7 },
+        { startOffset: 6, endOffset: 0 },
+    ]
+
+    return ranges.map(({ startOffset, endOffset }) => {
+        const start = startOfDay(shiftDays(now, -startOffset))
+        const end = endOfDay(shiftDays(now, -endOffset))
+        return {
+            label: `${String(start.getDate()).padStart(2, "0")}/${String(start.getMonth() + 1).padStart(2, "0")}`,
+            start,
+            end,
+        }
+    })
+}
+
+export async function getDashboardStats(viewMode: "mine" | "company", period: DashboardPeriod) {
     const session = await getSession()
 
-    // Calculate date range
     const now = new Date()
     let startDate: Date
     let endDate = now
 
     switch (period) {
         case "day":
-            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+            startDate = startOfDay(now)
             break
         case "week":
-            startDate = new Date(now)
-            startDate.setDate(now.getDate() - 7)
+            startDate = startOfDay(shiftDays(now, -6))
             break
         case "month":
-            startDate = new Date(now)
-            startDate.setDate(now.getDate() - 30)
-            break
-        case "custom":
-            startDate = customStart ? new Date(customStart) : new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30)
-            endDate = customEnd ? new Date(customEnd + "T23:59:59") : now
+            startDate = startOfDay(shiftDays(now, -29))
             break
         default:
-            startDate = new Date(now)
-            startDate.setDate(now.getDate() - 7)
+            startDate = startOfDay(shiftDays(now, -6))
     }
 
     const userFilter = viewMode === "mine" ? { assignedToId: session.user.id } : {}
 
-    // Build day ranges for weekly chart (last 7 days)
-    const dayRanges = Array.from({ length: 7 }, (_, i) => {
-        const dayStart = new Date(now)
-        dayStart.setDate(now.getDate() - (6 - i))
-        dayStart.setHours(0, 0, 0, 0)
-        const dayEnd = new Date(dayStart)
-        dayEnd.setHours(23, 59, 59, 999)
-        return { dayStart, dayEnd }
-    })
+    const primaryBuckets = buildPrimaryBuckets(period, now)
+    const secondaryBuckets = buildSecondaryBuckets(period, now)
 
-    // Build month ranges for monthly chart (last 6 months)
-    const monthRanges = Array.from({ length: 6 }, (_, i) => {
-        const monthStart = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1)
-        const monthEnd = new Date(now.getFullYear(), now.getMonth() - (5 - i) + 1, 0, 23, 59, 59, 999)
-        return { monthStart, monthEnd }
-    })
-
-    // Fire ALL queries in parallel — single round-trip batch
     const [
         totalClients,
         totalProducts,
         totalContabilities,
         openTickets,
-        ticketsInPeriod,
+        ticketsOpenedInPeriod,
         closedInPeriod,
         recentTickets,
-        topClientsRaw,
         recentActivity,
         ...chartCounts
     ] = await Promise.all([
@@ -80,9 +176,8 @@ export async function getDashboardStats(viewMode: "mine" | "company", period: "d
                 ticketStatus: { in: ["NOVO", "PENDING_CLIENT", "PENDING_EMPRESS", "IN_PROGRESS"] },
             },
         }),
-        prisma.tickets.findMany({
+        prisma.tickets.count({
             where: { ...userFilter, createdAt: { gte: startDate, lte: endDate } },
-            select: { id: true, ticketStatus: true, createdAt: true },
         }),
         prisma.tickets.count({
             where: {
@@ -92,20 +187,21 @@ export async function getDashboardStats(viewMode: "mine" | "company", period: "d
             },
         }),
         prisma.tickets.findMany({
-            where: userFilter,
+            where: {
+                ...userFilter,
+            },
             orderBy: { createdAt: "desc" },
-            take: 5,
+            take: 6,
             include: {
                 client: { select: { name: true } },
                 assignedTo: { select: { name: true } },
             },
         }),
-        prisma.clients.findMany({
-            take: 5,
-            include: { _count: { select: { tickets: true, products: true } } },
-            orderBy: { tickets: { _count: "desc" } },
-        }),
         prisma.tickets.findMany({
+            where: {
+                ...userFilter,
+                updatedAt: { gte: startDate, lte: endDate },
+            },
             orderBy: { updatedAt: "desc" },
             take: 6,
             include: {
@@ -113,32 +209,27 @@ export async function getDashboardStats(viewMode: "mine" | "company", period: "d
                 assignedTo: { select: { name: true } },
             },
         }),
-        // Weekly: 7 days × 2 counts = 14 queries in parallel
-        ...dayRanges.flatMap(({ dayStart, dayEnd }) => [
-            prisma.tickets.count({ where: { ...userFilter, createdAt: { gte: dayStart, lte: dayEnd } } }),
-            prisma.tickets.count({ where: { ...userFilter, ticketStatus: "CLOSED", ticketResolutionDate: { gte: dayStart, lte: dayEnd } } }),
+        ...primaryBuckets.flatMap(({ start, end }) => [
+            prisma.tickets.count({ where: { ...userFilter, createdAt: { gte: start, lte: end } } }),
+            prisma.tickets.count({ where: { ...userFilter, ticketStatus: "CLOSED", ticketResolutionDate: { gte: start, lte: end } } }),
         ]),
-        // Monthly: 6 months × 2 counts = 12 queries in parallel
-        ...monthRanges.flatMap(({ monthStart, monthEnd }) => [
-            prisma.tickets.count({ where: { ...userFilter, createdAt: { gte: monthStart, lte: monthEnd } } }),
-            prisma.tickets.count({ where: { ...userFilter, ticketStatus: "CLOSED", ticketResolutionDate: { gte: monthStart, lte: monthEnd } } }),
+        ...secondaryBuckets.flatMap(({ start, end }) => [
+            prisma.tickets.count({ where: { ...userFilter, createdAt: { gte: start, lte: end } } }),
+            prisma.tickets.count({ where: { ...userFilter, ticketStatus: "CLOSED", ticketResolutionDate: { gte: start, lte: end } } }),
         ]),
     ])
 
-    // Reconstruct weekly chart data
-    const dayNames = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
-    const weeklyData = dayRanges.map(({ dayStart }, i) => ({
-        day: dayNames[dayStart.getDay()],
-        abertos: chartCounts[i * 2] as number,
-        resolvidos: chartCounts[i * 2 + 1] as number,
+    const weeklyData = primaryBuckets.map(({ label }, index) => ({
+        label,
+        abertos: chartCounts[index * 2] as number,
+        resolvidos: chartCounts[index * 2 + 1] as number,
     }))
 
-    // Reconstruct monthly chart data (offset by 14 = 7 days * 2)
-    const monthNames = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
-    const monthlyData = monthRanges.map(({ monthStart }, i) => ({
-        month: monthNames[monthStart.getMonth()],
-        abertos: chartCounts[14 + i * 2] as number,
-        resolvidos: chartCounts[14 + i * 2 + 1] as number,
+    const primaryOffset = primaryBuckets.length * 2
+    const monthlyData = secondaryBuckets.map(({ label }, index) => ({
+        label,
+        abertos: chartCounts[primaryOffset + index * 2] as number,
+        resolvidos: chartCounts[primaryOffset + index * 2 + 1] as number,
     }))
 
     return {
@@ -148,7 +239,7 @@ export async function getDashboardStats(viewMode: "mine" | "company", period: "d
             totalProducts,
             totalContabilities,
         },
-        ticketsOpenedInPeriod: ticketsInPeriod.length,
+        ticketsOpenedInPeriod,
         ticketsClosedInPeriod: closedInPeriod,
         recentTickets: recentTickets.map(t => ({
             id: t.id,
@@ -157,11 +248,6 @@ export async function getDashboardStats(viewMode: "mine" | "company", period: "d
             status: t.ticketStatus || "NOVO",
             priority: t.ticketPriority || "MEDIUM",
             date: t.createdAt.toISOString(),
-        })),
-        topClients: topClientsRaw.map(c => ({
-            name: c.name,
-            tickets: c._count.tickets,
-            products: c._count.products,
         })),
         weeklyData,
         monthlyData,

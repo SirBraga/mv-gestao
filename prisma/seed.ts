@@ -1,6 +1,20 @@
 import { auth } from "../app/utils/auth";
 import { prisma } from "../app/utils/prisma";
 
+function daysAgo(days: number, hour = 10, minute = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  date.setHours(hour, minute, 0, 0);
+  return date;
+}
+
+function daysFrom(base: Date, addDays: number, hour = 15, minute = 0) {
+  const date = new Date(base);
+  date.setDate(date.getDate() + addDays);
+  date.setHours(hour, minute, 0, 0);
+  return date;
+}
+
 async function main() {
   // --- Admin user ---
   const email = "pedrobraga2016@gmail.com";
@@ -222,6 +236,7 @@ async function main() {
   const contabilityData = [
     {
       clientId: "9462",
+      name: "Contabilidade João Silva",
       phone: "(11) 98765-4321",
       email: "joao.silva@email.com",
       address: "Rua das Flores, 123",
@@ -238,6 +253,7 @@ async function main() {
     },
     {
       clientId: "9374",
+      name: "Contabilidade Empresa ABC",
       phone: "(11) 3344-5566",
       email: "contabil@empresaabc.com.br",
       address: "Av. Paulista, 1000",
@@ -254,6 +270,7 @@ async function main() {
     },
     {
       clientId: "9261",
+      name: "Contabilidade Tech Solutions",
       phone: "(31) 3456-7890",
       email: "financeiro@techsolutions.com.br",
       address: "Rua da Tecnologia, 789",
@@ -270,6 +287,7 @@ async function main() {
     },
     {
       clientId: "8861",
+      name: "Contabilidade Distribuidora Norte",
       phone: "(51) 3210-9876",
       email: "contabil@distnorte.com.br",
       address: "Rua Industrial, 555",
@@ -286,6 +304,7 @@ async function main() {
     },
     {
       clientId: "8811",
+      name: "Contabilidade Logística Express",
       phone: "(71) 3456-0987",
       email: "financeiro@logexpress.com.br",
       address: "Rod. BR-101, Km 45",
@@ -302,6 +321,7 @@ async function main() {
     },
     {
       clientId: "7791",
+      name: "Contabilidade Padaria Central",
       phone: "(91) 3321-6540",
       email: "contabil@padariacentral.com.br",
       address: "Rua Principal, 100",
@@ -319,13 +339,42 @@ async function main() {
   ];
 
   for (const ct of contabilityData) {
-    await prisma.contability.create({ data: ct });
+    const { clientId, ...contabilityPayload } = ct;
+
+    const existingContability = await prisma.contability.findFirst({
+      where: { email: contabilityPayload.email },
+      select: { id: true },
+    });
+
+    const contability = existingContability
+      ? await prisma.contability.update({
+          where: { id: existingContability.id },
+          data: contabilityPayload,
+        })
+      : await prisma.contability.create({
+          data: contabilityPayload,
+        });
+
+    await prisma.clients.update({
+      where: { id: clientId },
+      data: { contabilityId: contability.id },
+    });
   }
   console.log(`${contabilityData.length} registros de contabilidade criados.`);
 
   // --- Tickets ---
   const adminUser = await prisma.user.findUnique({ where: { email } });
   const adminId = adminUser!.id;
+
+  const thisWeekOpenA = daysAgo(1, 9, 30);
+  const thisWeekOpenB = daysAgo(2, 11, 15);
+  const thisWeekOpenC = daysAgo(4, 14, 10);
+  const thisWeekClosedA = daysAgo(3, 8, 45);
+  const thisWeekClosedB = daysAgo(5, 16, 20);
+  const thisMonthOpenA = daysAgo(8, 10, 0);
+  const thisMonthOpenB = daysAgo(12, 13, 40);
+  const thisMonthClosedA = daysAgo(15, 9, 0);
+  const thisMonthClosedB = daysAgo(20, 15, 30);
 
   const ticketsData = [
     {
@@ -335,6 +384,7 @@ async function main() {
       ticketType: "SUPPORT" as const,
       ticketDescription: "Sistema apresentando lentidão ao gerar relatórios mensais",
       assignedToId: adminId,
+      createdAt: thisWeekOpenA,
     },
     {
       clientId: "9374",
@@ -342,6 +392,8 @@ async function main() {
       ticketPriority: "MEDIUM" as const,
       ticketType: "SUPPORT" as const,
       ticketDescription: "Erro ao importar notas fiscais no módulo contábil",
+      assignedToId: adminId,
+      createdAt: thisWeekOpenB,
     },
     {
       clientId: "9359",
@@ -349,6 +401,8 @@ async function main() {
       ticketPriority: "HIGH" as const,
       ticketType: "FINANCE" as const,
       ticketDescription: "Divergência nos valores de faturamento do mês de janeiro",
+      assignedToId: adminId,
+      createdAt: thisMonthOpenA,
     },
     {
       clientId: "9261",
@@ -357,6 +411,7 @@ async function main() {
       ticketType: "MAINTENCE" as const,
       ticketDescription: "Atualização do módulo de estoque para nova versão",
       assignedToId: adminId,
+      createdAt: thisWeekOpenC,
     },
     {
       clientId: "9151",
@@ -364,7 +419,8 @@ async function main() {
       ticketPriority: "LOW" as const,
       ticketType: "SUPPORT" as const,
       ticketDescription: "Dúvida sobre como cadastrar novo produto no sistema",
-      ticketResolutionDate: new Date("2026-02-10"),
+      createdAt: thisWeekClosedA,
+      ticketResolutionDate: daysFrom(thisWeekClosedA, 1, 10, 30),
       assignedToId: adminId,
     },
     {
@@ -373,6 +429,8 @@ async function main() {
       ticketPriority: "HIGH" as const,
       ticketType: "SALES" as const,
       ticketDescription: "Solicitação de proposta para módulo de logística",
+      assignedToId: adminId,
+      createdAt: thisMonthOpenB,
     },
     {
       clientId: "8829",
@@ -381,6 +439,7 @@ async function main() {
       ticketType: "SUPPORT" as const,
       ticketDescription: "Problema na emissão de boletos bancários",
       assignedToId: adminId,
+      createdAt: daysAgo(6, 9, 0),
     },
     {
       clientId: "8811",
@@ -388,6 +447,8 @@ async function main() {
       ticketPriority: "HIGH" as const,
       ticketType: "MAINTENCE" as const,
       ticketDescription: "Migração de dados do sistema legado para o novo ERP",
+      assignedToId: adminId,
+      createdAt: daysAgo(10, 14, 45),
     },
     {
       clientId: "8013",
@@ -395,7 +456,8 @@ async function main() {
       ticketPriority: "LOW" as const,
       ticketType: "SUPPORT" as const,
       ticketDescription: "Treinamento sobre funcionalidades do dashboard",
-      ticketResolutionDate: new Date("2026-02-15"),
+      createdAt: thisMonthClosedA,
+      ticketResolutionDate: daysFrom(thisMonthClosedA, 2, 11, 0),
       assignedToId: adminId,
     },
     {
@@ -404,6 +466,28 @@ async function main() {
       ticketPriority: "MEDIUM" as const,
       ticketType: "FINANCE" as const,
       ticketDescription: "Configuração de integração com gateway de pagamento",
+      assignedToId: adminId,
+      createdAt: daysAgo(18, 16, 10),
+    },
+    {
+      clientId: "9261",
+      ticketStatus: "CLOSED" as const,
+      ticketPriority: "MEDIUM" as const,
+      ticketType: "SUPPORT" as const,
+      ticketDescription: "Ajuste no fechamento fiscal concluído com sucesso",
+      assignedToId: adminId,
+      createdAt: thisWeekClosedB,
+      ticketResolutionDate: daysFrom(thisWeekClosedB, 1, 17, 15),
+    },
+    {
+      clientId: "9374",
+      ticketStatus: "CLOSED" as const,
+      ticketPriority: "HIGH" as const,
+      ticketType: "FINANCE" as const,
+      ticketDescription: "Conciliação bancária revisada e validada",
+      assignedToId: adminId,
+      createdAt: thisMonthClosedB,
+      ticketResolutionDate: daysFrom(thisMonthClosedB, 2, 12, 0),
     },
   ];
 

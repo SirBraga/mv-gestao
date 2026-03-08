@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { use } from "react"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getTicketById, getTicketApontamentos, getTicketComments, claimTicket, updateTicketStatus, cancelTicket, assignTicket, addApontamento, addComment, reopenTicket, getAllUsers, updateTicketRequester, updateTicketClient, addCommentAttachment } from "@/app/actions/tickets"
+import { getTicketById, getTicketApontamentos, getTicketComments, claimTicket, updateTicketStatus, cancelTicket, assignTicket, addApontamento, addComment, reopenTicket, getAllUsers, updateTicketRequester, updateTicketClient, addCommentAttachment, createTicketSchedule, deleteTicketSchedule } from "@/app/actions/tickets"
 import { getClientOptions, getClientContacts, getClientContability } from "@/app/actions/clients"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -25,6 +25,13 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
     ArrowLeft,
     UserPlus,
@@ -47,6 +54,10 @@ import {
     X,
     Image as ImageIcon,
     BookOpen,
+    ChevronDown,
+    CalendarClock,
+    Trash2,
+    MapPin,
 } from "lucide-react"
 import { uploadFile } from "@/app/utils/upload"
 import { toast } from "react-toastify"
@@ -57,6 +68,8 @@ type TicketStatus = "NOVO" | "PENDING_CLIENT" | "PENDING_EMPRESS" | "IN_PROGRESS
 type TicketPriority = "LOW" | "MEDIUM" | "HIGH"
 type TicketType = "SUPPORT" | "SALES" | "FINANCE" | "MAINTENCE"
 type ApontamentoCategory = "PROBLEMA_RESOLVIDO" | "TREINAMENTO" | "REUNIAO" | "TIRA_DUVIDAS" | "DESENVOLVIMENTO"
+type TicketScheduleType = "TREINAMENTO" | "TIRA_DUVIDAS" | "CONSULTORIA" | "IMPLANTACAO" | "PARAMETRIZACAO" | "REUNIAO_ALINHAMENTO" | "VISITA_TECNICA"
+type TicketScheduleFormat = "PRESENCIAL" | "ONLINE"
 
 interface AttachmentData {
     id: string
@@ -143,7 +156,20 @@ interface TicketDetail {
     totalApontamentos: number
     totalMinutes: number
     totalComments: number
+    schedules: TicketScheduleData[]
     currentUserId: string
+}
+
+interface TicketScheduleData {
+    id: string
+    title: string
+    description: string | null
+    type: TicketScheduleType
+    format: TicketScheduleFormat
+    scheduledAt: string
+    durationMinutes: number | null
+    location: string | null
+    createdAt: string
 }
 
 
@@ -238,6 +264,36 @@ const categoryColors: Record<ApontamentoCategory, string> = {
     DESENVOLVIMENTO: "bg-orange-50 text-orange-700 border-orange-200",
 }
 
+const scheduleTypeLabels: Record<TicketScheduleType, string> = {
+    TREINAMENTO: "Treinamento",
+    TIRA_DUVIDAS: "Tira dúvidas",
+    CONSULTORIA: "Consultoria",
+    IMPLANTACAO: "Implantação",
+    PARAMETRIZACAO: "Parametrização",
+    REUNIAO_ALINHAMENTO: "Reunião de alinhamento",
+    VISITA_TECNICA: "Visita técnica",
+}
+
+const scheduleFormatLabels: Record<TicketScheduleFormat, string> = {
+    PRESENCIAL: "Presencial",
+    ONLINE: "Online",
+}
+
+const scheduleTypeColors: Record<TicketScheduleType, string> = {
+    TREINAMENTO: "bg-blue-50 text-blue-700 border-blue-200",
+    TIRA_DUVIDAS: "bg-cyan-50 text-cyan-700 border-cyan-200",
+    CONSULTORIA: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    IMPLANTACAO: "bg-violet-50 text-violet-700 border-violet-200",
+    PARAMETRIZACAO: "bg-amber-50 text-amber-700 border-amber-200",
+    REUNIAO_ALINHAMENTO: "bg-rose-50 text-rose-700 border-rose-200",
+    VISITA_TECNICA: "bg-slate-100 text-slate-700 border-slate-200",
+}
+
+const scheduleFormatColors: Record<TicketScheduleFormat, string> = {
+    PRESENCIAL: "bg-slate-50 text-slate-700 border-slate-200",
+    ONLINE: "bg-violet-50 text-violet-700 border-violet-200",
+}
+
 
 function formatDate(dateStr: string) {
     return new Date(dateStr).toLocaleDateString("pt-BR", {
@@ -282,7 +338,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     const numericTicketId = Number(id)
     const router = useRouter()
     const queryClient = useQueryClient()
-    const [activeTab, setActiveTab] = useState<"descricao" | "apontamentos" | "comentarios">("descricao")
+    const [activeTab, setActiveTab] = useState<"descricao" | "apontamentos" | "comentarios" | "agendamentos">("descricao")
 
     const { data: ticket, isLoading, isError } = useQuery({
         queryKey: ["ticket", id],
@@ -484,6 +540,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     const [showCancelModal, setShowCancelModal] = useState(false)
     const [cancelReason, setCancelReason] = useState("")
     const [showApontamentoModal, setShowApontamentoModal] = useState(false)
+    const [showScheduleModal, setShowScheduleModal] = useState(false)
     const [showAssignModal, setShowAssignModal] = useState(false)
     const [showTransferModal, setShowTransferModal] = useState(false)
     const [showChangeClientModal, setShowChangeClientModal] = useState(false)
@@ -501,6 +558,12 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     const [apontUploading, setApontUploading] = useState(false)
     const [commentFiles, setCommentFiles] = useState<File[]>([])
     const [commentUploading, setCommentUploading] = useState(false)
+    const [scheduleTitle, setScheduleTitle] = useState("")
+    const [scheduleDescription, setScheduleDescription] = useState("")
+    const [scheduleType, setScheduleType] = useState<TicketScheduleType>("TREINAMENTO")
+    const [scheduleFormat, setScheduleFormat] = useState<TicketScheduleFormat>("ONLINE")
+    const [scheduleDate, setScheduleDate] = useState("")
+    const [scheduleDuration, setScheduleDuration] = useState("")
 
     const handleCopy = (text: string, label: string) => {
         copyToClipboard(text)
@@ -522,6 +585,43 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
             e.target.value = ""
         }
     }
+
+    const resetScheduleForm = () => {
+        setScheduleTitle("")
+        setScheduleDescription("")
+        setScheduleType("TREINAMENTO")
+        setScheduleFormat("ONLINE")
+        setScheduleDate("")
+        setScheduleDuration("")
+    }
+
+    const scheduleMut = useMutation({
+        mutationFn: () => createTicketSchedule({
+            ticketId: id,
+            title: scheduleTitle,
+            description: scheduleDescription,
+            type: scheduleType,
+            format: scheduleFormat,
+            scheduledAt: scheduleDate,
+            durationMinutes: scheduleDuration ? Number(scheduleDuration) : null,
+        }),
+        onSuccess: () => {
+            invalidate()
+            toast.success("Agendamento criado!")
+            resetScheduleForm()
+            setShowScheduleModal(false)
+        },
+        onError: (e: Error) => toast.error(e.message),
+    })
+
+    const deleteScheduleMut = useMutation({
+        mutationFn: (scheduleId: string) => deleteTicketSchedule(scheduleId),
+        onSuccess: () => {
+            invalidate()
+            toast.success("Agendamento removido!")
+        },
+        onError: (e: Error) => toast.error(e.message),
+    })
 
     const formatFileSize = (bytes: number) => {
         if (bytes < 1024) return `${bytes}B`
@@ -566,181 +666,304 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
         ? comments.reduce((s: number, c: CommentData) => s + 1 + c.replies.length, 0)
         : ticket.totalComments
     const isTerminalStatus = status === "CLOSED" || status === "CANCELLED"
+    const schedules = ticket.schedules || []
+    const minScheduleDateTime = new Date(Date.now() + 60_000).toISOString().slice(0, 16)
 
     return (
         <div className="h-full overflow-y-auto bg-slate-50">
-            <div className="bg-white border-b border-slate-200">
+            <div className="border-b border-slate-200 bg-white/95 backdrop-blur-sm">
                 <div className="px-8 py-6">
-                    <button onClick={() => router.push("/dashboard/tickets")} className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors mb-6 cursor-pointer">
+                    <button onClick={() => router.push("/dashboard/tickets")} className="mb-6 inline-flex items-center gap-2 rounded-xl  px-3 py-2 text-slate-600 transition-colors hover:bg-white hover:text-slate-900 cursor-pointer">
                         <ArrowLeft size={16} />
                         <span className="text-sm font-medium">Voltar para tickets</span>
                     </button>
 
-                    <div className="flex items-end justify-between gap-6">
-                        <div className="flex items-start gap-4 min-w-0">
-                            <div className="w-16 h-16 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-sm shrink-0">
-                                <ClipboardList size={28} />
-                            </div>
+                    <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-start gap-4 min-w-0">
+                                
 
-                            <div className="min-w-0">
-                                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                                    <span className="text-sm font-mono font-bold text-indigo-600">#{ticket.ticketNumber}</span>
-                                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold text-white ${statusBadgeColors[status]}`}>{statusLabels[status]}</span>
+                                <div className="min-w-0">
+                                    <div className="mb-3 flex items-center gap-2 flex-wrap">
+                                        <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-sm font-mono font-bold text-indigo-700">#{ticket.id}</span>
+                                        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold text-white ${statusBadgeColors[status]}`}>{statusLabels[status]}</span>
+                                    </div>
+                                    <h1 className="text-2xl font-bold leading-tight text-slate-900 wrap-break-word xl:text-3xl">{ticket.ticketDescription}</h1>
+                                    
                                 </div>
-                                <h1 className="text-2xl font-bold text-slate-900 wrap-break-word">{ticket.ticketDescription}</h1>
-                               
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-2 justify-end flex-wrap shrink-0">
-                            {!isTerminalStatus && <button onClick={() => setShowApontamentoModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer"><Plus size={16} /> Apontamento</button>}
-                            {!isTerminalStatus && !ticket.assignedTo && <button onClick={() => setShowClaimModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer"><UserPlus size={16} /> Assumir</button>}
-                            {!isTerminalStatus && <button onClick={() => setShowAssignModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer"><UserCheck size={16} /> Atribuir</button>}
-                            {!isTerminalStatus && ticket.totalApontamentos === 0 && <button onClick={() => setShowCancelModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-red-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer"><XCircle size={16} /> Cancelar</button>}
-                            {!isTerminalStatus && ticket.totalApontamentos > 0 && <button onClick={() => setShowCloseModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-red-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer"><XCircle size={16} /> Fechar</button>}
-                            {status === "CLOSED" && <button onClick={() => setShowReopenModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer"><RotateCcw size={16} /> Reabrir</button>}
+                        <div className="shrink-0 xl:max-w-md h-full flex flex-col mt-auto">
+                            <div className="flex justify-start lg:justify-end">
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <button className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer">
+                                            Ações
+                                            <ChevronDown size={16} />
+                                        </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-56">
+                                        {!isTerminalStatus && (
+                                            <DropdownMenuItem onClick={() => setShowApontamentoModal(true)}>
+                                                <Plus size={16} />
+                                                Novo apontamento
+                                            </DropdownMenuItem>
+                                        )}
+                                        {!isTerminalStatus && !ticket.assignedTo && (
+                                            <DropdownMenuItem onClick={() => setShowClaimModal(true)}>
+                                                <UserPlus size={16} />
+                                                Assumir ticket
+                                            </DropdownMenuItem>
+                                        )}
+                                        {!isTerminalStatus && (
+                                            <DropdownMenuItem onClick={() => setShowAssignModal(true)}>
+                                                <UserCheck size={16} />
+                                                Atribuir responsável
+                                            </DropdownMenuItem>
+                                        )}
+                                        {!isTerminalStatus && isAssignedToMe && (
+                                            <DropdownMenuItem onClick={() => setShowTransferModal(true)}>
+                                                <ArrowRightLeft size={16} />
+                                                Transferir ticket
+                                            </DropdownMenuItem>
+                                        )}
+                                        <DropdownMenuSeparator />
+                                        {!isTerminalStatus && ticket.totalApontamentos === 0 && (
+                                            <DropdownMenuItem onClick={() => setShowCancelModal(true)} className="text-red-600 focus:text-red-600">
+                                                <XCircle size={16} />
+                                                Cancelar ticket
+                                            </DropdownMenuItem>
+                                        )}
+                                        {!isTerminalStatus && ticket.totalApontamentos > 0 && (
+                                            <DropdownMenuItem onClick={() => setShowCloseModal(true)} className="text-red-600 focus:text-red-600">
+                                                <XCircle size={16} />
+                                                Fechar ticket
+                                            </DropdownMenuItem>
+                                        )}
+                                        {status === "CLOSED" && (
+                                            <DropdownMenuItem onClick={() => setShowReopenModal(true)}>
+                                                <RotateCcw size={16} />
+                                                Reabrir ticket
+                                            </DropdownMenuItem>
+                                        )}
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div className="flex gap-6 p-8 w-full mx-auto">
+            <div className="mx-auto flex w-full gap-6 p-8 xl:flex-row flex-col">
 
                 {/* ── Left: Main content ── */}
                 <div className="flex-1 space-y-4 min-w-0">
 
-                    {/* Description card */}
-                    <div className="bg-white border border-slate-200 rounded-xl p-5">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Descrição</p>
-                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                            <span className="text-[10px] text-slate-400">{formatDate(ticket.createdAt)}</span>
+                    <div className="sticky top-0 z-10 rounded-2xl border border-slate-200 bg-white/95 p-1 shadow-sm backdrop-blur-sm">
+                        <div className="flex gap-1">
+                            <button
+                                onClick={() => setActiveTab("descricao")}
+                                className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-medium transition-colors cursor-pointer ${activeTab === "descricao" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
+                            >
+                                Descrição
+                            </button>
+                            <button
+                                onClick={() => setActiveTab("apontamentos")}
+                                className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-medium transition-colors cursor-pointer ${activeTab === "apontamentos" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
+                            >
+                                Apontamentos ({ticket.totalApontamentos})
+                            </button>
+                            <button
+                                onClick={() => setActiveTab("comentarios")}
+                                className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-medium transition-colors cursor-pointer ${activeTab === "comentarios" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
+                            >
+                                Comentários ({ticket.totalComments})
+                            </button>
+                            <button
+                                onClick={() => setActiveTab("agendamentos")}
+                                className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-medium transition-colors cursor-pointer ${activeTab === "agendamentos" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
+                            >
+                                Agendamentos ({schedules.length})
+                            </button>
                         </div>
-                        <p className="text-sm text-slate-600 leading-relaxed">{ticket.ticketDescription}</p>
-                        {ticket.knowledgeArticle && (
-                            <div className="mt-4 pt-4 border-t border-slate-100">
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Base de conhecimento</p>
-                                <Link href={`/dashboard/base-conhecimento/${ticket.knowledgeArticle.id}`} className="block rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 hover:bg-indigo-50 transition-colors">
-                                    <div className="flex items-start gap-3">
-                                        <div className="w-9 h-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
-                                            <BookOpen size={16} />
+                    </div>
+
+                    {activeTab === "descricao" && (
+                        <>
+                            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                                <div className="mb-5 grid gap-4 lg:grid-cols-2">
+                                    <div className="flex min-h-[150px] flex-col rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                                        <div className="mb-3 flex items-center justify-between gap-3">
+                                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Cliente</p>
+                                            <button
+                                                onClick={() => setShowChangeClientModal(true)}
+                                                disabled={ticket.totalApontamentos > 0}
+                                                title={ticket.totalApontamentos > 0 ? "Não é possível mudar o cliente com apontamentos" : undefined}
+                                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-medium text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                            ><Users size={10} /> Mudar</button>
                                         </div>
-                                        <div className="min-w-0">
-                                            <p className="text-sm font-semibold text-slate-900">{ticket.knowledgeArticle.title}</p>
-                                            {ticket.knowledgeArticle.summary && <p className="text-xs text-slate-600 mt-1 line-clamp-2">{ticket.knowledgeArticle.summary}</p>}
-                                            <div className="flex flex-wrap gap-1.5 mt-2">
-                                                {ticket.knowledgeArticle.category && <span className="px-2 py-0.5 rounded bg-white text-indigo-700 text-[10px] font-medium">{ticket.knowledgeArticle.category}</span>}
-                                                {ticket.knowledgeArticle.products.map((product: { id: string; name: string }) => (
-                                                    <span key={product.id} className="px-2 py-0.5 rounded bg-white text-slate-600 text-[10px] font-medium">{product.name}</span>
-                                                ))}
+                                        <div className="flex flex-1 flex-col justify-end gap-2">
+                                            <div className="space-y-2">
+                                                <Link href={`/dashboard/clientes/${ticket.client.id}`} className="block text-sm font-semibold text-slate-900 hover:text-emerald-600 transition-colors">{ticket.client.name}</Link>
+                                                <p className="text-xs text-slate-500">{ticket.client.cnpj ? "CNPJ" : "CPF"}: {clientDoc}</p>
+                                            </div>
+                                            <div className="space-y-2">
+                                                {ticket.client.ownerPhone && (
+                                                    <div className="flex items-center gap-2 text-xs text-slate-600">
+                                                        <span>{ticket.client.ownerPhone}</span>
+                                                        <button onClick={() => window.open(`https://wa.me/55${cleanPhone(ticket.client.ownerPhone!)}`, "_blank")} className="text-gray-300 hover:text-emerald-500 cursor-pointer"><MessageCircle size={11} /></button>
+                                                        <button onClick={() => handleCopy(ticket.client.ownerPhone!, "phone")} className="text-gray-300 hover:text-gray-500 cursor-pointer">{copied === "phone" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
+                                                    </div>
+                                                )}
+                                                {ticket.client.ownerEmail && (
+                                                    <div className="flex items-center gap-2 text-xs text-slate-600 break-all">
+                                                        <span>{ticket.client.ownerEmail}</span>
+                                                        <button onClick={() => handleCopy(ticket.client.ownerEmail!, "email")} className="text-gray-300 hover:text-gray-500 cursor-pointer shrink-0">{copied === "email" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
-                                </Link>
-                            </div>
-                        )}
-                        {/* Ticket attachments */}
-                        {ticket.attachments && ticket.attachments.length > 0 && (
-                            <div className="mt-3 pt-3 border-t border-slate-100">
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Anexos</p>
-                                <div className="flex flex-wrap gap-2">
-                                    {ticket.attachments.map((att: AttachmentData) => (
-                                        isImageFile(att.fileType) ? (
-                                            <a key={att.id} href={att.url} target="_blank" rel="noreferrer" className="block">
-                                                <img src={att.url} alt={att.fileName} className="max-w-35 max-h-25 rounded-lg object-cover border border-gray-200 hover:shadow-md transition-shadow" />
-                                            </a>
+
+                                    <div className="flex min-h-[150px] flex-col rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                                        <div className="mb-3 flex items-center justify-between gap-3">
+                                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Solicitante</p>
+                                            <button
+                                                onClick={() => setShowChangeRequesterModal(true)}
+                                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-medium text-slate-600 hover:bg-slate-50 transition-all cursor-pointer"
+                                            ><UserCheck size={10} /> {ticket.requestedByContact || ticket.requestedByContability ? "Alterar" : "Definir"}</button>
+                                        </div>
+                                        {ticket.requestedByContact ? (
+                                            <div className="flex flex-1 flex-col justify-end gap-2">
+                                                <div>
+                                                    <p className="text-sm font-semibold text-slate-900">{ticket.requestedByContact.name}</p>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    {ticket.requestedByContact.phone && (
+                                                        <div className="flex items-center gap-2 text-xs text-slate-500">
+                                                            <span>Telefone: {ticket.requestedByContact.phone}</span>
+                                                            <button onClick={() => window.open(`https://wa.me/55${cleanPhone(ticket.requestedByContact.phone!)}`, "_blank")} className="text-gray-300 hover:text-emerald-500 cursor-pointer"><MessageCircle size={11} /></button>
+                                                            <button onClick={() => handleCopy(ticket.requestedByContact.phone!, "requester-phone")} className="text-gray-300 hover:text-gray-500 cursor-pointer">{copied === "requester-phone" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
+                                                        </div>
+                                                    )}
+                                                    {ticket.requestedByContact.email && (
+                                                        <div className="flex items-center gap-2 text-xs text-slate-500 break-all">
+                                                            <span>Email: {ticket.requestedByContact.email}</span>
+                                                            <button onClick={() => handleCopy(ticket.requestedByContact.email!, "requester-email")} className="text-gray-300 hover:text-gray-500 cursor-pointer shrink-0">{copied === "requester-email" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ) : ticket.requestedByContability ? (
+                                            <div className="flex flex-1 flex-col justify-between gap-4">
+                                                <div>
+                                                    <p className="text-sm font-semibold text-slate-900">{ticket.requestedByContability.name || ticket.requestedByContability.cnpj || ticket.requestedByContability.cpf}</p>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    {ticket.requestedByContability.email && (
+                                                        <div className="flex items-center gap-2 text-xs text-slate-500 break-all">
+                                                            <span>Email: {ticket.requestedByContability.email}</span>
+                                                            <button onClick={() => handleCopy(ticket.requestedByContability.email!, "contability-email")} className="text-gray-300 hover:text-gray-500 cursor-pointer shrink-0">{copied === "contability-email" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
+                                                        </div>
+                                                    )}
+                                                    {ticket.requestedByContability.phone && (
+                                                        <div className="flex items-center gap-2 text-xs text-slate-500">
+                                                            <span>Telefone: {ticket.requestedByContability.phone}</span>
+                                                            <button onClick={() => window.open(`https://wa.me/55${cleanPhone(ticket.requestedByContability.phone!)}`, "_blank")} className="text-gray-300 hover:text-emerald-500 cursor-pointer"><MessageCircle size={11} /></button>
+                                                            <button onClick={() => handleCopy(ticket.requestedByContability.phone!, "contability-phone")} className="text-gray-300 hover:text-gray-500 cursor-pointer">{copied === "contability-phone" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
                                         ) : (
-                                            <a key={att.id} href={att.url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors">
-                                                <FileText size={12} className="text-gray-400" />
-                                                <span className="text-[11px] text-gray-600 max-w-30 truncate">{att.fileName}</span>
-                                                <span className="text-[9px] text-gray-400">{formatFileSize(att.fileSize)}</span>
-                                                <Download size={10} className="text-gray-400" />
-                                            </a>
-                                        )
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                        {ticket.reopenCount > 0 && ticket.reopenDate && (
-                            <div className="mt-3 pt-3 border-t border-gray-100 flex items-start gap-2">
-                                <RotateCcw size={12} className="text-amber-500 shrink-0 mt-0.5" />
-                                <div><p className="text-xs font-medium text-gray-700">Reaberto ({ticket.reopenCount}x)</p>{ticket.reopenReason && <p className="text-[10px] text-gray-500 mt-0.5">{ticket.reopenReason}</p>}<p className="text-[10px] text-gray-400">{formatDate(ticket.reopenDate)}</p></div>
-                            </div>
-                        )}
-                        {ticket.cancelReason && (
-                            <div className="mt-3 pt-3 border-t border-gray-100 flex items-start gap-2">
-                                <XCircle size={12} className="text-red-500 shrink-0 mt-0.5" />
-                                <div>
-                                    <p className="text-xs font-medium text-gray-700">Motivo do cancelamento</p>
-                                    <p className="text-[10px] text-gray-500 mt-0.5">{ticket.cancelReason}</p>
-                                </div>
-                            </div>
-                        )}
-                        {ticket.ticketResolutionDate && (
-                            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                                <span className="text-xs font-medium text-gray-700">Resolvido em {formatDate(ticket.ticketResolutionDate)}</span>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Client info card */}
-                    <div className="bg-white border border-slate-200 rounded-xl p-5">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Cliente</p>
-                        <div className="grid grid-cols-2 gap-x-8 gap-y-2">
-                            <div>
-                                <p className="text-[10px] text-gray-400 mb-0.5">Nome</p>
-                                <Link href={`/dashboard/clientes/${ticket.client.id}`} className="text-sm text-gray-900 hover:text-emerald-600 transition-colors">{ticket.client.name}</Link>
-                            </div>
-                            <div>
-                                <p className="text-[10px] text-gray-400 mb-0.5">{ticket.client.cnpj ? "CNPJ" : "CPF"}</p>
-                                <p className="text-sm text-gray-900">{clientDoc}</p>
-                            </div>
-                            <div>
-                                <p className="text-[10px] text-gray-400 mb-0.5">Cidade</p>
-                                <p className="text-sm text-gray-900">{ticket.client.city}</p>
-                            </div>
-                            {ticket.client.ownerPhone && (
-                                <div>
-                                    <p className="text-[10px] text-gray-400 mb-0.5">Telefone</p>
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="text-sm text-gray-900">{ticket.client.ownerPhone}</span>
-                                        <button onClick={() => window.open(`https://wa.me/55${cleanPhone(ticket.client.ownerPhone!)}`, "_blank")} className="text-gray-300 hover:text-emerald-500 cursor-pointer"><MessageCircle size={11} /></button>
-                                        <button onClick={() => handleCopy(ticket.client.ownerPhone!, "phone")} className="text-gray-300 hover:text-gray-500 cursor-pointer">{copied === "phone" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
+                                            <p className="text-xs italic text-slate-400">Não definido</p>
+                                        )}
                                     </div>
                                 </div>
-                            )}
-                            {ticket.client.ownerEmail && (
-                                <div>
-                                    <p className="text-[10px] text-gray-400 mb-0.5">Email</p>
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="text-sm text-gray-900">{ticket.client.ownerEmail}</span>
-                                        <button onClick={() => handleCopy(ticket.client.ownerEmail!, "email")} className="text-gray-300 hover:text-gray-500 cursor-pointer shrink-0">{copied === "email" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
 
-                    <div className="bg-white border border-slate-200 rounded-xl p-1 flex gap-1">
-                        <button
-                            onClick={() => setActiveTab("descricao")}
-                            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${activeTab === "descricao" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
-                        >
-                            Descrição
-                        </button>
-                        <button
-                            onClick={() => setActiveTab("apontamentos")}
-                            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${activeTab === "apontamentos" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
-                        >
-                            Apontamentos ({ticket.totalApontamentos})
-                        </button>
-                        <button
-                            onClick={() => setActiveTab("comentarios")}
-                            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${activeTab === "comentarios" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
-                        >
-                            Comentários ({ticket.totalComments})
-                        </button>
-                    </div>
+                                <div>
+                                    <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Descrição</p>
+                                    <p className="text-sm leading-7 text-slate-600">{ticket.ticketDescription}</p>
+                                </div>
+
+                                {ticket.knowledgeArticle && (
+                                    <div className="mt-5 border-t border-slate-100 pt-5">
+                                        <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Base de conhecimento</p>
+                                        <Link href={`/dashboard/base-conhecimento/${ticket.knowledgeArticle.id}`} className="block rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-4 hover:bg-indigo-50 transition-colors">
+                                            <div className="flex items-start gap-3">
+                                                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white shrink-0">
+                                                    <BookOpen size={16} />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-semibold text-slate-900">{ticket.knowledgeArticle.title}</p>
+                                                    {ticket.knowledgeArticle.summary && <p className="mt-1 line-clamp-2 text-xs text-slate-600">{ticket.knowledgeArticle.summary}</p>}
+                                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                                        {ticket.knowledgeArticle.category && <span className="rounded bg-white px-2 py-0.5 text-[10px] font-medium text-indigo-700">{ticket.knowledgeArticle.category}</span>}
+                                                        {ticket.knowledgeArticle.products.map((product: { id: string; name: string }) => (
+                                                            <span key={product.id} className="rounded bg-white px-2 py-0.5 text-[10px] font-medium text-slate-600">{product.name}</span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </Link>
+                                    </div>
+                                )}
+
+                                {ticket.attachments && ticket.attachments.length > 0 && (
+                                    <div className="mt-5 border-t border-slate-100 pt-5">
+                                        <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Anexos</p>
+                                        <div className="flex flex-wrap gap-2">
+                                            {ticket.attachments.map((att: AttachmentData) => (
+                                                isImageFile(att.fileType) ? (
+                                                    <a key={att.id} href={att.url} target="_blank" rel="noreferrer" className="block">
+                                                        <img src={att.url} alt={att.fileName} className="max-w-35 max-h-25 rounded-xl object-cover border border-gray-200 hover:shadow-md transition-shadow" />
+                                                    </a>
+                                                ) : (
+                                                    <a key={att.id} href={att.url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 hover:bg-gray-100 transition-colors">
+                                                        <FileText size={12} className="text-gray-400" />
+                                                        <span className="max-w-30 truncate text-[11px] text-gray-600">{att.fileName}</span>
+                                                        <span className="text-[9px] text-gray-400">{formatFileSize(att.fileSize)}</span>
+                                                        <Download size={10} className="text-gray-400" />
+                                                    </a>
+                                                )
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {(ticket.reopenCount > 0 && ticket.reopenDate) || ticket.cancelReason || ticket.ticketResolutionDate ? (
+                                    <div className="mt-5 border-t border-slate-100 pt-5 space-y-3">
+                                        {ticket.reopenCount > 0 && ticket.reopenDate && (
+                                            <div className="flex items-start gap-2 text-xs text-slate-600">
+                                                <RotateCcw size={12} className="mt-0.5 shrink-0 text-amber-500" />
+                                                <div>
+                                                    <p className="font-medium text-slate-700">Reaberto ({ticket.reopenCount}x)</p>
+                                                    {ticket.reopenReason && <p className="mt-0.5 text-slate-500">{ticket.reopenReason}</p>}
+                                                    <p className="text-slate-400">{formatDate(ticket.reopenDate)}</p>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {ticket.cancelReason && (
+                                            <div className="flex items-start gap-2 text-xs text-slate-600">
+                                                <XCircle size={12} className="mt-0.5 shrink-0 text-red-500" />
+                                                <div>
+                                                    <p className="font-medium text-slate-700">Motivo do cancelamento</p>
+                                                    <p className="mt-0.5 text-slate-500">{ticket.cancelReason}</p>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {ticket.ticketResolutionDate && (
+                                            <div className="flex items-center gap-2 text-xs text-slate-600">
+                                                <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                                                <span className="font-medium text-slate-700">Resolvido em {formatDate(ticket.ticketResolutionDate)}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : null}
+                            </div>
+                        </>
+                    )}
 
                     {/* Apontamentos */}
                     {activeTab === "apontamentos" && (
@@ -862,64 +1085,95 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                         )}
                     </div>
                     )}
+
+                    {activeTab === "agendamentos" && (
+                    <div className="space-y-4">
+                        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div className="flex items-center justify-between gap-4">
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-900">Agenda do ticket</p>
+                                    <p className="mt-1 text-xs text-slate-500">Cadastre agendamentos em modal, com endereço automático para atendimento presencial.</p>
+                                </div>
+                                {!isTerminalStatus && (
+                                    <Button className="bg-slate-900 hover:bg-slate-800 text-white" onClick={() => setShowScheduleModal(true)}>
+                                        <CalendarClock size={14} className="mr-2" />
+                                        Novo agendamento
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3.5">
+                                <div className="flex items-center gap-2">
+                                    <CalendarClock size={13} className="text-slate-400" />
+                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Agendamentos</p>
+                                </div>
+                                <span className="text-[10px] text-slate-400">{schedules.length}</span>
+                            </div>
+
+                            {schedules.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center py-10 text-slate-400">
+                                    <CalendarClock size={18} className="mb-2 text-slate-300" />
+                                    <p className="text-xs">Nenhum agendamento para este ticket</p>
+                                </div>
+                            ) : (
+                                schedules.map((schedule: TicketScheduleData, index: number) => (
+                                    <div key={schedule.id} className={`px-5 py-4 ${index < schedules.length - 1 ? "border-b border-slate-100" : ""}`}>
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div className="min-w-0 flex-1">
+                                                <div className="mb-2 flex flex-wrap items-center gap-2">
+                                                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${scheduleTypeColors[schedule.type]}`}>{scheduleTypeLabels[schedule.type]}</span>
+                                                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${scheduleFormatColors[schedule.format]}`}>{scheduleFormatLabels[schedule.format]}</span>
+                                                </div>
+                                                <p className="text-sm font-semibold text-slate-900">{schedule.title}</p>
+                                                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500">
+                                                    <span>{formatDate(schedule.scheduledAt)}</span>
+                                                    {schedule.durationMinutes ? <span>Duração: {formatDuration(schedule.durationMinutes)}</span> : null}
+                                                    {schedule.location ? <span className="inline-flex items-center gap-1"><MapPin size={11} /> {schedule.location}</span> : null}
+                                                </div>
+                                                {schedule.description && <p className="mt-3 text-sm leading-6 text-slate-600">{schedule.description}</p>}
+                                            </div>
+                                            <button onClick={() => deleteScheduleMut.mutate(schedule.id)} disabled={deleteScheduleMut.isPending} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 cursor-pointer disabled:opacity-50">
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                    )}
                 </div>
 
                 {/* ── Right: Properties sidebar ── */}
-                <div className="w-80 shrink-0">
-                    <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3 sticky top-8">
-                        <SidebarProp label="Status" value={<span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold text-white ${statusBadgeColors[status]}`}>{statusLabels[status]}</span>} />
-                        <SidebarProp label="Prioridade" value={<div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${priorityDotColors[priority]}`} /><span className="text-xs">{priorityLabels[priority]}</span></div>} />
-                        <SidebarProp label="Tipo" value={<span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${typeColors[type]}`}>{typeLabels[type]}</span>} />
-                        <div className="border-t border-gray-100 pt-3" />
-                        {/* Bloco Cliente */}
-                        <div className="rounded-lg border border-gray-100 p-3 space-y-1.5">
-                            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Cliente</p>
-                            <Link href={`/dashboard/clientes/${ticket.client.id}`} className="text-sm font-medium text-gray-900 hover:text-emerald-600 transition-colors block">{ticket.client.name}</Link>
-                            <p className="text-[10px] text-gray-400">{ticket.client.city}</p>
-                            <button
-                                onClick={() => setShowChangeClientModal(true)}
-                                disabled={ticket.totalApontamentos > 0}
-                                title={ticket.totalApontamentos > 0 ? "Não é possível mudar o cliente com apontamentos" : undefined}
-                                className="mt-1 w-full flex items-center gap-1.5 px-2 py-1 rounded border border-gray-200 text-gray-500 text-[10px] font-medium hover:bg-gray-50 transition-all cursor-pointer justify-center disabled:opacity-40 disabled:cursor-not-allowed"
-                            ><Users size={10} /> Mudar Cliente</button>
+                <div className="w-full shrink-0 xl:w-80">
+                    <div className="sticky top-8 space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                        <div>
+                            <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Resumo operacional</p>
+                            <div className="space-y-3">
+                                <SidebarProp label="Status" value={<span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold text-white ${statusBadgeColors[status]}`}>{statusLabels[status]}</span>} />
+                                <SidebarProp label="Prioridade" value={<div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${priorityDotColors[priority]}`} /><span className="text-xs">{priorityLabels[priority]}</span></div>} />
+                                <SidebarProp label="Tipo" value={<span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${typeColors[type]}`}>{typeLabels[type]}</span>} />
+                                <SidebarProp label="Responsável" value={ticket.assignedTo ? <span className="text-xs">{ticket.assignedTo.name}</span> : <span className="text-xs text-gray-300">Não atribuído</span>} />
+                            </div>
                         </div>
-                        {/* Bloco Solicitante */}
-                        <div className="rounded-lg border border-gray-100 p-3 space-y-1.5">
-                            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Solicitante</p>
-                            {ticket.requestedByContact ? (
-                                <>
-                                    <p className="text-sm font-medium text-gray-900">{ticket.requestedByContact.name}</p>
-                                    {ticket.requestedByContact.phone && <p className="text-[10px] text-gray-400">{ticket.requestedByContact.phone}</p>}
-                                </>
-                            ) : ticket.requestedByContability ? (
-                                <>
-                                    <p className="text-sm font-medium text-gray-900">{ticket.requestedByContability.name || ticket.requestedByContability.cnpj || ticket.requestedByContability.cpf}</p>
-                                    {ticket.requestedByContability.email && <p className="text-[10px] text-gray-400">{ticket.requestedByContability.email}</p>}
-                                </>
-                            ) : (
-                                <p className="text-[10px] text-gray-400 italic">Não definido</p>
-                            )}
-                            <button
-                                onClick={() => setShowChangeRequesterModal(true)}
-                                className="mt-1 w-full flex items-center gap-1.5 px-2 py-1 rounded border border-gray-200 text-gray-500 text-[10px] font-medium hover:bg-gray-50 transition-all cursor-pointer justify-center"
-                            ><UserCheck size={10} /> {ticket.requestedByContact || ticket.requestedByContability ? "Alterar Solicitante" : "Definir Solicitante"}</button>
+
+                        <div>
+                            <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Detalhes</p>
+                            <div className="space-y-3">
+                                {ticket.knowledgeArticle && <SidebarProp label="Artigo" value={<Link href={`/dashboard/base-conhecimento/${ticket.knowledgeArticle.id}`} className="text-xs text-indigo-600 hover:text-indigo-700">{ticket.knowledgeArticle.title}</Link>} />}
+                                <SidebarProp label="Criado" value={<span className="text-xs font-medium">{formatDate(ticket.createdAt)}</span>} />
+                                <SidebarProp label="Atualizado" value={<span className="text-xs font-medium">{formatDate(ticket.updatedAt)}</span>} />
+                                <SidebarProp label="Tempo total" value={<span className="text-xs font-medium">{formatDuration(totalMinutes)}</span>} />
+                                <SidebarProp label="Apontamentos" value={<span className="text-xs">{ticket.totalApontamentos}</span>} />
+                                <SidebarProp label="Comentários" value={<span className="text-xs">{totalComments}</span>} />
+                                <SidebarProp label="Agendamentos" value={<span className="text-xs">{schedules.length}</span>} />
+                                <SidebarProp label="Reaberturas" value={<span className="text-xs">{ticket.reopenCount}</span>} />
+                                {ticket.ticketResolutionDate && <SidebarProp label="Resolvido" value={<span className="text-xs">{formatDateShort(ticket.ticketResolutionDate)}</span>} />}
+                                {ticket.cancelReason && <SidebarProp label="Cancelado" value={<span className="max-w-40 text-xs leading-snug text-right line-clamp-3">{ticket.cancelReason}</span>} />}
+                            </div>
                         </div>
-                        <SidebarProp label="Responsável" value={ticket.assignedTo ? <span className="text-xs">{ticket.assignedTo.name}</span> : <span className="text-xs text-gray-300">Não atribuído</span>} />
-                        {ticket.knowledgeArticle && <SidebarProp label="Artigo" value={<Link href={`/dashboard/base-conhecimento/${ticket.knowledgeArticle.id}`} className="text-xs text-indigo-600 hover:text-indigo-700">{ticket.knowledgeArticle.title}</Link>} />}
-                        <div className="border-t border-gray-100 pt-3" />
-                        <SidebarProp label="Criado" value={<span className="text-xs">{formatDateShort(ticket.createdAt)}</span>} />
-                        <SidebarProp label="Atualizado" value={<span className="text-xs">{formatDateShort(ticket.updatedAt)}</span>} />
-                        <SidebarProp label="Tempo total" value={<span className="text-xs font-medium">{formatDuration(totalMinutes)}</span>} />
-                        <SidebarProp label="Apontamentos" value={<span className="text-xs">{ticket.totalApontamentos}</span>} />
-                        <SidebarProp label="Reaberturas" value={<span className="text-xs">{ticket.reopenCount}</span>} />
-                        {ticket.ticketResolutionDate && <SidebarProp label="Resolvido" value={<span className="text-xs">{formatDateShort(ticket.ticketResolutionDate)}</span>} />}
-                        {ticket.cancelReason && <SidebarProp label="Cancelado" value={<span className="text-xs text-right max-w-40 line-clamp-3">{ticket.cancelReason}</span>} />}
-                        {isAssignedToMe && (
-                            <>
-                                <div className="border-t border-gray-100 pt-3" />
-                                {!isTerminalStatus && <button onClick={() => setShowTransferModal(true)} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-[11px] font-medium hover:bg-gray-50 transition-all cursor-pointer justify-center"><ArrowRightLeft size={11} /> Transferir</button>}
-                            </>
-                        )}
                     </div>
                 </div>
             </div>
@@ -1043,15 +1297,58 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+            <Dialog open={showScheduleModal} onOpenChange={(open) => { setShowScheduleModal(open); if (!open) resetScheduleForm() }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Novo Agendamento</DialogTitle>
+                        <DialogDescription>Cadastre a modalidade, o formato e a data futura. Para presencial, o endereço da empresa será usado automaticamente.</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3">
+                        <Select value={scheduleType} onValueChange={(value) => setScheduleType(value as TicketScheduleType)}>
+                            <SelectTrigger className="w-full"><SelectValue placeholder="Modalidade" /></SelectTrigger>
+                            <SelectContent>
+                                {(Object.entries(scheduleTypeLabels) as [TicketScheduleType, string][]).map(([value, label]) => (
+                                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <Select value={scheduleFormat} onValueChange={(value) => setScheduleFormat(value as TicketScheduleFormat)}>
+                            <SelectTrigger className="w-full"><SelectValue placeholder="Formato" /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="PRESENCIAL">Presencial</SelectItem>
+                                <SelectItem value="ONLINE">Online</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Input value={scheduleTitle} onChange={e => setScheduleTitle(e.target.value)} placeholder="Título opcional do agendamento" className="h-10" />
+                        <div className="grid grid-cols-2 gap-3">
+                            <Input type="datetime-local" min={minScheduleDateTime} value={scheduleDate} onChange={e => setScheduleDate(e.target.value)} className="h-10" />
+                            <Input type="number" min={1} value={scheduleDuration} onChange={e => setScheduleDuration(e.target.value)} placeholder="Duração (min)" className="h-10" />
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                            {scheduleFormat === "PRESENCIAL"
+                                ? "O local será preenchido automaticamente com o endereço da empresa do cliente."
+                                : "O atendimento será registrado como online, sem necessidade de informar plataforma."}
+                        </div>
+                        <Textarea value={scheduleDescription} onChange={e => setScheduleDescription(e.target.value)} placeholder="Observações do agendamento..." className="min-h-24" />
+                    </div>
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => { setShowScheduleModal(false); resetScheduleForm() }}>Cancelar</Button>
+                        <Button className="bg-slate-900 hover:bg-slate-800 text-white" disabled={!scheduleDate || scheduleMut.isPending} onClick={() => scheduleMut.mutate()}>
+                            {scheduleMut.isPending ? <Loader2 size={14} className="mr-2 animate-spin" /> : <CalendarClock size={14} className="mr-2" />}
+                            Agendar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }
 
 function SidebarProp({ label, value }: { label: string; value: React.ReactNode }) {
     return (
-        <div className="flex items-center justify-between">
-            <span className="text-[11px] text-gray-400">{label}</span>
-            <div className="text-gray-900">{value}</div>
+        <div className="flex min-h-10 items-center justify-between gap-4 rounded-xl border border-slate-100 bg-slate-50/70 px-5 py-3">
+            <span className="text-[11px] font-medium leading-none text-gray-400">{label}</span>
+            <div className="flex items-center justify-end text-right leading-none text-gray-900">{value}</div>
         </div>
     )
 }

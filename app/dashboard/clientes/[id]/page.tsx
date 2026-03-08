@@ -327,6 +327,26 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     const updateMutation = useMutation({
         mutationFn: (data: Record<string, unknown>) => updateClient(id, data),
         onSuccess: async () => {
+            const selectedContability = (allContabilities as { id: string; name: string | null; cnpj: string | null; cpf: string | null }[]).find(
+                (item) => item.id === selectedContabilityId
+            )
+
+            queryClient.setQueryData(["client", id], (old: any) => {
+                if (!old) return old
+
+                return {
+                    ...old,
+                    contability: selectedContability
+                        ? {
+                            id: selectedContability.id,
+                            name: selectedContability.name,
+                            cnpj: selectedContability.cnpj,
+                            cpf: selectedContability.cpf,
+                        }
+                        : null,
+                }
+            })
+
             // Salvar seriais após atualizar o cliente
             await saveProductSerials()
             
@@ -510,6 +530,11 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             data.ownerCpf = editForm.ownerCpf || ""
             data.contabilityId = selectedContabilityId || null
 
+            if (editForm.contractType !== "CANCELADO") {
+                data.contractCancelReason = null
+                data.contractCancelDate = null
+            }
+
             updateMutation.mutate(data)
         }
     }
@@ -534,9 +559,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
     if (isLoading) {
         return (
-            <div className="flex items-center justify-center h-full">
-                <Loader2 size={24} className="animate-spin text-gray-400" />
-            </div>
+            <div className="min-h-screen bg-slate-50" />
         )
     }
 

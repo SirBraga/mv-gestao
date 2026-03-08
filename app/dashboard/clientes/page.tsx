@@ -721,20 +721,6 @@ export default function Clientes() {
                             <Input placeholder="email@empresa.com" className="h-9 rounded-lg text-sm" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
                         </div>
 
-                        {/* CSC / Token (only PJ) */}
-                        {form.type === "PJ" && (
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Código CSC</label>
-                                    <Input placeholder="Código CSC" className="h-9 rounded-lg text-sm" value={form.codigoCSC} onChange={e => setForm({...form, codigoCSC: e.target.value})} />
-                                </div>
-                                <div>
-                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Token</label>
-                                    <Input placeholder="Token" className="h-9 rounded-lg text-sm" value={form.tokenCSC} onChange={e => setForm({...form, tokenCSC: e.target.value})} />
-                                </div>
-                            </div>
-                        )}
-
                         {/* Endereço */}
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Endereço</p>
                         <div>
@@ -1038,29 +1024,30 @@ export default function Clientes() {
                             </label>
                         </div>
                         {form.hasContract && (
-                            <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo de Contrato</label>
-                                <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.contractType} onChange={e => setForm({...form, contractType: e.target.value as "" | "MENSAL" | "ANUAL" | "AVULSO" | "CANCELADO"})}>
-                                    <option value="">Selecione</option>
-                                    <option value="MENSAL">Mensal</option>
-                                    <option value="ANUAL">Anual</option>
-                                    <option value="AVULSO">Avulso</option>
-                                    <option value="CANCELADO">Cancelado</option>
-                                </select>
-                            </div>
-                        )}
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo de Contrato</label>
+                                    <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.contractType} onChange={e => setForm({...form, contractType: e.target.value as "" | "MENSAL" | "ANUAL" | "AVULSO" | "CANCELADO"})}>
+                                        <option value="">Selecione</option>
+                                        <option value="MENSAL">Mensal</option>
+                                        <option value="ANUAL">Anual</option>
+                                        <option value="AVULSO">Avulso</option>
+                                        <option value="CANCELADO">Cancelado</option>
+                                    </select>
+                                </div>
 
-                        {/* CSC / Token (only PJ) */}
-                        {form.type === "PJ" && (
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Código CSC</label>
-                                    <Input placeholder="Código CSC" className="h-9 rounded-lg text-sm" value={form.codigoCSC} onChange={e => setForm({...form, codigoCSC: e.target.value})} />
-                                </div>
-                                <div>
-                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Token</label>
-                                    <Input placeholder="Token" className="h-9 rounded-lg text-sm" value={form.tokenCSC} onChange={e => setForm({...form, tokenCSC: e.target.value})} />
-                                </div>
+                                {form.type === "PJ" && (
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Código CSC</label>
+                                            <Input placeholder="Código CSC" className="h-9 rounded-lg text-sm" value={form.codigoCSC} onChange={e => setForm({...form, codigoCSC: e.target.value})} />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Token</label>
+                                            <Input placeholder="Token" className="h-9 rounded-lg text-sm" value={form.tokenCSC} onChange={e => setForm({...form, tokenCSC: e.target.value})} />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
 

@@ -158,6 +158,14 @@ export default function TicketsPage() {
         })
     }, [allTickets, activeFilter, mineOnly])
 
+    const ticketsWithoutProductCount = useMemo(() => {
+        return ticketsForProductCounts.filter((ticket) => ticket.status !== "CLOSED" && (!ticket.products || ticket.products.length === 0)).length
+    }, [ticketsForProductCounts])
+
+    const totalProductsFilterCount = useMemo(() => {
+        return ticketsForProductCounts.filter((ticket) => ticket.status !== "CLOSED").length
+    }, [ticketsForProductCounts])
+
     const openTicketProducts = useMemo(() => {
         const productMap = new Map<string, { id: string; name: string; count: number }>()
 
@@ -181,7 +189,10 @@ export default function TicketsPage() {
         return allTickets
             .filter((ticket) => {
                 const matchesFilter = filterStatusMap[activeFilter].includes(ticket.status)
-                const matchesProduct = !activeProductId || (ticket.products || []).some((product) => product.id === activeProductId)
+                const matchesProduct = !activeProductId
+                    || (activeProductId === "__NO_PRODUCT__"
+                        ? !ticket.products || ticket.products.length === 0
+                        : (ticket.products || []).some((product) => product.id === activeProductId))
                 const matchesMine = !mineOnly || !!ticket.isAssignedToCurrentUser
 
                 const matchesSearch =
@@ -309,7 +320,7 @@ export default function TicketsPage() {
                                 className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all cursor-pointer ${!activeProductId ? "bg-indigo-50 text-indigo-700 font-medium" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
                             >
                                 <span>Todos</span>
-                                <span className={`text-xs min-w-6 text-center rounded-full px-2 py-0.5 font-semibold ${!activeProductId ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{openTicketProducts.reduce((sum, product) => sum + product.count, 0)}</span>
+                                <span className={`text-xs min-w-6 text-center rounded-full px-2 py-0.5 font-semibold ${!activeProductId ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{totalProductsFilterCount}</span>
                             </button>
                             {openTicketProducts.map((product) => (
                                 <button
@@ -321,6 +332,13 @@ export default function TicketsPage() {
                                     <span className={`text-xs min-w-6 text-center rounded-full px-2 py-0.5 font-semibold ${activeProductId === product.id ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{product.count}</span>
                                 </button>
                             ))}
+                            <button
+                                onClick={() => setActiveProductId((current) => current === "__NO_PRODUCT__" ? "" : "__NO_PRODUCT__")}
+                                className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all cursor-pointer ${activeProductId === "__NO_PRODUCT__" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
+                            >
+                                <span>Sem produtos</span>
+                                <span className={`text-xs min-w-6 text-center rounded-full px-2 py-0.5 font-semibold ${activeProductId === "__NO_PRODUCT__" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{ticketsWithoutProductCount}</span>
+                            </button>
                         </div>
                     )}
                 </div>

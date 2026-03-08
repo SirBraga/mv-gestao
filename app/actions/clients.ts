@@ -4,6 +4,7 @@ import { prisma } from "@/app/utils/prisma"
 import { auth } from "@/app/utils/auth"
 import { headers } from "next/headers"
 import { cache } from "react"
+import { revalidatePath } from "next/cache"
 
 const getSession = cache(async () => {
     const session = await auth.api.getSession({ headers: await headers() })
@@ -356,11 +357,20 @@ export async function createClient(data: {
 
 export async function updateClient(id: string, data: Record<string, unknown>) {
     await getSession()
-    // Map PF/PJ to enum
+
     if (data.type === "PF") data.type = "PESSOA_FISICA"
     if (data.type === "PJ") data.type = "PESSOA_JURIDICA"
 
+    if ("contabilityId" in data) {
+        const contabilityId = typeof data.contabilityId === "string" ? data.contabilityId.trim() : ""
+        data.contabilityId = contabilityId || null
+    }
+
     await prisma.clients.update({ where: { id }, data })
+
+    revalidatePath("/dashboard/clientes")
+    revalidatePath(`/dashboard/clientes/${id}`)
+
     return { success: true }
 }
 
