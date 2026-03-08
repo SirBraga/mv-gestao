@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation"
 import { auth } from "../utils/auth"
-import Sidebar from "./_components/sidebar"
+import DashboardShellClient from "./_components/dashboard-shell-client"
 import { headers } from "next/headers"
 
 export default async function DashboardLayout({
@@ -18,9 +18,13 @@ export default async function DashboardLayout({
     }
 
     return (
-        <div className="flex h-screen">
-            <Sidebar avatar={session?.user.image || ""} name={session?.user.name || ""} userId={session.user.id} role={(session.session as unknown as Record<string, string>).role || "USER"} />
-            <main className="flex-1 bg-white h-full overflow-hidden">{children}</main>
-        </div>
+        <DashboardShellClient
+            avatar={session?.user.image || ""}
+            name={session?.user.name || ""}
+            userId={session.user.id}
+            role={(session.session as unknown as Record<string, string>).role || "USER"}
+        >
+            {children}
+        </DashboardShellClient>
     )
 }

@@ -3,38 +3,75 @@
 import { prisma } from "@/app/utils/prisma"
 import { auth } from "@/app/utils/auth"
 import { headers } from "next/headers"
-import { revalidatePath } from "next/cache"
+import { cache } from "react"
 import { createNotification } from "@/app/actions/notifications"
 import { sendPushToUser } from "@/app/utils/push"
 
-async function getSession() {
+const prismaAny = prisma as any
+
+const getSession = cache(async () => {
     const session = await auth.api.getSession({ headers: await headers() })
     if (!session) throw new Error("Não autenticado")
     return session
+})
+
+function normalizeTicketId(ticketId: string | number) {
+    const parsed = typeof ticketId === "number" ? ticketId : Number(ticketId)
+    if (!Number.isInteger(parsed) || parsed <= 0) throw new Error("ID do ticket inválido")
+    return parsed
 }
 
 export async function getTickets() {
-    await getSession()
-    const tickets = await prisma.tickets.findMany({
+    const session = await getSession()
+    const tickets = await prismaAny.tickets.findMany({
         orderBy: { createdAt: "desc" },
-        include: {
-            client: { select: { name: true } },
+        select: {
+            id: true,
+            ticketNumber: true,
+            ticketDescription: true,
+            clientId: true,
+            ticketPriority: true,
+            ticketStatus: true,
+            createdAt: true,
+            client: {
+                select: {
+                    name: true,
+                    clientProductSerials: {
+                        select: {
+                            product: {
+                                select: {
+                                    id: true,
+                                    name: true,
+                                },
+                            },
+                        },
+                    },
+                },
+            },
             assignedTo: { select: { id: true, name: true } },
             requestedByContact: { select: { name: true } },
-            requestedByContability: { select: { id: true } },
+            knowledgeArticle: {
+                select: {
+                    id: true,
+                    title: true,
+                },
+            },
         },
     })
-    return tickets.map(t => ({
+    return (tickets as any[]).filter((t) => t.ticketStatus !== "CANCELLED").map((t) => ({
         id: t.id,
         ticketNumber: t.ticketNumber,
         ticketDescription: t.ticketDescription,
         clientName: t.client.name,
         clientId: t.clientId,
         priority: (t.ticketPriority || "MEDIUM") as "LOW" | "MEDIUM" | "HIGH",
-        status: (t.ticketStatus || "NOVO") as "NOVO" | "PENDING_CLIENT" | "PENDING_EMPRESS" | "IN_PROGRESS" | "CLOSED",
+        status: (t.ticketStatus || "NOVO") as "NOVO" | "PENDING_CLIENT" | "PENDING_EMPRESS" | "IN_PROGRESS" | "CLOSED" | "CANCELLED",
         assigneeName: t.assignedTo?.name || null,
         assigneeId: t.assignedTo?.id || null,
         requesterName: t.requestedByContact?.name || null,
+        products: t.client.clientProductSerials.map((item: any) => item.product),
+        knowledgeArticle: t.knowledgeArticle,
+        isAssignedToCurrentUser: t.assignedTo?.id === session.user.id,
         date: t.createdAt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }) + " " + t.createdAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
         createdAt: t.createdAt.toISOString(),
     }))
@@ -48,9 +85,10 @@ export async function createTicket(data: {
     requestedByContactId?: string
     requestedByContabilityId?: string
     assignedToId?: string
+    knowledgeArticleId?: string
 }) {
     const session = await getSession()
-    const ticket = await prisma.tickets.create({
+    const ticket = await prismaAny.tickets.create({
         data: {
             clientId: data.clientId,
             ticketDescription: data.ticketDescription,
@@ -59,6 +97,7 @@ export async function createTicket(data: {
             requestedByContactId: data.requestedByContactId || null,
             requestedByContabilityId: data.requestedByContabilityId || null,
             assignedToId: data.assignedToId || null,
+            knowledgeArticleId: data.knowledgeArticleId || null,
             ticketStatus: data.assignedToId ? "IN_PROGRESS" : "NOVO",
         },
         select: { id: true, ticketNumber: true },
@@ -78,39 +117,70 @@ export async function createTicket(data: {
             tag: `ticket-${ticket.id}`,
         })
     }
-    revalidatePath("/dashboard/tickets")
     return { success: true, id: ticket.id }
 }
 
-export async function claimTicket(ticketId: string) {
+export async function claimTicket(ticketId: string | number) {
     const session = await getSession()
-    const ticket = await prisma.tickets.update({
-        where: { id: ticketId },
+    const ticket = await prismaAny.tickets.update({
+        where: { id: normalizeTicketId(ticketId) },
         data: {
             assignedToId: session.user.id,
             ticketStatus: "IN_PROGRESS",
         },
         select: { ticketNumber: true },
     })
-    revalidatePath("/dashboard/tickets")
     return { success: true }
 }
 
-export async function updateTicketStatus(ticketId: string, status: "NOVO" | "PENDING_CLIENT" | "PENDING_EMPRESS" | "IN_PROGRESS" | "CLOSED") {
+export async function updateTicketStatus(ticketId: string | number, status: "NOVO" | "PENDING_CLIENT" | "PENDING_EMPRESS" | "IN_PROGRESS" | "CLOSED") {
     await getSession()
-    const data: Record<string, unknown> = { ticketStatus: status }
+    const data: Record<string, unknown> = { ticketStatus: status, cancelReason: null }
     if (status === "CLOSED") {
         data.ticketResolutionDate = new Date()
+    } else {
+        data.ticketResolutionDate = null
     }
-    await prisma.tickets.update({ where: { id: ticketId }, data })
-    revalidatePath("/dashboard/tickets")
+    await prismaAny.tickets.update({ where: { id: normalizeTicketId(ticketId) }, data })
     return { success: true }
 }
 
-export async function assignTicket(ticketId: string, userId: string | null) {
+export async function cancelTicket(ticketId: string | number, reason: string) {
+    await getSession()
+    if (!reason.trim()) throw new Error("Motivo do cancelamento é obrigatório")
+
+    const normalizedTicketId = normalizeTicketId(ticketId)
+    const ticket = await prismaAny.tickets.findUnique({
+        where: { id: normalizedTicketId },
+        select: {
+            _count: {
+                select: {
+                    apontamentos: true,
+                },
+            },
+        },
+    }) as any
+
+    if (!ticket) throw new Error("Ticket não encontrado")
+    if (ticket._count.apontamentos > 0) throw new Error("Só é possível cancelar tickets sem apontamentos")
+
+    await prismaAny.tickets.update({
+        where: { id: normalizedTicketId },
+        data: {
+            ticketStatus: "CANCELLED",
+            cancelReason: reason.trim(),
+            ticketResolutionDate: null,
+        },
+    })
+
+    return { success: true }
+}
+
+export async function assignTicket(ticketId: string | number, userId: string | null) {
     const session = await getSession()
-    const ticket = await prisma.tickets.update({
-        where: { id: ticketId },
+    const normalizedTicketId = normalizeTicketId(ticketId)
+    const ticket = await prismaAny.tickets.update({
+        where: { id: normalizedTicketId },
         data: { assignedToId: userId },
         select: { ticketNumber: true, ticketDescription: true },
     })
@@ -120,66 +190,93 @@ export async function assignTicket(ticketId: string, userId: string | null) {
             title: `Ticket #${ticket.ticketNumber} atribuído a você`,
             message: ticket.ticketDescription.slice(0, 100),
             type: "TICKET_ASSIGNED",
-            link: `/dashboard/tickets/${ticketId}`,
+            link: `/dashboard/tickets/${normalizedTicketId}`,
         })
         await sendPushToUser(userId, {
             title: `🎫 Ticket #${ticket.ticketNumber} atribuído a você`,
             body: ticket.ticketDescription.slice(0, 100),
-            url: `/dashboard/tickets/${ticketId}`,
-            tag: `ticket-${ticketId}`,
+            url: `/dashboard/tickets/${normalizedTicketId}`,
+            tag: `ticket-${normalizedTicketId}`,
         })
     }
-    revalidatePath("/dashboard/tickets")
     return { success: true }
 }
 
-export async function deleteTicket(ticketId: string) {
+export async function deleteTicket(ticketId: string | number) {
     await getSession()
+    const normalizedTicketId = normalizeTicketId(ticketId)
     // Delete related apontamentos and comments first
-    await prisma.apontamento.deleteMany({ where: { ticketId } })
-    await prisma.ticketComment.deleteMany({ where: { ticketId } })
-    await prisma.tickets.delete({ where: { id: ticketId } })
-    revalidatePath("/dashboard/tickets")
+    await prismaAny.apontamento.deleteMany({ where: { ticketId: normalizedTicketId } })
+    await prismaAny.ticketComment.deleteMany({ where: { ticketId: normalizedTicketId } })
+    await prismaAny.tickets.delete({ where: { id: normalizedTicketId } })
     return { success: true }
 }
 
-export async function getTicketById(id: string) {
+export async function getTicketById(id: string | number) {
     const session = await getSession()
-    const ticket = await prisma.tickets.findUnique({
-        where: { id },
-        include: {
-            client: {
-                select: {
-                    id: true, name: true, cnpj: true, cpf: true, type: true,
-                    city: true, ownerPhone: true, ownerEmail: true,
-                },
-            },
-            assignedTo: { select: { id: true, name: true, email: true } },
-            attachments: {
-                select: { id: true, url: true, fileName: true, fileType: true, fileSize: true },
-            },
-            requestedByContact: { select: { id: true, name: true, phone: true, email: true } },
-            requestedByContability: { select: { id: true, cnpj: true, cpf: true, email: true, phone: true } },
-            apontamentos: {
-                orderBy: { date: "desc" },
-                include: {
-                    user: { select: { id: true, name: true } },
-                    attachments: { select: { id: true, url: true, fileName: true, fileType: true, fileSize: true } },
-                },
-            },
-            comments: {
-                where: { parentId: null },
-                orderBy: { createdAt: "asc" },
-                include: {
-                    user: { select: { id: true, name: true } },
-                    replies: {
-                        orderBy: { createdAt: "asc" },
-                        include: { user: { select: { id: true, name: true } } },
+    const normalizedTicketId = normalizeTicketId(id)
+    const [ticketResult, apontamentoMetrics, totalComments] = await Promise.all([
+        prismaAny.tickets.findUnique({
+            where: { id: normalizedTicketId },
+            select: {
+                id: true,
+                ticketNumber: true,
+                ticketDescription: true,
+                ticketStatus: true,
+                ticketPriority: true,
+                ticketType: true,
+                ticketResolutionDate: true,
+                reopenCount: true,
+                reopenReason: true,
+                cancelReason: true,
+                reopenDate: true,
+                reopenById: true,
+                assignedToId: true,
+                clientId: true,
+                createdAt: true,
+                updatedAt: true,
+                client: {
+                    select: {
+                        id: true, name: true, cnpj: true, cpf: true, type: true,
+                        city: true, ownerPhone: true, ownerEmail: true,
                     },
                 },
+                assignedTo: { select: { id: true, name: true, email: true } },
+                attachments: {
+                    select: { id: true, url: true, fileName: true, fileType: true, fileSize: true },
+                },
+                requestedByContact: { select: { id: true, name: true, phone: true, email: true } },
+                requestedByContability: { select: { id: true, name: true, cnpj: true, cpf: true, email: true, phone: true } },
+                knowledgeArticle: {
+                    select: {
+                        id: true,
+                        title: true,
+                        summary: true,
+                        category: true,
+                        products: {
+                            select: {
+                                product: {
+                                    select: {
+                                        id: true,
+                                        name: true,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                _count: { select: { apontamentos: true } },
             },
-        },
-    })
+        }),
+        prismaAny.apontamento.aggregate({
+            where: { ticketId: normalizedTicketId },
+            _sum: { duration: true },
+        }),
+        prismaAny.ticketComment.count({
+            where: { ticketId: normalizedTicketId },
+        }),
+    ])
+    const ticket = ticketResult as any
     if (!ticket) throw new Error("Ticket não encontrado")
     return {
         id: ticket.id,
@@ -191,6 +288,7 @@ export async function getTicketById(id: string) {
         ticketResolutionDate: ticket.ticketResolutionDate?.toISOString() || null,
         reopenCount: ticket.reopenCount,
         reopenReason: ticket.reopenReason,
+        cancelReason: ticket.cancelReason,
         reopenDate: ticket.reopenDate?.toISOString() || null,
         reopenById: ticket.reopenById,
         assignedToId: ticket.assignedToId,
@@ -215,37 +313,80 @@ export async function getTicketById(id: string) {
         attachments: ticket.attachments,
         requestedByContact: ticket.requestedByContact,
         requestedByContability: ticket.requestedByContability,
-        apontamentos: ticket.apontamentos.map(a => ({
-            id: a.id,
-            description: a.description,
-            category: a.category,
-            duration: a.duration,
-            date: a.date.toISOString(),
-            statusChange: a.statusChange,
-            user: a.user,
-            attachments: a.attachments,
-        })),
-        comments: ticket.comments.map(c => ({
-            id: c.id,
-            content: c.content,
-            user: c.user,
-            createdAt: c.createdAt.toISOString(),
-            parentId: c.parentId,
-            replies: c.replies.map(r => ({
-                id: r.id,
-                content: r.content,
-                user: r.user,
-                createdAt: r.createdAt.toISOString(),
-                parentId: r.parentId,
-                replies: [],
-            })),
-        })),
+        knowledgeArticle: ticket.knowledgeArticle ? {
+            id: ticket.knowledgeArticle.id,
+            title: ticket.knowledgeArticle.title,
+            summary: ticket.knowledgeArticle.summary,
+            category: ticket.knowledgeArticle.category,
+            products: ticket.knowledgeArticle.products.map((item: any) => item.product),
+        } : null,
+        totalApontamentos: ticket._count.apontamentos,
+        totalMinutes: apontamentoMetrics._sum.duration || 0,
+        totalComments,
         currentUserId: session.user.id,
     }
 }
 
+export async function getTicketApontamentos(ticketId: string | number) {
+    await getSession()
+    const normalizedTicketId = normalizeTicketId(ticketId)
+
+    const apontamentos = await prismaAny.apontamento.findMany({
+        where: { ticketId: normalizedTicketId },
+        orderBy: { date: "desc" },
+        include: {
+            user: { select: { id: true, name: true } },
+            attachments: { select: { id: true, url: true, fileName: true, fileType: true, fileSize: true } },
+        },
+    }) as any[]
+
+    return apontamentos.map(a => ({
+        id: a.id,
+        description: a.description,
+        category: a.category,
+        duration: a.duration,
+        date: a.date.toISOString(),
+        statusChange: a.statusChange,
+        user: a.user,
+        attachments: a.attachments,
+    }))
+}
+
+export async function getTicketComments(ticketId: string | number) {
+    await getSession()
+    const normalizedTicketId = normalizeTicketId(ticketId)
+
+    const comments = await prismaAny.ticketComment.findMany({
+        where: { ticketId: normalizedTicketId, parentId: null },
+        orderBy: { createdAt: "asc" },
+        include: {
+            user: { select: { id: true, name: true } },
+            replies: {
+                orderBy: { createdAt: "asc" },
+                include: { user: { select: { id: true, name: true } } },
+            },
+        },
+    })
+
+    return (comments as any[]).map((c) => ({
+        id: c.id,
+        content: c.content,
+        user: c.user,
+        createdAt: c.createdAt.toISOString(),
+        parentId: c.parentId,
+        replies: (c.replies || []).map((r: any) => ({
+            id: r.id,
+            content: r.content,
+            user: r.user,
+            createdAt: r.createdAt.toISOString(),
+            parentId: r.parentId,
+            replies: [],
+        })),
+    }))
+}
+
 export async function addApontamento(data: {
-    ticketId: string
+    ticketId: string | number
     description: string
     category: "PROBLEMA_RESOLVIDO" | "TREINAMENTO" | "REUNIAO" | "TIRA_DUVIDAS" | "DESENVOLVIMENTO"
     duration: number
@@ -254,9 +395,10 @@ export async function addApontamento(data: {
     attachments?: { url: string; fileName: string; fileType: string; fileSize: number }[]
 }) {
     const session = await getSession()
-    await prisma.apontamento.create({
+    const normalizedTicketId = normalizeTicketId(data.ticketId)
+    await prismaAny.apontamento.create({
         data: {
-            ticketId: data.ticketId,
+            ticketId: normalizedTicketId,
             userId: session.user.id,
             description: data.description,
             category: data.category,
@@ -270,46 +412,50 @@ export async function addApontamento(data: {
     })
     // If statusChange, update ticket status too
     if (data.statusChange && data.statusChange !== "none") {
-        const updateData: Record<string, unknown> = { ticketStatus: data.statusChange }
-        if (data.statusChange === "CLOSED") updateData.ticketResolutionDate = new Date()
-        await prisma.tickets.update({ where: { id: data.ticketId }, data: updateData })
+        const updateData: Record<string, unknown> = { ticketStatus: data.statusChange, cancelReason: null }
+        if (data.statusChange === "CLOSED") {
+            updateData.ticketResolutionDate = new Date()
+        } else {
+            updateData.ticketResolutionDate = null
+        }
+        await prismaAny.tickets.update({ where: { id: normalizedTicketId }, data: updateData })
     }
-    revalidatePath("/dashboard/tickets")
     return { success: true }
 }
 
-export async function addComment(ticketId: string, content: string, parentId?: string | null) {
+export async function addComment(ticketId: string | number, content: string, parentId?: string | null) {
     const session = await getSession()
     if (!content.trim()) throw new Error("Conteúdo do comentário é obrigatório")
-    const comment = await prisma.ticketComment.create({
+    const normalizedTicketId = normalizeTicketId(ticketId)
+    const comment = await prismaAny.ticketComment.create({
         data: {
-            ticketId,
+            ticketId: normalizedTicketId,
             userId: session.user.id,
             content: content.trim(),
             parentId: parentId || null,
         },
     })
-    revalidatePath("/dashboard/tickets")
     return { success: true, commentId: comment.id }
 }
 
-export async function reopenTicket(ticketId: string, reason: string) {
+export async function reopenTicket(ticketId: string | number, reason: string) {
     const session = await getSession()
     if (!reason.trim()) throw new Error("Motivo da reabertura é obrigatório")
-    const ticket = await prisma.tickets.findUnique({ where: { id: ticketId } })
+    const normalizedTicketId = normalizeTicketId(ticketId)
+    const ticket = await prismaAny.tickets.findUnique({ where: { id: normalizedTicketId } })
     if (!ticket) throw new Error("Ticket não encontrado")
-    await prisma.tickets.update({
-        where: { id: ticketId },
+    await prismaAny.tickets.update({
+        where: { id: normalizedTicketId },
         data: {
             ticketStatus: "IN_PROGRESS",
             ticketResolutionDate: null,
             reopenCount: ticket.reopenCount + 1,
             reopenReason: reason.trim(),
+            cancelReason: null,
             reopenDate: new Date(),
             reopenById: session.user.id,
         },
     })
-    revalidatePath("/dashboard/tickets")
     return { success: true }
 }
 
@@ -322,57 +468,55 @@ export async function getAllUsers() {
 }
 
 export async function updateTicketRequester(
-    ticketId: string,
+    ticketId: string | number,
     contactId: string | null,
     contabilityId: string | null = null
 ) {
     await getSession()
-    await prisma.tickets.update({
-        where: { id: ticketId },
+    await prismaAny.tickets.update({
+        where: { id: normalizeTicketId(ticketId) },
         data: {
             requestedByContactId: contactId,
             requestedByContabilityId: contabilityId,
         },
     })
-    revalidatePath("/dashboard/tickets")
     return { success: true }
 }
 
-export async function updateTicketClient(ticketId: string, clientId: string) {
+export async function updateTicketClient(ticketId: string | number, clientId: string) {
     await getSession()
-    const ticket = await prisma.tickets.findUnique({
-        where: { id: ticketId },
+    const normalizedTicketId = normalizeTicketId(ticketId)
+    const ticket = await prismaAny.tickets.findUnique({
+        where: { id: normalizedTicketId },
         select: { _count: { select: { apontamentos: true } } },
-    })
+    }) as any
     if (ticket && ticket._count.apontamentos > 0) {
         throw new Error("Não é possível mudar o cliente de um ticket que já possui apontamentos.")
     }
-    await prisma.tickets.update({
-        where: { id: ticketId },
+    await prismaAny.tickets.update({
+        where: { id: normalizedTicketId },
         data: { clientId, requestedByContactId: null, requestedByContabilityId: null },
     })
-    revalidatePath("/dashboard/tickets")
     return { success: true }
 }
 
-export async function addTicketAttachment(ticketId: string, data: { url: string; fileName: string; fileType: string; fileSize: number }) {
+export async function addTicketAttachment(ticketId: string | number, data: { url: string; fileName: string; fileType: string; fileSize: number }) {
     await getSession()
-    await prisma.attachment.create({
+    await prismaAny.attachment.create({
         data: {
-            ticketId,
+            ticketId: normalizeTicketId(ticketId),
             url: data.url,
             fileName: data.fileName,
             fileType: data.fileType,
             fileSize: data.fileSize,
         },
     })
-    revalidatePath("/dashboard/tickets")
     return { success: true }
 }
 
 export async function addCommentAttachment(commentId: string, data: { url: string; fileName: string; fileType: string; fileSize: number }) {
     await getSession()
-    await prisma.attachment.create({
+    await prismaAny.attachment.create({
         data: {
             commentId,
             url: data.url,
@@ -381,6 +525,5 @@ export async function addCommentAttachment(commentId: string, data: { url: strin
             fileSize: data.fileSize,
         },
     })
-    revalidatePath("/dashboard/tickets")
     return { success: true }
 }

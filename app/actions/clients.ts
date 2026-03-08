@@ -3,22 +3,57 @@
 import { prisma } from "@/app/utils/prisma"
 import { auth } from "@/app/utils/auth"
 import { headers } from "next/headers"
-import { revalidatePath } from "next/cache"
+import { cache } from "react"
 
-async function getSession() {
+const getSession = cache(async () => {
     const session = await auth.api.getSession({ headers: await headers() })
     if (!session) throw new Error("Não autenticado")
     return session
+})
+
+function normalizeText(value: string) {
+    return value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+}
+
+function normalizeDigits(value: string) {
+    return value.replace(/\D/g, "")
 }
 
 export async function getClients() {
     await getSession()
     const clients = await prisma.clients.findMany({
         orderBy: { createdAt: "desc" },
-        include: {
-            contacts: true,
-            clientProductSerials: true,
-            _count: { select: { tickets: true } },
+        select: {
+            id: true,
+            name: true,
+            cnpj: true,
+            cpf: true,
+            type: true,
+            city: true,
+            ownerPhone: true,
+            ownerEmail: true,
+            hasContract: true,
+            contractType: true,
+            supportReleased: true,
+            certificateExpiresDate: true,
+            certificateType: true,
+            createdAt: true,
+            contacts: {
+                select: {
+                    phone: true,
+                    email: true,
+                    isDefault: true,
+                },
+            },
+            clientProductSerials: {
+                select: {
+                    expiresAt: true,
+                },
+            },
+            _count: { select: { tickets: true, contacts: true } },
         },
     })
     return clients.map(c => ({
@@ -26,38 +61,144 @@ export async function getClients() {
         name: c.name,
         cnpj: c.cnpj,
         cpf: c.cpf,
-        ie: c.ie,
-        cnae: c.cnae,
-        businessSector: c.businessSector,
         type: c.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
         city: c.city,
-        address: c.address,
-        houseNumber: c.houseNumber,
-        neighborhood: c.neighborhood,
-        zipCode: c.zipCode,
-        complement: c.complement,
         phone: c.contacts.find(ct => ct.isDefault)?.phone || c.ownerPhone || null,
         email: c.contacts.find(ct => ct.isDefault)?.email || c.ownerEmail || null,
         hasContract: c.hasContract ?? false,
         contractType: c.contractType,
         supportReleased: c.supportReleased ?? false,
-        ownerName: c.ownerName,
-        ownerPhone: c.ownerPhone,
-        ownerEmail: c.ownerEmail,
         certificateExpiresDate: c.certificateExpiresDate?.toISOString() || null,
         certificateType: c.certificateType,
         ticketCount: c._count.tickets,
-        contactCount: c.contacts.length,
+        contactCount: c._count.contacts,
         clientProductSerials: c.clientProductSerials,
         createdAt: c.createdAt.toISOString(),
     }))
+}
+
+export async function getClientOptions() {
+    await getSession()
+    return prisma.clients.findMany({
+        orderBy: { name: "asc" },
+        select: {
+            id: true,
+            name: true,
+        },
+    })
+}
+
+export async function getClientSearchOptions(params?: {
+    query?: string
+    offset?: number
+    limit?: number
+}) {
+    await getSession()
+
+    const limit = Math.min(Math.max(params?.limit ?? 15, 1), 50)
+    const offset = Math.max(params?.offset ?? 0, 0)
+    const query = (params?.query || "").trim()
+
+    if (!query) {
+        const items = await prisma.clients.findMany({
+            orderBy: { name: "asc" },
+            skip: offset,
+            take: limit,
+            select: {
+                id: true,
+                name: true,
+                cnpj: true,
+                cpf: true,
+            },
+        })
+
+        return {
+            items,
+            nextOffset: items.length === limit ? offset + items.length : null,
+            hasMore: items.length === limit,
+        }
+    }
+
+    const normalizedQuery = normalizeText(query)
+    const digitsQuery = normalizeDigits(query)
+
+    const clients = await prisma.clients.findMany({
+        orderBy: { name: "asc" },
+        select: {
+            id: true,
+            name: true,
+            cnpj: true,
+            cpf: true,
+        },
+    })
+
+    const filtered = clients.filter((client) => {
+        const normalizedName = normalizeText(client.name)
+        const normalizedCnpj = normalizeDigits(client.cnpj || "")
+        const normalizedCpf = normalizeDigits(client.cpf || "")
+
+        const matchesName = normalizedName.includes(normalizedQuery)
+        const matchesDocument = digitsQuery
+            ? normalizedCnpj.includes(digitsQuery) || normalizedCpf.includes(digitsQuery)
+            : false
+
+        return matchesName || matchesDocument
+    })
+
+    const items = filtered.slice(offset, offset + limit)
+
+    return {
+        items,
+        nextOffset: offset + limit < filtered.length ? offset + limit : null,
+        hasMore: offset + limit < filtered.length,
+    }
 }
 
 export async function getClientById(id: string) {
     await getSession()
     const client = await prisma.clients.findUnique({
         where: { id },
-        include: {
+        select: {
+            id: true,
+            name: true,
+            cnpj: true,
+            cpf: true,
+            ie: true,
+            state: true,
+            codigoCSC: true,
+            tokenCSC: true,
+            cnae: true,
+            businessSector: true,
+            aditionalInfo: true,
+            contractType: true,
+            contractCancelReason: true,
+            contractCancelDate: true,
+            blockReason: true,
+            photoUrl: true,
+            type: true,
+            city: true,
+            address: true,
+            houseNumber: true,
+            neighborhood: true,
+            zipCode: true,
+            complement: true,
+            hasContract: true,
+            supportReleased: true,
+            ownerName: true,
+            ownerPhone: true,
+            ownerEmail: true,
+            ownerCpf: true,
+            certificateExpiresDate: true,
+            certificateType: true,
+            createdAt: true,
+            contability: {
+                select: {
+                    id: true,
+                    name: true,
+                    cnpj: true,
+                    cpf: true,
+                },
+            },
             contacts: { orderBy: { isDefault: "desc" } },
             attachments: {
                 select: { id: true, url: true, fileName: true, fileType: true, fileSize: true },
@@ -72,11 +213,16 @@ export async function getClientById(id: string) {
                     requestedByContability: { select: { id: true } },
                 },
             },
-            products: true,
-            contability: true,
+            products: {
+                select: {
+                    id: true,
+                    name: true,
+                },
+            },
         },
     })
     if (!client) throw new Error("Cliente não encontrado")
+    
     return {
         id: client.id,
         name: client.name,
@@ -91,7 +237,7 @@ export async function getClientById(id: string) {
         aditionalInfo: client.aditionalInfo,
         contractType: client.contractType,
         contractCancelReason: client.contractCancelReason,
-        contractCancelDate: client.contractCancelDate?.toISOString(),
+        contractCancelDate: client.contractCancelDate ? new Date(client.contractCancelDate).toLocaleDateString('en-CA') : null,
         blockReason: client.blockReason,
         photoUrl: client.photoUrl,
         type: client.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
@@ -110,12 +256,19 @@ export async function getClientById(id: string) {
         certificateExpiresDate: client.certificateExpiresDate?.toISOString() || null,
         certificateType: client.certificateType,
         createdAt: client.createdAt.toISOString(),
+        contability: client.contability ? {
+            id: client.contability.id,
+            name: client.contability.name,
+            cnpj: client.contability.cnpj,
+            cpf: client.contability.cpf,
+        } : null,
         contacts: client.contacts.map(ct => ({
             id: ct.id,
             name: ct.name,
             phone: ct.phone,
             email: ct.email,
             role: ct.role,
+            bestContactTime: ct.bestContactTime,
             isDefault: ct.isDefault,
         })),
         tickets: client.tickets.map(t => ({
@@ -164,6 +317,7 @@ export async function createClient(data: {
     ownerCpf?: string
     hasContract?: boolean
     supportReleased?: boolean
+    contabilityId?: string
 }) {
     await getSession()
     const id = crypto.randomUUID()
@@ -194,9 +348,9 @@ export async function createClient(data: {
             ownerCpf: data.ownerCpf || null,
             hasContract: data.hasContract ?? false,
             supportReleased: data.supportReleased ?? false,
+            contabilityId: data.contabilityId || null,
         },
     })
-    revalidatePath("/dashboard/clientes")
     return { success: true, id }
 }
 
@@ -207,14 +361,12 @@ export async function updateClient(id: string, data: Record<string, unknown>) {
     if (data.type === "PJ") data.type = "PESSOA_JURIDICA"
 
     await prisma.clients.update({ where: { id }, data })
-    revalidatePath("/dashboard/clientes")
     return { success: true }
 }
 
 export async function deleteClient(id: string) {
     await getSession()
     await prisma.clients.delete({ where: { id } })
-    revalidatePath("/dashboard/clientes")
     return { success: true }
 }
 
@@ -223,27 +375,29 @@ export async function addClientContact(clientId: string, data: {
     phone?: string
     email?: string
     role?: string
+    bestContactTime?: string
     isDefault?: boolean
 }) {
     await getSession()
-    await prisma.clientContact.create({
+    
+    const result = await prisma.clientContact.create({
         data: {
             clientId,
             name: data.name,
             phone: data.phone || null,
             email: data.email || null,
             role: data.role || null,
+            bestContactTime: data.bestContactTime || null,
             isDefault: data.isDefault ?? false,
         },
     })
-    revalidatePath("/dashboard/clientes")
-    return { success: true }
+
+    return { success: true, id: result.id }
 }
 
 export async function deleteClientContact(contactId: string) {
     await getSession()
     await prisma.clientContact.delete({ where: { id: contactId } })
-    revalidatePath("/dashboard/clientes")
     return { success: true }
 }
 
@@ -252,7 +406,7 @@ export async function getClientContacts(clientId: string) {
     const contacts = await prisma.clientContact.findMany({
         where: { clientId },
         orderBy: { isDefault: "desc" },
-        select: { id: true, name: true, phone: true, email: true, role: true, isDefault: true },
+        select: { id: true, name: true, phone: true, email: true, role: true, bestContactTime: true, isDefault: true },
     })
     return contacts
 }
@@ -263,9 +417,10 @@ export async function cancelContract(clientId: string, cancelReason: string, can
     // Tratar a data no timezone local (Brasil/São Paulo)
     let dateToSave: Date
     if (cancelDate) {
-        // Criar a data no timezone local para evitar conversão UTC
+        // Criar a data exata no timezone local
         const [year, month, day] = cancelDate.split('-').map(Number)
-        dateToSave = new Date(year, month - 1, day, 12, 0, 0) // Meio-dia para evitar problemas com DST
+        // Usar UTC para garantir que a data seja salva corretamente
+        dateToSave = new Date(Date.UTC(year, month - 1, day, 15, 0, 0)) // 15h UTC = 12h no Brasil (considerando DST)
     } else {
         dateToSave = new Date()
     }
@@ -279,8 +434,6 @@ export async function cancelContract(clientId: string, cancelReason: string, can
             supportReleased: false,
         },
     })
-    revalidatePath("/dashboard/clientes")
-    revalidatePath(`/dashboard/clientes/${clientId}`)
     return { success: true }
 }
 
@@ -300,7 +453,7 @@ export async function getClientContability(clientId: string) {
 
 export async function addClientAttachment(clientId: string, data: { url: string; fileName: string; fileType: string; fileSize: number }) {
     await getSession()
-    await prisma.attachment.create({
+    const attachment = await prisma.attachment.create({
         data: {
             clientId,
             url: data.url,
@@ -309,14 +462,12 @@ export async function addClientAttachment(clientId: string, data: { url: string;
             fileSize: data.fileSize,
         },
     })
-    revalidatePath("/dashboard/clientes")
-    return { success: true }
+    return { success: true, id: attachment.id }
 }
 
 export async function deleteClientAttachment(attachmentId: string) {
     await getSession()
     await prisma.attachment.delete({ where: { id: attachmentId } })
-    revalidatePath("/dashboard/clientes")
     return { success: true }
 }
 
@@ -329,6 +480,5 @@ export async function toggleClientSupport(id: string, released: boolean, blockRe
             blockReason: released ? null : (blockReason || null),
         },
     })
-    revalidatePath("/dashboard/clientes")
     return { success: true }
 }

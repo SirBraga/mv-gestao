@@ -27,11 +27,17 @@ model User {
   comments      TicketComment[]
   sessions      Session[]
   accounts      Account[]
-  sentMessages     ChatMessage[] @relation("SentMessages")
-  receivedMessages ChatMessage[] @relation("ReceivedMessages")
   onlineStatus     UserStatus?
   notifications    Notification[]
   pushSubscription String?
+  
+  // Chat relations
+  createdChannels  ChatChannel[]   @relation("ChannelCreator")
+  channelMembers   ChannelMember[]
+  chatMessages     ChatMessage[]
+  chatMediaFiles   ChatMediaFile[]
+  knowledgeArticlesCreated KnowledgeBaseArticle[] @relation("KnowledgeArticleCreatedBy")
+  knowledgeArticlesUpdated KnowledgeBaseArticle[] @relation("KnowledgeArticleUpdatedBy")
 
   @@unique([email])
   @@map("user")
@@ -133,17 +139,18 @@ model Clients {
 }
 
 model ClientContact {
-  id        String   @id @default(cuid())
-  clientId  String
-  client    Clients  @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  name      String
-  phone     String?
-  email     String?
-  role      String?  // e.g. "Suporte", "Financeiro", "Proprietário"
-  isDefault Boolean  @default(false)
+  id              String   @id @default(cuid())
+  clientId        String
+  client          Clients  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name            String
+  phone           String?
+  email           String?
+  role            String?  // e.g. "Suporte", "Financeiro", "Proprietário"
+  bestContactTime String?  // Melhor horário para contato
+  isDefault       Boolean  @default(false)
   ticketsRequested Tickets[] @relation("RequestedByContact")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([clientId])
   @@map("client_contact")
@@ -151,7 +158,7 @@ model ClientContact {
 
 
 model Tickets {
-  id           String @id @default(cuid())
+  id           Int    @id @default(autoincrement())
   ticketNumber Int    @default(autoincrement())
   clientId String
   client Clients @relation(fields: [clientId], references: [id])
@@ -162,6 +169,7 @@ model Tickets {
   ticketResolutionDate DateTime?
   reopenCount Int @default(0)
   reopenReason String?
+  cancelReason String?
   reopenDate DateTime?
   reopenById String?
   apontamentos Apontamento[]
@@ -174,6 +182,8 @@ model Tickets {
   requestedByContact   ClientContact? @relation("RequestedByContact", fields: [requestedByContactId], references: [id])
   requestedByContabilityId String?
   requestedByContability   Contability? @relation("RequestedByContability", fields: [requestedByContabilityId], references: [id])
+  knowledgeArticleId String?
+  knowledgeArticle KnowledgeBaseArticle? @relation(fields: [knowledgeArticleId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -184,7 +194,7 @@ model Tickets {
 
 model Apontamento {
   id String @id @default(cuid())
-  ticketId String
+  ticketId Int
   ticket Tickets @relation(fields: [ticketId], references: [id])
   userId String
   user User @relation(fields: [userId], references: [id])
@@ -202,7 +212,7 @@ model Apontamento {
 
 model TicketComment {
   id        String   @id @default(cuid())
-  ticketId  String
+  ticketId  Int
   ticket    Tickets  @relation(fields: [ticketId], references: [id])
   userId    String
   user      User     @relation(fields: [userId], references: [id])
@@ -260,8 +270,48 @@ model Products {
   updatedAt DateTime @updatedAt
 
   clientProductSerials ClientProductSerial[]
+  knowledgeArticles KnowledgeBaseArticleProduct[]
 
   @@map("products")
+}
+
+model KnowledgeBaseArticle {
+  id String @id @default(cuid())
+  title String
+  slug String @unique
+  summary String?
+  content String
+  category String?
+  status String @default("RASCUNHO")
+  difficulty String?
+  isFeatured Boolean @default(false)
+  viewCount Int @default(0)
+  helpfulCount Int @default(0)
+  createdById String?
+  createdBy User? @relation("KnowledgeArticleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById String?
+  updatedBy User? @relation("KnowledgeArticleUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  products KnowledgeBaseArticleProduct[]
+  tickets Tickets[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([category])
+  @@map("knowledge_base_article")
+}
+
+model KnowledgeBaseArticleProduct {
+  id String @id @default(cuid())
+  articleId String
+  article KnowledgeBaseArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  productId String
+  product Products @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([articleId, productId])
+  @@index([productId])
+  @@map("knowledge_base_article_product")
 }
 
 model ClientProductSerial {
@@ -296,6 +346,7 @@ enum Ticket_Status {
   PENDING_EMPRESS
   IN_PROGRESS
   CLOSED
+  CANCELLED
 }
 
 enum Ticket_Priority {
@@ -333,27 +384,6 @@ enum BlockReason {
   OUTROS
 }
 
-// ── Chat Interno ──
-
-model ChatMessage {
-  id         String   @id @default(cuid())
-  senderId   String
-  sender     User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
-  receiverId String
-  receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
-  content    String
-  read       Boolean  @default(false)
-  replyToId  String?
-  replyTo    ChatMessage?  @relation("MessageReplies", fields: [replyToId], references: [id])
-  replies    ChatMessage[] @relation("MessageReplies")
-  attachments Attachment[]
-  createdAt  DateTime @default(now())
-
-  @@index([senderId])
-  @@index([receiverId])
-  @@index([senderId, receiverId])
-  @@map("chat_message")
-}
 
 model Attachment {
   id         String   @id @default(cuid())
@@ -364,7 +394,7 @@ model Attachment {
   // Optional relations
   chatMessageId   String?
   chatMessage     ChatMessage? @relation(fields: [chatMessageId], references: [id], onDelete: Cascade)
-  ticketId        String?
+  ticketId        Int?
   ticket          Tickets?     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   apontamentoId   String?
   apontamento     Apontamento? @relation(fields: [apontamentoId], references: [id], onDelete: Cascade)
@@ -407,4 +437,114 @@ model UserStatus {
   updatedAt DateTime @updatedAt
 
   @@map("user_status")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CHAT MODELS - Ably Integration
+// ══════════════════════════════════════════════════════════════════════════════
+
+model ChatChannel {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  type        ChannelType @default(DIRECT)
+  createdById String
+  createdBy   User        @relation("ChannelCreator", fields: [createdById], references: [id])
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  members  ChannelMember[]
+  messages ChatMessage[]
+
+  @@index([createdById])
+  @@map("chat_channels")
+}
+
+model ChannelMember {
+  id        String     @id @default(cuid())
+  channelId String
+  channel   ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      MemberRole @default(MEMBER)
+  joinedAt  DateTime   @default(now())
+  mutedUntil DateTime?
+  lastReadAt DateTime?
+
+  @@unique([channelId, userId])
+  @@index([userId])
+  @@map("channel_members")
+}
+
+model ChatMessage {
+  id        String      @id @default(cuid())
+  channelId String
+  channel   ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  senderId  String
+  sender    User        @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  content   String
+  type      MessageType @default(TEXT)
+  
+  // Media fields
+  mediaUrl  String?
+  mediaType String?
+  fileName  String?
+  fileSize  Int?
+  
+  // Reply fields
+  replyToId String?
+  replyTo   ChatMessage?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   ChatMessage[] @relation("MessageReplies")
+  
+  // Attachments
+  attachments Attachment[]
+  
+  // Status
+  isEdited  Boolean  @default(false)
+  isDeleted Boolean  @default(false)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([channelId])
+  @@index([senderId])
+  @@index([replyToId])
+  @@map("chat_messages")
+}
+
+model ChatMediaFile {
+  id           String   @id @default(cuid())
+  originalName String
+  fileName     String
+  mimeType     String
+  size         Int
+  url          String
+  uploadedById String
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+
+  @@index([uploadedById])
+  @@map("chat_media_files")
+}
+
+enum ChannelType {
+  DIRECT
+  GROUP
+  SUPPORT
+  PROJECT
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  FILE
+  SYSTEM
 }

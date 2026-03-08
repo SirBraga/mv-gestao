@@ -1,18 +1,20 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getClients, createClient } from "@/app/actions/clients"
-import { getProducts, createClientProductSerial } from "@/app/actions/products"
-import { getContabilities } from "@/app/actions/contability"
+import { getClients, createClient, addClientContact } from "@/app/actions/clients"
+import { getProductOptions, createClientProductSerial } from "@/app/actions/products"
+import { getContabilityOptions } from "@/app/actions/contability"
 import ClientCard from "../_components/clientCard"
 import type { ClientData } from "../_components/clientCard"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
+import { MultiSelect } from "@/components/ui/multi-select"
 import { toast } from "react-toastify"
-import { maskCPF, maskCNPJ, maskPhone, maskCEP } from "@/app/utils/masks"
+import { maskCPF, maskCNPJ, maskPhone, maskCEP, maskContactTime } from "@/app/utils/masks"
 import { uploadFile } from "@/app/utils/upload"
+import { CONTACT_ROLES, CERTIFICATE_TYPES } from "@/app/constants/options"
 import { ImagePositioner } from "../_components/ImagePositioner"
 import {
     Search,
@@ -33,6 +35,11 @@ import {
     Check,
     Clock,
     AlertCircle,
+    Trash2,
+    Phone,
+    Mail,
+    Pencil,
+    Save,
 } from "lucide-react"
 
 type FilterType = "all" | "active" | "blocked" | "cert_expired" | "cert_expiring" | "serial_expired" | "serial_expiring"
@@ -147,9 +154,9 @@ export default function Clientes() {
     const [cepLoading, setCepLoading] = useState(false)
     const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
     const [selectedContabilityIds, setSelectedContabilityIds] = useState<string[]>([])
-    const [productSearch, setProductSearch] = useState("")
-    const [contabilitySearch, setContabilitySearch] = useState("")
     const [productSerials, setProductSerials] = useState<Record<string, { serial: string; expiresAt: string }>>({})
+    const [extraContacts, setExtraContacts] = useState<Array<{ id: string; name: string; phone: string; email: string; role: string; bestContactTime: string }>>([])
+    const [expandedContacts, setExpandedContacts] = useState<Record<string, boolean>>({})
 
     const { data: clients = [], isLoading } = useQuery({
         queryKey: ["clients"],
@@ -158,14 +165,16 @@ export default function Clientes() {
 
     const { data: allProducts = [] } = useQuery({
         queryKey: ["products-list"],
-        queryFn: () => getProducts(),
+        queryFn: () => getProductOptions(),
         enabled: drawerOpen,
+        staleTime: 30 * 60 * 1000,
     })
 
     const { data: allContabilities = [] } = useQuery({
         queryKey: ["contabilities-list"],
-        queryFn: () => getContabilities(),
+        queryFn: () => getContabilityOptions(),
         enabled: drawerOpen,
+        staleTime: 30 * 60 * 1000,
     })
 
     const fetchViaCEP = async (cep: string) => {
@@ -192,10 +201,38 @@ export default function Clientes() {
 
     const createMutation = useMutation({
         mutationFn: createClient,
-        onSuccess: () => {
+        onSuccess: (result, variables) => {
+            queryClient.setQueryData(["clients"], (old: ClientData[] | undefined) => {
+                if (!Array.isArray(old)) return old
+
+                return [
+                    {
+                        id: result.id || "",
+                        name: variables.name,
+                        cnpj: variables.cnpj,
+                        cpf: variables.cpf,
+                        type: variables.type,
+                        city: variables.city,
+                        phone: variables.ownerPhone || null,
+                        email: variables.ownerEmail || null,
+                        hasContract: variables.hasContract ?? false,
+                        contractType: variables.contractType || undefined,
+                        supportReleased: variables.supportReleased ?? false,
+                        certificateExpiresDate: variables.certificateExpiresDate?.toISOString() || null,
+                        certificateType: variables.certificateType || undefined,
+                        ticketCount: 0,
+                        contactCount: 0,
+                        clientProductSerials: [],
+                        createdAt: new Date().toISOString(),
+                    },
+                    ...old,
+                ]
+            })
             queryClient.invalidateQueries({ queryKey: ["clients"] })
             setDrawerOpen(false)
             setForm(INITIAL_FORM)
+            setExtraContacts([])
+            setExpandedContacts({})
             toast.success("Cliente criado com sucesso!")
         },
         onError: (err: Error) => toast.error(err.message),
@@ -208,6 +245,39 @@ export default function Clientes() {
             setSortKey(key)
             setSortDir("desc")
         }
+    }
+
+    // Funções para contatos extras
+    const addExtraContact = () => {
+        const newContact = {
+            id: Date.now().toString(),
+            name: "",
+            phone: "",
+            email: "",
+            role: "",
+            bestContactTime: ""
+        }
+        setExtraContacts(prev => [...prev, newContact])
+        setExpandedContacts(prev => ({ ...prev, [newContact.id]: true }))
+    }
+
+    const updateExtraContact = (id: string, field: keyof typeof extraContacts[0], value: string) => {
+        setExtraContacts(prev => prev.map(contact => 
+            contact.id === id ? { ...contact, [field]: value } : contact
+        ))
+    }
+
+    const removeExtraContact = (id: string) => {
+        setExtraContacts(prev => prev.filter(contact => contact.id !== id))
+        setExpandedContacts(prev => {
+            const newExpanded = { ...prev }
+            delete newExpanded[id]
+            return newExpanded
+        })
+    }
+
+    const toggleContactExpanded = (id: string) => {
+        setExpandedContacts(prev => ({ ...prev, [id]: !prev[id] }))
     }
 
     const handleSubmit = async () => {
@@ -235,7 +305,7 @@ export default function Clientes() {
                 const res = await uploadFile(photoFile, "clientes")
                 photoUrl = res.url
             }
-            await createMutation.mutateAsync({
+            const createdClient = await createMutation.mutateAsync({
                 name: form.name, type: form.type,
                 cnpj: form.type === "PJ" ? form.cnpj : undefined,
                 cpf: form.type === "PF" ? form.cpf : undefined,
@@ -255,26 +325,45 @@ export default function Clientes() {
                 ownerName: form.ownerName || undefined, ownerPhone: form.ownerPhone || undefined,
                 ownerEmail: form.ownerEmail || undefined, ownerCpf: form.ownerCpf || undefined,
                 hasContract: form.hasContract, supportReleased: form.supportReleased,
+                contabilityId: selectedContabilityIds[0] || undefined,
             })
-            
-            // Salvar seriais dos produtos
-            for (const productId of selectedProductIds) {
-                const serialData = productSerials[productId]
-                if (serialData?.serial.trim()) {
-                    await createClientProductSerial({
-                        clientId: createMutation.data?.id || "",
-                        productId,
-                        serial: serialData.serial,
-                        expiresAt: serialData.expiresAt ? new Date(serialData.expiresAt) : undefined,
-                    })
-                }
-            }
+
+            await Promise.all([
+                ...selectedProductIds.flatMap((productId) => {
+                    const serialData = productSerials[productId]
+                    if (!serialData?.serial.trim()) return []
+
+                    return [
+                        createClientProductSerial({
+                            clientId: createdClient.id || "",
+                            productId,
+                            serial: serialData.serial,
+                            expiresAt: serialData.expiresAt ? new Date(serialData.expiresAt) : undefined,
+                        }),
+                    ]
+                }),
+                ...extraContacts.flatMap((contact) => {
+                    if (!contact.name.trim()) return []
+
+                    return [
+                        addClientContact(createdClient.id || "", {
+                            name: contact.name,
+                            phone: contact.phone || undefined,
+                            email: contact.email || undefined,
+                            role: contact.role || undefined,
+                            bestContactTime: contact.bestContactTime || undefined,
+                        }),
+                    ]
+                }),
+            ])
             
             setPhotoFile(null)
             setPhotoSrc(null)
             setPhotoPos("50% 50%")
             setSelectedProductIds([])
+            setSelectedContabilityIds([])
             setProductSerials({})
+            setExtraContacts([])
         } catch {
             // error handled by mutation onError
         } finally {
@@ -304,6 +393,21 @@ export default function Clientes() {
             })
             .sort((a, b) => compareClients(a, b, sortKey, sortDir))
     }, [clients, activeFilter, searchQuery, sortKey, sortDir])
+
+    const [currentPage, setCurrentPage] = useState(1)
+    const [pageSize, setPageSize] = useState(15)
+
+    useEffect(() => {
+        setCurrentPage(1)
+    }, [activeFilter, searchQuery, sortKey, sortDir, pageSize])
+
+    const totalPages = Math.max(1, Math.ceil(filteredClients.length / pageSize))
+    const paginatedClients = useMemo(() => {
+        const start = (currentPage - 1) * pageSize
+        return filteredClients.slice(start, start + pageSize)
+    }, [filteredClients, currentPage, pageSize])
+    const pageStart = filteredClients.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
+    const pageEnd = Math.min(currentPage * pageSize, filteredClients.length)
 
     const allClients = clients as ClientData[]
     const counts: Record<FilterType, number> = {
@@ -407,6 +511,24 @@ export default function Clientes() {
                     </div>
                 </div>
 
+                <div className="flex items-center justify-between px-6 py-3 border-b border-slate-200 bg-white">
+                    <p className="text-sm text-slate-500">
+                        Mostrando <span className="font-medium text-slate-900">{pageStart}-{pageEnd}</span> de <span className="font-medium text-slate-900">{filteredClients.length}</span>
+                    </p>
+                    <div className="flex items-center gap-3">
+                        <label className="text-sm text-slate-500">Por página</label>
+                        <select
+                            className="h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 bg-white"
+                            value={pageSize}
+                            onChange={(e) => setPageSize(Number(e.target.value))}
+                        >
+                            <option value={15}>15</option>
+                            <option value={30}>30</option>
+                            <option value={50}>50</option>
+                        </select>
+                    </div>
+                </div>
+
                 {/* Column Headers */}
                 <div className="grid grid-cols-[1.5fr_1fr_1fr_120px_110px_50px] gap-3 px-6 py-3 border-b border-slate-200 bg-slate-50">
                     {COLUMNS.map((col) => (
@@ -439,14 +561,24 @@ export default function Clientes() {
                             <p className="text-xs text-slate-400 mt-1">Tente ajustar os filtros ou busca</p>
                         </div>
                     ) : (
-                        filteredClients.map((client) => (
+                        paginatedClients.map((client) => (
                             <ClientCard key={client.id} client={client} />
                         ))
                     )}
                 </div>
+
+                {!isLoading && filteredClients.length > 0 && (
+                    <div className="flex items-center justify-between px-6 py-3 border-t border-slate-200 bg-white">
+                        <p className="text-sm text-slate-500">Página <span className="font-medium text-slate-900">{currentPage}</span> de <span className="font-medium text-slate-900">{totalPages}</span></p>
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" className="h-9 rounded-lg text-sm" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1}>Anterior</Button>
+                            <Button variant="outline" className="h-9 rounded-lg text-sm" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage === totalPages}>Próxima</Button>
+                        </div>
+                    </div>
+                )}
             </div>
             <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-                <SheetContent side="right" className="sm:max-w-md w-full p-0">
+                <SheetContent side="right" className="sm:max-w-md w-full p-0" onInteractOutside={(event) => event.preventDefault()}>
                     <SheetHeader className="px-6 pt-6 pb-4 border-b border-gray-100">
                         <SheetTitle className="text-base">Novo Cliente</SheetTitle>
                         <SheetDescription className="text-xs">Preencha os dados para cadastrar um novo cliente.</SheetDescription>
@@ -669,6 +801,132 @@ export default function Clientes() {
                             </div>
                         </div>
 
+                        {/* Contatos Extras */}
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Contatos Extras</p>
+                        <div className="space-y-2">
+                            {extraContacts.length === 0 ? (
+                                <button
+                                    type="button"
+                                    onClick={addExtraContact}
+                                    className="w-full py-2 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-gray-400 hover:text-gray-600 transition-colors text-sm"
+                                >
+                                    <Plus size={14} className="inline mr-1" />
+                                    Adicionar contato
+                                </button>
+                            ) : (
+                                <>
+                                    {extraContacts.map((contact) => (
+                                        <div key={contact.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                                            {/* Header do accordion */}
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleContactExpanded(contact.id)}
+                                                className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors"
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <Users size={14} className="text-gray-500" />
+                                                    <span className="text-sm font-medium text-gray-700">
+                                                        {contact.name || "Novo contato"}
+                                                    </span>
+                                                    {contact.role && (
+                                                        <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                                                            {CONTACT_ROLES.find(r => r.value === contact.role)?.label || contact.role}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            removeExtraContact(contact.id)
+                                                        }}
+                                                        className="text-gray-400 hover:text-red-500 transition-colors"
+                                                        title="Remover contato"
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                    <ChevronDown 
+                                                        size={14} 
+                                                        className={`text-gray-400 transition-transform ${expandedContacts[contact.id] ? 'rotate-180' : ''}`}
+                                                    />
+                                                </div>
+                                            </button>
+                                            
+                                            {/* Conteúdo do accordion */}
+                                            {expandedContacts[contact.id] && (
+                                                <div className="px-3 py-3 space-y-2 bg-white">
+                                                    <div className="grid grid-cols-1 gap-2">
+                                                        <div>
+                                                            <label className="text-xs font-medium text-gray-500 mb-1 block">Nome *</label>
+                                                            <Input
+                                                                placeholder="Nome do contato"
+                                                                className="h-8 rounded text-xs"
+                                                                value={contact.name}
+                                                                onChange={(e) => updateExtraContact(contact.id, 'name', e.target.value)}
+                                                            />
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <div>
+                                                                <label className="text-xs font-medium text-gray-500 mb-1 block">Telefone</label>
+                                                                <Input
+                                                                    placeholder="(00) 00000-0000"
+                                                                    className="h-8 rounded text-xs"
+                                                                    value={contact.phone}
+                                                                    onChange={(e) => updateExtraContact(contact.id, 'phone', maskPhone(e.target.value))}
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="text-xs font-medium text-gray-500 mb-1 block">Email</label>
+                                                                <Input
+                                                                    placeholder="email@exemplo.com"
+                                                                    className="h-8 rounded text-xs"
+                                                                    value={contact.email}
+                                                                    onChange={(e) => updateExtraContact(contact.id, 'email', e.target.value)}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <div>
+                                                                <label className="text-xs font-medium text-gray-500 mb-1 block">Cargo/Função</label>
+                                                                <select 
+                                                                    className="w-full h-8 rounded border border-gray-200 px-2 text-xs text-gray-700 bg-white" 
+                                                                    value={contact.role}
+                                                                    onChange={(e) => updateExtraContact(contact.id, 'role', e.target.value)}
+                                                                >
+                                                                    <option value="">Selecione</option>
+                                                                    {CONTACT_ROLES.map(role => (
+                                                                        <option key={role.value} value={role.value}>{role.label}</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="text-xs font-medium text-gray-500 mb-1 block">Melhor horário</label>
+                                                                <Input
+                                                                    placeholder="09:00 - 18:00"
+                                                                    className="h-8 rounded text-xs"
+                                                                    value={contact.bestContactTime}
+                                                                    onChange={(e) => updateExtraContact(contact.id, 'bestContactTime', maskContactTime(e.target.value))}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                    <button
+                                        type="button"
+                                        onClick={addExtraContact}
+                                        className="w-full py-2 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-gray-400 hover:text-gray-600 transition-colors text-sm"
+                                    >
+                                        <Plus size={14} className="inline mr-1" />
+                                        Adicionar outro contato
+                                    </button>
+                                </>
+                            )}
+                        </div>
+
                         {/* Dados do Proprietário */}
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Dados do Proprietário</p>
                         <div className="grid grid-cols-2 gap-3">
@@ -694,98 +952,80 @@ export default function Clientes() {
 
                         {/* Produtos contratados (opcional) */}
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Produtos Contratados <span className="normal-case font-normal">(opcional)</span></p>
-                        <div>
-                            <div className="relative mb-1.5">
-                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
-                                <Input placeholder="Buscar produto..." className="pl-8 h-9 rounded-lg text-sm" value={productSearch} onChange={e => setProductSearch(e.target.value)} />
-                            </div>
-                            <div className="max-h-36 overflow-y-auto border border-gray-200 rounded-lg">
-                                {(allProducts as {id: string; name: string; hasSerialControl: boolean}[])
-                                    .filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()))
-                                    .map(p => {
-                                        const selected = selectedProductIds.includes(p.id)
-                                        return (
-                                            <div key={p.id} className="border-b border-gray-100 last:border-b-0">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setSelectedProductIds(prev => selected ? prev.filter(x => x !== p.id) : [...prev, p.id])
-                                                        if (!selected && p.hasSerialControl) {
-                                                            setProductSerials(prev => ({
-                                                                ...prev,
-                                                                [p.id]: { serial: "", expiresAt: "" }
-                                                            }))
-                                                        } else if (selected) {
-                                                            setProductSerials(prev => {
-                                                                const newSerials = { ...prev }
-                                                                delete newSerials[p.id]
-                                                                return newSerials
-                                                            })
-                                                        }
-                                                    }}
-                                                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors cursor-pointer ${selected ? "bg-emerald-50 text-emerald-700" : "text-gray-700"}`}
-                                                >
-                                                    <span className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border ${selected ? "bg-emerald-500 border-emerald-500" : "border-gray-300"}`}>
-                                                        {selected && <Check size={10} className="text-white" />}
-                                                    </span>
-                                                    <div className="flex-1 text-left">
-                                                        <div>{p.name}</div>
-                                                        {p.hasSerialControl && (
-                                                            <div className="text-xs text-amber-600 mt-0.5">• Exige serial</div>
-                                                        )}
-                                                    </div>
-                                                </button>
-                                                {selected && p.hasSerialControl && (
-                                                    <div className="px-3 pb-2 space-y-2">
-                                                        <div className="grid grid-cols-2 gap-2">
-                                                            <div>
-                                                                <label className="text-xs font-medium text-gray-500 mb-1 block">Serial</label>
-                                                                <Input
-                                                                    placeholder="Número do serial"
-                                                                    className="h-8 rounded text-xs"
-                                                                    value={productSerials[p.id]?.serial || ""}
-                                                                    onChange={e => setProductSerials(prev => ({
-                                                                        ...prev,
-                                                                        [p.id]: { ...prev[p.id], serial: e.target.value }
-                                                                    }))}
-                                                                />
-                                                            </div>
-                                                            <div>
-                                                                <label className="text-xs font-medium text-gray-500 mb-1 block">Expiração</label>
-                                                                <Input
-                                                                    type="date"
-                                                                    className="h-8 rounded text-xs"
-                                                                    value={productSerials[p.id]?.expiresAt || ""}
-                                                                    onChange={e => setProductSerials(prev => ({
-                                                                        ...prev,
-                                                                        [p.id]: { ...prev[p.id], expiresAt: e.target.value }
-                                                                    }))}
-                                                                />
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )
-                                    })}
-                                {(allProducts as {id: string; name: string}[]).filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase())).length === 0 && (
-                                    <p className="text-xs text-gray-400 px-3 py-2">Nenhum produto encontrado</p>
-                                )}
-                            </div>
-                            {selectedProductIds.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mt-1.5">
-                                    {selectedProductIds.map(id => {
-                                        const p = (allProducts as {id: string; name: string}[]).find(x => x.id === id)
-                                        return p ? (
-                                            <span key={id} className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-medium">
-                                                {p.name}
-                                                <button type="button" onClick={() => setSelectedProductIds(prev => prev.filter(x => x !== id))} className="cursor-pointer hover:text-red-500"><X size={9} /></button>
-                                            </span>
-                                        ) : null
-                                    })}
+                        <MultiSelect
+                            options={(allProducts as {id: string; name: string; hasSerialControl: boolean}[]).map(p => ({
+                                value: p.id,
+                                label: p.name,
+                                subtitle: p.hasSerialControl ? "• Exige serial" : undefined
+                            }))}
+                            value={selectedProductIds}
+                            onChange={(newIds) => {
+                                const added = newIds.find(id => !selectedProductIds.includes(id))
+                                const removed = selectedProductIds.find(id => !newIds.includes(id))
+                                
+                                setSelectedProductIds(newIds)
+                                
+                                if (added) {
+                                    const product = (allProducts as {id: string; hasSerialControl: boolean}[]).find(p => p.id === added)
+                                    if (product?.hasSerialControl) {
+                                        setProductSerials(prev => ({
+                                            ...prev,
+                                            [added]: { serial: "", expiresAt: "" }
+                                        }))
+                                    }
+                                }
+                                
+                                if (removed) {
+                                    setProductSerials(prev => {
+                                        const newSerials = { ...prev }
+                                        delete newSerials[removed]
+                                        return newSerials
+                                    })
+                                }
+                            }}
+                            placeholder="Selecionar produtos..."
+                            searchPlaceholder="Buscar produto..."
+                            emptyMessage="Nenhum produto encontrado"
+                        />
+                        
+                        {/* Serial inputs for selected products that need it */}
+                        {selectedProductIds.map(productId => {
+                            const product = (allProducts as {id: string; name: string; hasSerialControl: boolean}[]).find(p => p.id === productId)
+                            
+                            if (!product?.hasSerialControl) return null
+                            
+                            return (
+                                <div key={productId} className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+                                    <div className="text-sm font-medium text-amber-800">Serial obrigatório: {product?.name}</div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label className="text-xs font-medium text-gray-600 mb-1 block">Serial</label>
+                                            <Input
+                                                placeholder="Número do serial"
+                                                className="h-8 rounded text-xs"
+                                                value={productSerials[productId]?.serial || ""}
+                                                onChange={e => setProductSerials(prev => ({
+                                                    ...prev,
+                                                    [productId]: { ...prev[productId], serial: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-medium text-gray-600 mb-1 block">Expiração</label>
+                                            <Input
+                                                type="date"
+                                                className="h-8 rounded text-xs"
+                                                value={productSerials[productId]?.expiresAt || ""}
+                                                onChange={e => setProductSerials(prev => ({
+                                                    ...prev,
+                                                    [productId]: { ...prev[productId], expiresAt: e.target.value }
+                                                }))}
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
-                            )}
-                        </div>
+                            )
+                        })}
 
                         {/* Contrato */}
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Contrato</p>
@@ -826,51 +1066,18 @@ export default function Clientes() {
 
                         {/* Contabilidades (opcional) */}
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Contabilidades <span className="normal-case font-normal">(opcional)</span></p>
-                        <div>
-                            <div className="relative mb-1.5">
-                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
-                                <Input placeholder="Buscar contabilidade..." className="pl-8 h-9 rounded-lg text-sm" value={contabilitySearch} onChange={e => setContabilitySearch(e.target.value)} />
-                            </div>
-                            <div className="max-h-36 overflow-y-auto border border-gray-200 rounded-lg">
-                                {(allContabilities as {id: string; name: string | null; cnpj: string | null; cpf: string | null; clientNames: string}[])
-                                    .filter(c => (c.name || c.clientNames || "").toLowerCase().includes(contabilitySearch.toLowerCase()) || (c.cnpj || "").includes(contabilitySearch) || (c.cpf || "").includes(contabilitySearch))
-                                    .map(c => {
-                                        const selected = selectedContabilityIds.includes(c.id)
-                                        return (
-                                            <button
-                                                key={c.id}
-                                                type="button"
-                                                onClick={() => setSelectedContabilityIds(prev => selected ? prev.filter(x => x !== c.id) : [...prev, c.id])}
-                                                className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors cursor-pointer ${selected ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
-                                            >
-                                                <span className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border ${selected ? "bg-blue-500 border-blue-500" : "border-gray-300"}`}>
-                                                    {selected && <Check size={10} className="text-white" />}
-                                                </span>
-                                                <span className="flex-1 min-w-0">
-                                                    <span className="block truncate">{c.name || c.clientNames}</span>
-                                                    <span className="text-[10px] text-gray-400">{c.cnpj || c.cpf || ""}</span>
-                                                </span>
-                                            </button>
-                                        )
-                                    })}
-                                {(allContabilities as {id: string; name: string | null; cnpj: string | null; cpf: string | null; clientNames: string}[]).filter(c => (c.name || c.clientNames || "").toLowerCase().includes(contabilitySearch.toLowerCase()) || (c.cnpj || "").includes(contabilitySearch) || (c.cpf || "").includes(contabilitySearch)).length === 0 && (
-                                    <p className="text-xs text-gray-400 px-3 py-2">Nenhuma contabilidade encontrada</p>
-                                )}
-                            </div>
-                            {selectedContabilityIds.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mt-1.5">
-                                    {selectedContabilityIds.map(id => {
-                                        const c = (allContabilities as {id: string; name: string | null; clientNames: string}[]).find(x => x.id === id)
-                                        return c ? (
-                                            <span key={id} className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-medium">
-                                                {c.name || c.clientNames}
-                                                <button type="button" onClick={() => setSelectedContabilityIds(prev => prev.filter(x => x !== id))} className="cursor-pointer hover:text-red-500"><X size={9} /></button>
-                                            </span>
-                                        ) : null
-                                    })}
-                                </div>
-                            )}
-                        </div>
+                        <MultiSelect
+                            options={(allContabilities as {id: string; name: string | null; cnpj: string | null; cpf: string | null; clientNames: string}[]).map(c => ({
+                                value: c.id,
+                                label: c.name || c.clientNames,
+                                subtitle: c.cnpj || c.cpf || undefined
+                            }))}
+                            value={selectedContabilityIds}
+                            onChange={setSelectedContabilityIds}
+                            placeholder="Selecionar contabilidades..."
+                            searchPlaceholder="Buscar contabilidade..."
+                            emptyMessage="Nenhuma contabilidade encontrada"
+                        />
 
                         {/* Certificado Digital (Opcional) */}
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Certificado Digital <span className="normal-case font-normal">(Opcional)</span></p>
@@ -879,9 +1086,9 @@ export default function Clientes() {
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo</label>
                                 <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.certificateType} onChange={e => setForm({...form, certificateType: e.target.value})}>
                                     <option value="">Selecione</option>
-                                    <option value="A1">A1</option>
-                                    <option value="A3">A3</option>
-                                    <option value="B1">B1</option>
+                                    {CERTIFICATE_TYPES.map(cert => (
+                                        <option key={cert.value} value={cert.value}>{cert.label}</option>
+                                    ))}
                                 </select>
                             </div>
                             <div>
@@ -906,7 +1113,7 @@ export default function Clientes() {
                         <div className="flex gap-2 w-full">
                             <Button variant="outline" className="flex-1 h-10 rounded-lg text-sm" onClick={() => setDrawerOpen(false)}>Cancelar</Button>
                             <Button className="flex-1 h-10 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm" onClick={handleSubmit} disabled={createMutation.isPending || uploading}>
-                                {(createMutation.isPending || uploading) ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
+                                Cadastrar {(createMutation.isPending || uploading) ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
                             </Button>
                         </div>
                     </SheetFooter>

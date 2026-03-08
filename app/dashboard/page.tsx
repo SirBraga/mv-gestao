@@ -314,7 +314,7 @@ export default function Dashboard() {
                 Ver todos <ArrowRight size={12} className="group-hover:translate-x-0.5 transition-transform" />
               </Link>
             </div>
-            {recentTickets.map((ticket: { id: string; title: string; client: string; status: string; priority: string; date: string }) => {
+            {recentTickets.map((ticket: { id: number; title: string; client: string; status: string; priority: string; date: string }) => {
               const status = statusConfig[ticket.status] || { bg: "bg-slate-100", text: "text-slate-600", dot: "bg-slate-400" }
               const priority = priorityConfig[ticket.priority] || { color: "text-slate-400", label: "" }
               return (
@@ -343,7 +343,7 @@ export default function Dashboard() {
               <h2 className="text-sm font-semibold text-slate-900">Atividade Recente</h2>
             </div>
             <div className="divide-y divide-slate-50">
-              {activity.map((item: { id: string; description: string; clientName: string; assignedTo: string | null; status: string | null; updatedAt: string }, i: number) => (
+              {activity.map((item: { id: number; description: string; clientName: string; assignedTo: string | null; status: string | null; updatedAt: string }, i: number) => (
                   <div key={item.id + i} className="flex gap-3 px-5 py-3 hover:bg-slate-50/50 transition-colors">
                     <div className="mt-0.5 shrink-0">
                       <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center">

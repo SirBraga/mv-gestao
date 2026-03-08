@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getContabilities, createContability, updateContability, deleteContability } from "@/app/actions/contability"
 import { getClients } from "@/app/actions/clients"
@@ -60,6 +60,8 @@ export default function ContabilidadePage() {
     const [selectedItem, setSelectedItem] = useState<AccountingData | null>(null)
     const [form, setForm] = useState(INITIAL_FORM)
     const [editForm, setEditForm] = useState(INITIAL_FORM)
+    const [currentPage, setCurrentPage] = useState(1)
+    const [pageSize, setPageSize] = useState(15)
 
     const { data: contabilities = [], isLoading } = useQuery({
         queryKey: ["contabilities"],
@@ -188,6 +190,18 @@ export default function ContabilidadePage() {
         pf: allContabilities.filter((c) => c.type === "PF").length,
     }
 
+    useEffect(() => {
+        setCurrentPage(1)
+    }, [activeFilter, searchQuery, sortKey, sortDir, pageSize])
+
+    const totalPages = Math.max(1, Math.ceil(filteredContabilities.length / pageSize))
+    const paginatedContabilities = useMemo(() => {
+        const start = (currentPage - 1) * pageSize
+        return filteredContabilities.slice(start, start + pageSize)
+    }, [filteredContabilities, currentPage, pageSize])
+    const pageStart = filteredContabilities.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
+    const pageEnd = Math.min(currentPage * pageSize, filteredContabilities.length)
+
     return (
         <div className="flex h-full bg-slate-50">
             {/* Left Filter Panel */}
@@ -286,6 +300,24 @@ export default function ContabilidadePage() {
                     </div>
                 </div>
 
+                <div className="flex items-center justify-between px-6 py-3 border-b border-slate-200 bg-white">
+                    <p className="text-sm text-slate-500">
+                        Mostrando <span className="font-medium text-slate-900">{pageStart}-{pageEnd}</span> de <span className="font-medium text-slate-900">{filteredContabilities.length}</span>
+                    </p>
+                    <div className="flex items-center gap-3">
+                        <label className="text-sm text-slate-500">Por página</label>
+                        <select
+                            className="h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 bg-white"
+                            value={pageSize}
+                            onChange={(e) => setPageSize(Number(e.target.value))}
+                        >
+                            <option value={15}>15</option>
+                            <option value={30}>30</option>
+                            <option value={50}>50</option>
+                        </select>
+                    </div>
+                </div>
+
                 {/* Column Headers */}
                 <div className="grid grid-cols-[1.5fr_100px_140px_120px_80px_50px] gap-3 px-6 py-3 border-b border-slate-200 bg-slate-50">
                     {COLUMNS.map((col) => (
@@ -319,12 +351,22 @@ export default function ContabilidadePage() {
                             <p className="text-xs text-slate-400 mt-1">Tente ajustar os filtros ou busca</p>
                         </div>
                     ) : (
-                        filteredContabilities.map((item) => <AccountingCard key={item.id} data={item} onEdit={openEditDrawer} onDelete={handleDelete} />)
+                        paginatedContabilities.map((item) => <AccountingCard key={item.id} data={item} onEdit={openEditDrawer} onDelete={handleDelete} />)
                     )}
                 </div>
+
+                {!isLoading && filteredContabilities.length > 0 && (
+                    <div className="flex items-center justify-between px-6 py-3 border-t border-slate-200 bg-white">
+                        <p className="text-sm text-slate-500">Página <span className="font-medium text-slate-900">{currentPage}</span> de <span className="font-medium text-slate-900">{totalPages}</span></p>
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" className="h-9 rounded-lg text-sm" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1}>Anterior</Button>
+                            <Button variant="outline" className="h-9 rounded-lg text-sm" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage === totalPages}>Próxima</Button>
+                        </div>
+                    </div>
+                )}
             </div>
             <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-                <SheetContent side="right" className="sm:max-w-md w-full p-0">
+                <SheetContent side="right" className="sm:max-w-md w-full p-0" onInteractOutside={(event) => event.preventDefault()}>
                     <SheetHeader className="px-6 pt-6 pb-4 border-b border-gray-100">
                         <SheetTitle className="text-base">Novo Escritório</SheetTitle>
                         <SheetDescription className="text-xs">Preencha os dados para cadastrar um novo escritório contábil.</SheetDescription>

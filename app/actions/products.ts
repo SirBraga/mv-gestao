@@ -34,6 +34,20 @@ export async function getProducts() {
     }))
 }
 
+export async function getProductOptions() {
+    await getSession()
+    const products = await prisma.products.findMany({
+        orderBy: { name: "asc" },
+        select: {
+            id: true,
+            name: true,
+            hasSerialControl: true,
+        },
+    })
+
+    return products
+}
+
 export async function createProduct(data: {
     name: string
     description?: string
@@ -112,15 +126,37 @@ export async function createClientProductSerial(data: {
     expiresAt?: Date
 }) {
     await getSession()
-    const serial = await prisma.clientProductSerial.create({
-        data: {
+    
+    // Primeiro, buscar se já existe um serial para este cliente/produto
+    const existingSerial = await prisma.clientProductSerial.findFirst({
+        where: {
             clientId: data.clientId,
             productId: data.productId,
-            serial: data.serial,
-            expiresAt: data.expiresAt || null,
         },
     })
-    revalidatePath(`/dashboard/clientes/${data.clientId}`)
+    
+    let serial
+    if (existingSerial) {
+        // Atualizar o serial existente
+        serial = await prisma.clientProductSerial.update({
+            where: { id: existingSerial.id },
+            data: {
+                serial: data.serial,
+                expiresAt: data.expiresAt || null,
+            },
+        })
+    } else {
+        // Criar novo serial
+        serial = await prisma.clientProductSerial.create({
+            data: {
+                clientId: data.clientId,
+                productId: data.productId,
+                serial: data.serial,
+                expiresAt: data.expiresAt || null,
+            },
+        })
+    }
+
     return { success: true, id: serial.id }
 }
 

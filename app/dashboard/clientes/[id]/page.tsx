@@ -6,8 +6,10 @@ import { use } from "react"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getClientById, updateClient, toggleClientSupport, addClientContact, deleteClientContact, addClientAttachment, deleteClientAttachment, cancelContract } from "@/app/actions/clients"
-import { getProducts, createClientProductSerial, getClientProductSerials } from "@/app/actions/products"
-import { maskCPF, maskCNPJ, maskPhone, maskCEP } from "@/app/utils/masks"
+import { getContabilityOptions } from "@/app/actions/contability"
+import { getProductOptions, createClientProductSerial, getClientProductSerials } from "@/app/actions/products"
+import { maskCPF, maskCNPJ, maskPhone, maskCEP, maskContactTime } from "@/app/utils/masks"
+import { CONTACT_ROLES } from "@/app/constants/options"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -41,21 +43,67 @@ import {
     Package,
     Search,
     Building2,
+    Clock,
 } from "lucide-react"
 import { uploadFile } from "@/app/utils/upload"
 import { toast } from "react-toastify"
+import TicketCreateDrawer from "@/app/dashboard/_components/ticket-create-drawer"
+import LocalFilePreviewList from "@/app/dashboard/_components/local-file-preview-list"
 
-// ── Types ──
-interface ClientContact {
+// Tipo explícito para contato com bestContactTime
+interface ContactWithTime {
     id: string
     name: string
     phone: string | null
     email: string | null
     role: string | null
+    bestContactTime: string | null
+    isDefault: boolean
+    createdAt: string
+    updatedAt: string
+}
+
+// Tipo para o cliente
+interface ClientData {
+    id: string
+    name: string
+    cnpj?: string
+    cpf?: string
+    ie?: string
+    state?: string
+    codigoCSC?: string
+    tokenCSC?: string
+    cnae?: string
+    businessSector?: string
+    type: string
+    city?: string
+    address?: string
+    houseNumber?: string
+    neighborhood?: string
+    zipCode?: string
+    complement?: string
+    phone?: string
+    email?: string
+    ownerName?: string
+    ownerPhone?: string
+    ownerEmail?: string
+    hasContract: boolean
+    contractType?: string
+    supportReleased: boolean
+    contability?: {
+        id: string
+        name: string | null
+        cnpj: string | null
+        cpf: string | null
+    } | null
+    contacts: ContactWithTime[]
+    tickets: any[]
+    createdAt: string
+    updatedAt: string
 }
 
 interface TicketSummary {
-    id: string
+    id: string | number
     ticketNumber: number
     ticketDescription: string
     status: string
@@ -71,6 +119,7 @@ const statusBadgeColors: Record<string, string> = {
     PENDING_EMPRESS: "bg-violet-500",
     IN_PROGRESS: "bg-orange-500",
     CLOSED: "bg-gray-400",
+    CANCELLED: "bg-red-500",
 }
 
 const statusLabels: Record<string, string> = {
@@ -79,6 +128,7 @@ const statusLabels: Record<string, string> = {
     PENDING_EMPRESS: "Pend. Empresa",
     IN_PROGRESS: "Em Progresso",
     CLOSED: "Fechado",
+    CANCELLED: "Cancelado",
 }
 
 const priorityDot: Record<string, string> = { LOW: "bg-emerald-500", MEDIUM: "bg-amber-500", HIGH: "bg-red-500" }
@@ -96,6 +146,8 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     const { id } = use(params)
     const router = useRouter()
     const queryClient = useQueryClient()
+    const [editing, setEditing] = useState(false)
+    const [showTicketDrawer, setShowTicketDrawer] = useState(false)
 
     const { data: client, isLoading, isError } = useQuery({
         queryKey: ["client", id],
@@ -106,18 +158,42 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
         queryKey: ["client-serials", id],
         queryFn: () => getClientProductSerials(id),
         enabled: !!id,
+        staleTime: 5 * 60 * 1000,
     })
 
     const { data: allProducts = [] } = useQuery({
         queryKey: ["products"],
-        queryFn: () => getProducts(),
+        queryFn: () => getProductOptions(),
+        enabled: editing,
+        staleTime: 30 * 60 * 1000,
+    })
+
+    const { data: allContabilities = [] } = useQuery({
+        queryKey: ["contabilities-list"],
+        queryFn: () => getContabilityOptions(),
+        enabled: editing,
+        staleTime: 30 * 60 * 1000,
     })
 
     const toggleSupportMutation = useMutation({
         mutationFn: ({ released, reason }: { released: boolean; reason?: string }) => toggleClientSupport(id, released, reason as any),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["client", id] })
-            queryClient.invalidateQueries({ queryKey: ["clients"] })
+        onSuccess: (_result, variables) => {
+            queryClient.setQueryData(["client", id], (old: any) => {
+                if (!old) return old
+
+                return {
+                    ...old,
+                    supportReleased: variables.released,
+                }
+            })
+            queryClient.setQueryData(["clients"], (old: any) => {
+                if (!Array.isArray(old)) return old
+
+                return old.map((item: any) => item.id === id ? {
+                    ...item,
+                    supportReleased: variables.released,
+                } : item)
+            })
             toast.success(client?.supportReleased ? "Suporte bloqueado" : "Suporte liberado")
             setShowBlockModal(false)
             setBlockReason("")
@@ -163,20 +239,45 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     }
 
     const addContactMut = useMutation({
-        mutationFn: (data: { name: string; phone?: string; email?: string; role?: string }) => addClientContact(id, data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["client", id] })
+        mutationFn: (data: { name: string; phone?: string; email?: string; role?: string; bestContactTime?: string }) => addClientContact(id, data),
+        onSuccess: (result, variables) => {
+            queryClient.setQueryData(["client", id], (old: any) => {
+                if (!old) return old
+
+                return {
+                    ...old,
+                    contacts: [
+                        ...old.contacts,
+                        {
+                            id: result.id,
+                            name: variables.name,
+                            phone: variables.phone ?? null,
+                            email: variables.email ?? null,
+                            role: variables.role ?? null,
+                            bestContactTime: variables.bestContactTime ?? null,
+                            isDefault: false,
+                        },
+                    ],
+                }
+            })
             toast.success("Contato adicionado!")
             setShowContactModal(false)
-            setContactForm({ name: "", phone: "", email: "", role: "" })
+            setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
         },
         onError: (err: Error) => toast.error(err.message),
     })
 
     const deleteContactMut = useMutation({
         mutationFn: (contactId: string) => deleteClientContact(contactId),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["client", id] })
+        onSuccess: (_result, contactId) => {
+            queryClient.setQueryData(["client", id], (old: any) => {
+                if (!old) return old
+
+                return {
+                    ...old,
+                    contacts: old.contacts.filter((contact: any) => contact.id !== contactId),
+                }
+            })
             toast.success("Contato removido!")
         },
         onError: (err: Error) => toast.error(err.message),
@@ -184,8 +285,24 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
     const addAttachMut = useMutation({
         mutationFn: (data: { url: string; fileName: string; fileType: string; fileSize: number }) => addClientAttachment(id, data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["client", id] })
+        onSuccess: (result, variables) => {
+            queryClient.setQueryData(["client", id], (old: any) => {
+                if (!old) return old
+
+                return {
+                    ...old,
+                    attachments: [
+                        {
+                            id: result.id,
+                            url: variables.url,
+                            fileName: variables.fileName,
+                            fileType: variables.fileType,
+                            fileSize: variables.fileSize,
+                        },
+                        ...(old.attachments ?? []),
+                    ],
+                }
+            })
             toast.success("Anexo adicionado!")
         },
         onError: (err: Error) => toast.error(err.message),
@@ -193,8 +310,15 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
     const deleteAttachMut = useMutation({
         mutationFn: (attachmentId: string) => deleteClientAttachment(attachmentId),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["client", id] })
+        onSuccess: (_result, attachmentId) => {
+            queryClient.setQueryData(["client", id], (old: any) => {
+                if (!old) return old
+
+                return {
+                    ...old,
+                    attachments: (old.attachments ?? []).filter((attachment: any) => attachment.id !== attachmentId),
+                }
+            })
             toast.success("Anexo removido!")
         },
         onError: (err: Error) => toast.error(err.message),
@@ -202,12 +326,38 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
     const updateMutation = useMutation({
         mutationFn: (data: Record<string, unknown>) => updateClient(id, data),
-        onSuccess: () => {
+        onSuccess: async () => {
+            // Salvar seriais após atualizar o cliente
+            await saveProductSerials()
+            
             queryClient.invalidateQueries({ queryKey: ["client", id] })
             queryClient.invalidateQueries({ queryKey: ["client-serials", id] })
             queryClient.invalidateQueries({ queryKey: ["clients"] })
             toast.success("Cliente atualizado!")
             setEditing(false)
+            // Limpa estados de produtos
+            setSelectedProductIds([])
+            setProductSerials({})
+            setProductSearch("")
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const cancelContractMutation = useMutation({
+        mutationFn: (data: { reason: string; date?: string }) => cancelContract(id, data.reason, data.date),
+        onSuccess: async () => {
+            // Salvar seriais após cancelamento
+            await saveProductSerials()
+            
+            queryClient.invalidateQueries({ queryKey: ["client", id] })
+            queryClient.invalidateQueries({ queryKey: ["client-serials", id] })
+            queryClient.invalidateQueries({ queryKey: ["clients"] })
+            toast.success("Contrato cancelado e cliente atualizado!")
+            setEditing(false)
+            // Limpa estados de produtos
+            setSelectedProductIds([])
+            setProductSerials({})
+            setProductSearch("")
         },
         onError: (err: Error) => toast.error(err.message),
     })
@@ -217,35 +367,44 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     const [blockReason, setBlockReason] = useState<"" | "CONTRATO_CANCELADO" | "INADIMPLENCIA" | "SOLICITACAO_CLIENTE" | "OUTROS">("")
     const [contractCancelReason, setContractCancelReason] = useState("")
     const [contractCancelDate, setContractCancelDate] = useState("")
-    const [editing, setEditing] = useState(false)
     const [editForm, setEditForm] = useState<Record<string, string>>({})
     const [showContactModal, setShowContactModal] = useState(false)
-    const [contactForm, setContactForm] = useState({ name: "", phone: "", email: "", role: "" })
+    const [contactForm, setContactForm] = useState({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
     const [attachUploading, setAttachUploading] = useState(false)
+    const [pendingAttachFiles, setPendingAttachFiles] = useState<File[]>([])
 
     // Estados para produtos na edição
     const [productSearch, setProductSearch] = useState("")
     const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
     const [productSerials, setProductSerials] = useState<Record<string, { serial: string; expiresAt: string }>>({})
+    const [selectedContabilityId, setSelectedContabilityId] = useState("")
 
     const handleCopy = (text: string, label: string) => {
         copyToClipboard(text); setCopied(label); setTimeout(() => setCopied(null), 2000)
     }
 
-    const handleAttachUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleAttachSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files
         if (!files || files.length === 0) return
+        setPendingAttachFiles(prev => [...prev, ...Array.from(files)])
+        e.target.value = ""
+    }
+
+    const handleAttachUpload = async () => {
+        if (pendingAttachFiles.length === 0) return
         setAttachUploading(true)
         try {
-            for (const file of Array.from(files)) {
-                const result = await uploadFile(file, "clientes")
-                await addAttachMut.mutateAsync(result)
-            }
+            await Promise.all(
+                pendingAttachFiles.map(async (file) => {
+                    const result = await uploadFile(file, "clientes")
+                    await addAttachMut.mutateAsync(result)
+                })
+            )
+            setPendingAttachFiles([])
         } catch (err) {
             toast.error(err instanceof Error ? err.message : "Erro no upload")
         } finally {
             setAttachUploading(false)
-            e.target.value = ""
         }
     }
 
@@ -273,7 +432,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             contractCancelReason: client.contractCancelReason || "",
             certificateType: client.certificateType || "",
             certificateExpiresDate: client.certificateExpiresDate ? client.certificateExpiresDate.split('T')[0] : "",
-            contractCancelDate: client.contractCancelDate ? new Date(client.contractCancelDate + 'T12:00:00').toISOString().split('T')[0] : "",
+            contractCancelDate: client.contractCancelDate || "",
             address: client.address || "",
             houseNumber: client.houseNumber || "",
             neighborhood: client.neighborhood || "",
@@ -286,6 +445,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             ownerPhone: client.ownerPhone || "",
             ownerEmail: client.ownerEmail || "",
         })
+        setSelectedContabilityId(client.contability?.id || "")
         // Carregar produtos e seriais existentes ao iniciar edição
         const existingProductIds: string[] = []
         const existingSerials: Record<string, { serial: string; expiresAt: string }> = {}
@@ -325,7 +485,10 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             if (!editForm.contractCancelReason) {
                 return toast.error("Motivo do cancelamento é obrigatório")
             }
-            await cancelContract(id, editForm.contractCancelReason, editForm.contractCancelDate)
+            cancelContractMutation.mutate({
+                reason: editForm.contractCancelReason,
+                date: editForm.contractCancelDate
+            })
         } else {
             // Salvar dados do cliente normally
             const data: Record<string, unknown> = {}
@@ -345,33 +508,28 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             data.ownerPhone = editForm.ownerPhone || ""
             data.ownerEmail = editForm.ownerEmail || ""
             data.ownerCpf = editForm.ownerCpf || ""
+            data.contabilityId = selectedContabilityId || null
 
-            await updateClient(id, data)
+            updateMutation.mutate(data)
         }
+    }
 
-        // Salvar seriais dos produtos
-        for (const productId of selectedProductIds) {
-            const serialData = productSerials[productId]
-            if (serialData?.serial?.trim()) {
-                await createClientProductSerial({
-                    clientId: id,
-                    productId,
-                    serial: serialData.serial,
-                    expiresAt: serialData.expiresAt ? new Date(serialData.expiresAt) : undefined,
-                })
-            }
-        }
+    const saveProductSerials = async () => {
+        await Promise.all(
+            selectedProductIds.flatMap((productId) => {
+                const serialData = productSerials[productId]
+                if (!serialData?.serial?.trim()) return []
 
-        // Invalidar caches para atualizar dados
-        queryClient.invalidateQueries({ queryKey: ["client-serials", id] })
-        queryClient.invalidateQueries({ queryKey: ["client", id] })
-
-        // Limpar estados de produtos
-        setSelectedProductIds([])
-        setProductSerials({})
-        setProductSearch("")
-
-        toast.success("Cliente e produtos atualizados com sucesso!")
+                return [
+                    createClientProductSerial({
+                        clientId: id,
+                        productId,
+                        serial: serialData.serial,
+                        expiresAt: serialData.expiresAt ? new Date(serialData.expiresAt) : undefined,
+                    }),
+                ]
+            })
+        )
     }
 
     if (isLoading) {
@@ -401,6 +559,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     const certExpired = client.certificateExpiresDate ? new Date(client.certificateExpiresDate) < new Date() : false
     const hasOwner = !!(client.ownerName || client.ownerCpf || client.ownerPhone || client.ownerEmail)
     const hasCert = !!(client.certificateType || client.certificateExpiresDate)
+    const contabilityLabel = client.contability?.name || client.contability?.cnpj || client.contability?.cpf || "Não vinculada"
 
     return (
         <div className="h-full overflow-y-auto bg-slate-50">
@@ -441,6 +600,11 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
                         {/* Action buttons */}
                         <div className="flex items-center gap-2 justify-end h-full">
+                            {!editing && (
+                                <button onClick={() => setShowTicketDrawer(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer">
+                                    <Ticket size={16} /> Abrir Ticket
+                                </button>
+                            )}
                             {client.supportReleased
                                 ? <button onClick={() => setShowBlockModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors">
                                     <ShieldX size={16} /> Bloquear
@@ -454,8 +618,8 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                     <button onClick={() => setEditing(false)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors">
                                         <X size={16} /> Cancelar
                                     </button>
-                                    <button onClick={handleSaveEdit} disabled={updateMutation.isPending} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer shadow-sm shadow-indigo-600/25 disabled:opacity-50">
-                                        {updateMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Salvar
+                                    <button onClick={handleSaveEdit} disabled={updateMutation.isPending || cancelContractMutation.isPending} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer shadow-sm shadow-indigo-600/25 disabled:opacity-50">
+                                        {(updateMutation.isPending || cancelContractMutation.isPending) ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Salvar
                                     </button>
                                 </>
                             ) : (
@@ -469,7 +633,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             </div>
 
             {/* Two-column layout */}
-            <div className="flex gap-6 p-8 max-w-[1600px] mx-auto">
+            <div className="flex gap-6 p-8 w-full mx-auto">
 
                 {/* ── Left: Main content ── */}
                 <div className="flex-1 space-y-4">
@@ -734,7 +898,12 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                     <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
                                         <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">Data do Cancelamento</span>
                                         <span className="text-sm text-red-600">
-                                            {new Date(client.contractCancelDate + 'T12:00:00').toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+                                            {(() => {
+                                                const date = new Date(client.contractCancelDate)
+                                                // Ajustar para garantir o dia correto no timezone local
+                                                const adjustedDate = new Date(date.getTime() + date.getTimezoneOffset() * 60000)
+                                                return adjustedDate.toLocaleDateString('pt-BR')
+                                            })()}
                                         </span>
                                     </div>
                                 )}
@@ -880,6 +1049,41 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                             )}
                         </div>
                     )}
+
+                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                        <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50">
+                            <h2 className="text-sm font-semibold text-slate-900">Contabilidade</h2>
+                        </div>
+                        {editing ? (
+                            <div className="p-5 space-y-3">
+                                <div>
+                                    <label className="text-xs text-slate-600 mb-1.5 block font-medium">Contabilidade vinculada</label>
+                                    <select className="w-full h-10 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 bg-white" value={selectedContabilityId} onChange={e => setSelectedContabilityId(e.target.value)}>
+                                        <option value="">Nenhuma contabilidade</option>
+                                        {(allContabilities as { id: string; name: string | null; cnpj: string | null; cpf: string | null }[]).map((contability) => (
+                                            <option key={contability.id} value={contability.id}>
+                                                {contability.name || contability.cnpj || contability.cpf}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <p className="text-xs text-slate-500">Essa contabilidade poderá ser usada como solicitante padrão nos tickets do cliente.</p>
+                            </div>
+                        ) : (
+                            <div className="divide-y divide-slate-100">
+                                <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
+                                    <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">Contabilidade</span>
+                                    <span className="text-sm text-slate-900">{contabilityLabel}</span>
+                                </div>
+                                {client.contability?.cnpj && (
+                                    <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
+                                        <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">Documento</span>
+                                        <span className="text-sm text-slate-900">{client.contability.cnpj}</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
 
                     {/* Endereço do cliente */}
                     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -1116,11 +1320,26 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                             </div>
                             <label className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer text-xs font-medium">
                                 {attachUploading ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-                                {attachUploading ? "Enviando..." : "Adicionar"}
-                                <input type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" multiple className="hidden" onChange={handleAttachUpload} disabled={attachUploading} />
+                                {attachUploading ? "Enviando..." : "Selecionar"}
+                                <input type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" multiple className="hidden" onChange={handleAttachSelect} disabled={attachUploading} />
                             </label>
                         </div>
                         <div>
+                            {pendingAttachFiles.length > 0 && (
+                                <div className="p-5 border-b border-slate-100 bg-slate-50/70">
+                                    <div className="flex items-center justify-between gap-3 mb-3">
+                                        <div>
+                                            <p className="text-xs font-semibold text-slate-800">Arquivos prontos para envio</p>
+                                            <p className="text-[11px] text-slate-500">Revise o preview antes de anexar ao cliente.</p>
+                                        </div>
+                                        <Button className="h-8 px-3 text-xs bg-indigo-600 hover:bg-indigo-700 text-white" onClick={handleAttachUpload} disabled={attachUploading}>
+                                            {attachUploading ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
+                                            Enviar arquivos
+                                        </Button>
+                                    </div>
+                                    <LocalFilePreviewList files={pendingAttachFiles} onRemove={(index) => setPendingAttachFiles(prev => prev.filter((_, fileIndex) => fileIndex !== index))} />
+                                </div>
+                            )}
                             {(!client.attachments || client.attachments.length === 0) ? (
                                 <div className="flex flex-col items-center justify-center py-8 text-slate-400">
                                     <Paperclip size={20} className="mb-2 text-slate-300" />
@@ -1294,7 +1513,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                     </div>
                                 ) : (
                                     <div className="divide-y divide-slate-50">
-                                        {client.contacts.map((contact) => (
+                                        {client.contacts.map((contact: any) => (
                                             <div key={contact.id} className="px-3 py-2.5">
                                                 <div className="flex items-center justify-between mb-1">
                                                     <span className="text-xs font-semibold text-slate-900">{contact.name}</span>
@@ -1316,6 +1535,12 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                                         <Mail size={9} className="text-slate-300" />
                                                         <span className="text-xs text-slate-600 truncate">{contact.email}</span>
                                                         <button onClick={() => handleCopy(contact.email!, `cemail-${contact.id}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer shrink-0">{copied === `cemail-${contact.id}` ? <Check size={9} className="text-emerald-500" /> : <Copy size={9} />}</button>
+                                                    </div>
+                                                )}
+                                                {contact.bestContactTime && (
+                                                    <div className="flex items-center gap-1.5">
+                                                        <Clock size={9} className="text-slate-300" />
+                                                        <span className="text-xs text-slate-600">{contact.bestContactTime}</span>
                                                     </div>
                                                 )}
                                             </div>
@@ -1437,7 +1662,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             </Dialog>
 
             {/* Modal Adicionar Contato */}
-            <Dialog open={showContactModal} onOpenChange={(open) => { setShowContactModal(open); if (!open) setContactForm({ name: "", phone: "", email: "", role: "" }) }}>
+            <Dialog open={showContactModal} onOpenChange={(open) => { setShowContactModal(open); if (!open) setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" }) }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle>Adicionar Contato</DialogTitle>
@@ -1445,16 +1670,64 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                     </DialogHeader>
                     <div className="space-y-3">
                         <Input placeholder="Nome *" value={contactForm.name} onChange={(e) => setContactForm(p => ({ ...p, name: e.target.value }))} />
-                        <Input placeholder="Telefone" value={contactForm.phone} onChange={(e) => setContactForm(p => ({ ...p, phone: e.target.value }))} />
-                        <Input placeholder="Email" value={contactForm.email} onChange={(e) => setContactForm(p => ({ ...p, email: e.target.value }))} />
-                        <Input placeholder="Cargo/Função" value={contactForm.role} onChange={(e) => setContactForm(p => ({ ...p, role: e.target.value }))} />
+                        <div className="grid grid-cols-2 gap-2">
+                            <Input placeholder="Telefone" value={contactForm.phone} onChange={(e) => setContactForm(p => ({ ...p, phone: maskPhone(e.target.value) }))} />
+                            <Input placeholder="Email" value={contactForm.email} onChange={(e) => setContactForm(p => ({ ...p, email: e.target.value }))} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <select 
+                                className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" 
+                                value={contactForm.role}
+                                onChange={(e) => setContactForm(p => ({ ...p, role: e.target.value }))}
+                            >
+                                <option value="">Selecione</option>
+                                {CONTACT_ROLES.map(role => (
+                                    <option key={role.value} value={role.value}>{role.label}</option>
+                                ))}
+                            </select>
+                            <Input 
+                                placeholder="Melhor horário" 
+                                value={contactForm.bestContactTime} 
+                                onChange={(e) => setContactForm(p => ({ ...p, bestContactTime: maskContactTime(e.target.value) }))} 
+                            />
+                        </div>
                     </div>
                     <DialogFooter className="gap-2">
-                        <Button variant="outline" onClick={() => { setShowContactModal(false); setContactForm({ name: "", phone: "", email: "", role: "" }) }}>Cancelar</Button>
-                        <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={!contactForm.name.trim() || addContactMut.isPending} onClick={() => addContactMut.mutate({ name: contactForm.name, phone: contactForm.phone || undefined, email: contactForm.email || undefined, role: contactForm.role || undefined })}>{addContactMut.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : null}Salvar</Button>
+                        <Button variant="outline" onClick={() => { setShowContactModal(false); setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" }) }}>Cancelar</Button>
+                        <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={!contactForm.name.trim() || addContactMut.isPending} onClick={() => {
+                            // DEBUG: Log antes de enviar
+                            console.log("[DEBUG] Modal enviando contato:", {
+                                name: contactForm.name,
+                                phone: contactForm.phone,
+                                email: contactForm.email,
+                                role: contactForm.role,
+                                bestContactTime: contactForm.bestContactTime,
+                                hasBestContactTime: !!contactForm.bestContactTime
+                            })
+                            
+                            addContactMut.mutate({ 
+                                name: contactForm.name, 
+                                phone: contactForm.phone || undefined, 
+                                email: contactForm.email || undefined, 
+                                role: contactForm.role || undefined, 
+                                bestContactTime: contactForm.bestContactTime || undefined 
+                            })
+                        }}>{addContactMut.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : null}Salvar</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+            <TicketCreateDrawer
+                open={showTicketDrawer}
+                onOpenChange={setShowTicketDrawer}
+                lockedClient={{
+                    id: client.id,
+                    name: client.name,
+                    cnpj: client.cnpj || null,
+                    cpf: client.cpf || null,
+                }}
+                title="Novo Ticket para Cliente"
+                description="Abra um ticket já vinculado a este cliente."
+            />
         </div>
     )
 }

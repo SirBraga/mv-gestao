@@ -9,6 +9,7 @@ import {
   Ticket, 
   Calculator, 
   Package, 
+  BookOpen,
   LogOut, 
   Settings, 
   UsersRound, 
@@ -24,10 +25,11 @@ import {
   Sparkles
 } from "lucide-react"
 import { HiArrowRightOnRectangle } from "react-icons/hi2";
-import { updateOnlineStatus, getUnreadCount, getLatestUnreadMessage } from "@/app/actions/chat"
+import { updateOnlineStatus } from "@/app/actions/chat"
 import { updateProfileImage } from "@/app/actions/profile"
 import { getNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead } from "@/app/actions/notifications"
 import { uploadFile } from "@/app/utils/upload"
+import { useChatState } from "@/components/chat/ChatStateProvider"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ImagePositioner } from "./ImagePositioner"
 import { toast } from "react-toastify"
@@ -59,6 +61,7 @@ const navItems = [
   { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
   { label: "Clientes", path: "/dashboard/clientes", icon: Users },
   { label: "Tickets", path: "/dashboard/tickets", icon: Ticket },
+  { label: "Base de Conhecimento", path: "/dashboard/base-conhecimento", icon: BookOpen },
   { label: "Contabilidade", path: "/dashboard/contabilidade", icon: Calculator },
   { label: "Produtos", path: "/dashboard/produtos", icon: Package },
   { label: "Funcionários", path: "/dashboard/funcionarios", icon: UsersRound },
@@ -85,6 +88,7 @@ export default function Sidebar({ avatar, name, userId, role }: SidebarProps) {
   const router = useRouter()
   const pathname = usePathname()
   const queryClient = useQueryClient()
+  const { totalUnreadCount } = useChatState()
   const [isOnline, setIsOnline] = useState(true)
   const [isPending, startTransition] = useTransition()
   const [profileOpen, setProfileOpen] = useState(false)
@@ -95,7 +99,6 @@ export default function Sidebar({ avatar, name, userId, role }: SidebarProps) {
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const prevNotifCountRef = useRef(0)
   const prevChatCountRef = useRef(0)
-  const lastSeenChatMsgIdRef = useRef<string | null>(null)
 
   const playNotifSound = useCallback(() => {
     try {
@@ -115,29 +118,21 @@ export default function Sidebar({ avatar, name, userId, role }: SidebarProps) {
     }
   }, [])
 
-  const { data: unreadCount = 0 } = useQuery({
-    queryKey: ["unreadCount"],
-    queryFn: () => getUnreadCount(),
-    refetchInterval: 3000,
-  })
-
-  const { data: latestUnread } = useQuery({
-    queryKey: ["latestUnreadMsg"],
-    queryFn: () => getLatestUnreadMessage(),
-    refetchInterval: 3000,
-    enabled: unreadCount > 0,
-  })
 
   const { data: unreadNotifCount = 0 } = useQuery({
     queryKey: ["unreadNotifCount"],
     queryFn: () => getUnreadNotificationCount(),
-    refetchInterval: 5000,
+    refetchInterval: 30000,
+    staleTime: 15000,
+    refetchOnWindowFocus: true,
   })
 
   const { data: notifications = [] } = useQuery({
     queryKey: ["notifications"],
     queryFn: () => getNotifications(),
-    refetchInterval: 10000,
+    enabled: notifOpen,
+    staleTime: 30000,
+    refetchOnWindowFocus: false,
   })
 
   const markReadMut = useMutation({
@@ -184,23 +179,20 @@ export default function Sidebar({ avatar, name, userId, role }: SidebarProps) {
   useEffect(() => {
     const isOnChatPage = pathname.startsWith("/dashboard/chat")
     if (
-      unreadCount > prevChatCountRef.current &&
+      totalUnreadCount > prevChatCountRef.current &&
       prevChatCountRef.current > 0 &&
-      !isOnChatPage &&
-      latestUnread &&
-      latestUnread.id !== lastSeenChatMsgIdRef.current
+      !isOnChatPage
     ) {
       playNotifSound()
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        new Notification(`💬 ${latestUnread.senderName}`, {
-          body: latestUnread.content.slice(0, 100) || "Enviou um arquivo",
+        new Notification("💬 Nova mensagem", {
+          body: "Você tem novas mensagens no chat",
           icon: "/root/logo.png",
         })
       }
-      lastSeenChatMsgIdRef.current = latestUnread.id
     }
-    prevChatCountRef.current = unreadCount
-  }, [unreadCount, latestUnread, pathname, playNotifSound])
+    prevChatCountRef.current = totalUnreadCount
+  }, [totalUnreadCount, pathname, playNotifSound])
 
   // Register Service Worker + subscribe to push notifications
   useEffect(() => {
@@ -332,7 +324,7 @@ export default function Sidebar({ avatar, name, userId, role }: SidebarProps) {
             const isActive = item.path === "/dashboard"
               ? pathname === "/dashboard"
               : pathname.startsWith(item.path)
-            const showBadge = item.label === "Chat" && unreadCount > 0
+            const showBadge = item.label === "Chat" && totalUnreadCount > 0
 
             return (
               <Tooltip key={item.label} delayDuration={expanded ? 9999 : 0}>
@@ -355,7 +347,7 @@ export default function Sidebar({ avatar, name, userId, role }: SidebarProps) {
                       <span className={`absolute flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-[10px] font-bold ${
                         expanded ? "right-3" : "-top-1 -right-1"
                       }`}>
-                        {unreadCount > 99 ? "99+" : unreadCount}
+                        {totalUnreadCount > 99 ? "99+" : totalUnreadCount}
                       </span>
                     )}
                   </Link>

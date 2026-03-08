@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation"
 import { use } from "react"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getTicketById, claimTicket, updateTicketStatus, assignTicket, addApontamento, addComment, reopenTicket, getAllUsers, updateTicketRequester, updateTicketClient, addCommentAttachment } from "@/app/actions/tickets"
-import { getClients, getClientContacts, getClientContability } from "@/app/actions/clients"
+import { getTicketById, getTicketApontamentos, getTicketComments, claimTicket, updateTicketStatus, cancelTicket, assignTicket, addApontamento, addComment, reopenTicket, getAllUsers, updateTicketRequester, updateTicketClient, addCommentAttachment } from "@/app/actions/tickets"
+import { getClientOptions, getClientContacts, getClientContability } from "@/app/actions/clients"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -46,12 +46,14 @@ import {
     Download,
     X,
     Image as ImageIcon,
+    BookOpen,
 } from "lucide-react"
 import { uploadFile } from "@/app/utils/upload"
 import { toast } from "react-toastify"
+import LocalFilePreviewList from "@/app/dashboard/_components/local-file-preview-list"
 
 // ── Types matching the DB schema ──
-type TicketStatus = "NOVO" | "PENDING_CLIENT" | "PENDING_EMPRESS" | "IN_PROGRESS" | "CLOSED"
+type TicketStatus = "NOVO" | "PENDING_CLIENT" | "PENDING_EMPRESS" | "IN_PROGRESS" | "CLOSED" | "CANCELLED"
 type TicketPriority = "LOW" | "MEDIUM" | "HIGH"
 type TicketType = "SUPPORT" | "SALES" | "FINANCE" | "MAINTENCE"
 type ApontamentoCategory = "PROBLEMA_RESOLVIDO" | "TREINAMENTO" | "REUNIAO" | "TIRA_DUVIDAS" | "DESENVOLVIMENTO"
@@ -85,7 +87,8 @@ interface CommentData {
 }
 
 interface TicketDetail {
-    id: string
+    id: number
+    ticketNumber: number
     ticketDescription: string
     ticketStatus: TicketStatus | null
     ticketPriority: TicketPriority | null
@@ -93,6 +96,7 @@ interface TicketDetail {
     ticketResolutionDate: string | null
     reopenCount: number
     reopenReason: string | null
+    cancelReason: string | null
     reopenDate: string | null
     reopenById: string | null
     assignedToId: string | null
@@ -107,6 +111,7 @@ interface TicketDetail {
     } | null
     requestedByContability: {
         id: string
+        name: string
         cnpj: string
         cpf: string
         email: string
@@ -127,8 +132,18 @@ interface TicketDetail {
         name: string
         email: string
     } | null
-    apontamentos: ApontamentoData[]
-    comments: CommentData[]
+    knowledgeArticle: {
+        id: string
+        title: string
+        summary: string | null
+        category: string | null
+        products: { id: string; name: string }[]
+    } | null
+    attachments: AttachmentData[]
+    totalApontamentos: number
+    totalMinutes: number
+    totalComments: number
+    currentUserId: string
 }
 
 
@@ -139,6 +154,7 @@ const statusColors: Record<TicketStatus, string> = {
     PENDING_EMPRESS: "bg-purple-500 text-white",
     IN_PROGRESS: "bg-orange-500 text-white",
     CLOSED: "bg-gray-400 text-white",
+    CANCELLED: "bg-red-500 text-white",
 }
 
 const statusDotColors: Record<TicketStatus, string> = {
@@ -147,6 +163,7 @@ const statusDotColors: Record<TicketStatus, string> = {
     PENDING_EMPRESS: "bg-violet-400",
     IN_PROGRESS: "bg-orange-400",
     CLOSED: "bg-gray-300",
+    CANCELLED: "bg-red-400",
 }
 
 const statusBadgeColors: Record<TicketStatus, string> = {
@@ -155,6 +172,7 @@ const statusBadgeColors: Record<TicketStatus, string> = {
     PENDING_EMPRESS: "bg-violet-500 text-white",
     IN_PROGRESS: "bg-orange-500 text-white",
     CLOSED: "bg-gray-400 text-white",
+    CANCELLED: "bg-red-500 text-white",
 }
 
 const priorityDotColors: Record<TicketPriority, string> = {
@@ -175,6 +193,7 @@ const statusLabels: Record<TicketStatus, string> = {
     PENDING_EMPRESS: "Pend. Empresa",
     IN_PROGRESS: "Em Progresso",
     CLOSED: "Fechado",
+    CANCELLED: "Cancelado",
 }
 
 const priorityColors: Record<TicketPriority, string> = {
@@ -255,26 +274,46 @@ const STATUS_TRANSITIONS: Record<TicketStatus, TicketStatus[]> = {
     PENDING_EMPRESS: ["IN_PROGRESS", "PENDING_CLIENT", "CLOSED"],
     IN_PROGRESS: ["PENDING_CLIENT", "PENDING_EMPRESS", "CLOSED"],
     CLOSED: [],
+    CANCELLED: [],
 }
 
 export default function TicketDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params)
+    const numericTicketId = Number(id)
     const router = useRouter()
     const queryClient = useQueryClient()
+    const [activeTab, setActiveTab] = useState<"descricao" | "apontamentos" | "comentarios">("descricao")
 
     const { data: ticket, isLoading, isError } = useQuery({
         queryKey: ["ticket", id],
         queryFn: () => getTicketById(id),
+        staleTime: 30 * 1000,
+    })
+
+    const { data: apontamentos = [] } = useQuery({
+        queryKey: ["ticket-apontamentos", id],
+        queryFn: () => getTicketApontamentos(id),
+        enabled: activeTab === "apontamentos",
+        staleTime: 30 * 1000,
+    })
+
+    const { data: comments = [] } = useQuery({
+        queryKey: ["ticket-comments", id],
+        queryFn: () => getTicketComments(id),
+        enabled: activeTab === "comentarios",
+        staleTime: 30 * 1000,
     })
 
     const { data: usersList = [] } = useQuery({
         queryKey: ["allUsers"],
         queryFn: () => getAllUsers(),
+        staleTime: 30 * 60 * 1000,
     })
 
     const { data: clientsList = [] } = useQuery({
         queryKey: ["clients-simple"],
-        queryFn: () => getClients(),
+        queryFn: () => getClientOptions(),
+        staleTime: 5 * 60 * 1000,
     })
 
     const [changeClientId, setChangeClientId] = useState("")
@@ -287,16 +326,34 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
         queryKey: ["client-contacts-change", activeClientId],
         queryFn: () => getClientContacts(activeClientId || ""),
         enabled: !!activeClientId,
+        staleTime: 5 * 60 * 1000,
     })
 
     const { data: changeContability } = useQuery({
         queryKey: ["client-contability", activeClientId],
         queryFn: () => getClientContability(activeClientId || ""),
         enabled: !!activeClientId,
+        staleTime: 5 * 60 * 1000,
     })
+
+    const updateTicketDetailCache = (updater: (old: TicketDetail) => TicketDetail) => {
+        queryClient.setQueryData(["ticket", id], (old: TicketDetail | undefined) => {
+            if (!old) return old
+            return updater(old)
+        })
+    }
+
+    const updateTicketsListCache = (updater: (item: any) => any) => {
+        queryClient.setQueryData(["tickets"], (old: any) => {
+            if (!Array.isArray(old)) return old
+            return old.map((item: any) => item.id === numericTicketId ? updater(item) : item)
+        })
+    }
 
     const invalidate = () => {
         queryClient.invalidateQueries({ queryKey: ["ticket", id] })
+        queryClient.invalidateQueries({ queryKey: ["ticket-apontamentos", id] })
+        queryClient.invalidateQueries({ queryKey: ["ticket-comments", id] })
         queryClient.invalidateQueries({ queryKey: ["tickets"] })
     }
 
@@ -306,15 +363,70 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
         onError: (e: Error) => toast.error(e.message),
     })
 
+    const cancelMut = useMutation({
+        mutationFn: (reason: string) => cancelTicket(id, reason),
+        onSuccess: (_result, reason) => {
+            updateTicketDetailCache((old) => ({
+                ...old,
+                ticketStatus: "CANCELLED",
+                ticketResolutionDate: null,
+                cancelReason: reason,
+            }))
+            queryClient.invalidateQueries({ queryKey: ["ticket", id] })
+            queryClient.invalidateQueries({ queryKey: ["tickets"] })
+            toast.success("Ticket cancelado!")
+            setShowCancelModal(false)
+            setCancelReason("")
+        },
+        onError: (e: Error) => toast.error(e.message),
+    })
+
     const statusMut = useMutation({
-        mutationFn: (s: TicketStatus) => updateTicketStatus(id, s),
-        onSuccess: () => { invalidate(); toast.success("Status atualizado!"); setShowCloseModal(false) },
+        mutationFn: (s: Exclude<TicketStatus, "CANCELLED">) => updateTicketStatus(id, s),
+        onSuccess: (_result, status) => {
+            updateTicketDetailCache((old) => ({
+                ...old,
+                ticketStatus: status,
+                ticketResolutionDate: status === "CLOSED" ? new Date().toISOString() : null,
+                cancelReason: null,
+            }))
+            updateTicketsListCache((item) => ({
+                ...item,
+                status,
+            }))
+            queryClient.invalidateQueries({ queryKey: ["ticket", id] })
+            queryClient.invalidateQueries({ queryKey: ["tickets"] })
+            toast.success("Status atualizado!")
+            setShowCloseModal(false)
+        },
         onError: (e: Error) => toast.error(e.message),
     })
 
     const assignMut = useMutation({
         mutationFn: (userId: string | null) => assignTicket(id, userId),
-        onSuccess: () => { invalidate(); toast.success("Ticket atribuído!"); setShowAssignModal(false); setShowTransferModal(false); setSelectedUserId("") },
+        onSuccess: (_result, userId) => {
+            const selectedUser = usersList.find((user: { id: string; name: string }) => user.id === userId)
+            updateTicketDetailCache((old) => ({
+                ...old,
+                assignedToId: userId,
+                assignedTo: selectedUser ? {
+                    id: selectedUser.id,
+                    name: selectedUser.name,
+                    email: old.assignedTo?.email || "",
+                } : null,
+            }))
+            updateTicketsListCache((item) => ({
+                ...item,
+                assigneeId: userId,
+                assigneeName: selectedUser?.name || null,
+            }))
+            queryClient.invalidateQueries({ queryKey: ["ticket", id] })
+            queryClient.invalidateQueries({ queryKey: ["tickets"] })
+            toast.success("Ticket atribuído!")
+            setShowAssignModal(false)
+            setShowTransferModal(false)
+            setSelectedUserId("")
+        },
         onError: (e: Error) => toast.error(e.message),
     })
 
@@ -328,15 +440,17 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
         mutationFn: async ({ content, parentId, files }: { content: string; parentId?: string | null; files?: File[] }) => {
             const result = await addComment(id, content, parentId)
             if (files && files.length > 0 && result.commentId) {
-                for (const file of files) {
-                    const uploaded = await uploadFile(file, "comentarios")
-                    await addCommentAttachment(result.commentId, {
-                        url: uploaded.url,
-                        fileName: file.name,
-                        fileType: file.type,
-                        fileSize: file.size,
+                await Promise.all(
+                    files.map(async (file) => {
+                        const uploaded = await uploadFile(file, "comentarios")
+                        await addCommentAttachment(result.commentId, {
+                            url: uploaded.url,
+                            fileName: file.name,
+                            fileType: file.type,
+                            fileSize: file.size,
+                        })
                     })
-                }
+                )
             }
             return result
         },
@@ -367,6 +481,8 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     const [showReopenModal, setShowReopenModal] = useState(false)
     const [reopenReason, setReopenReason] = useState("")
     const [showCloseModal, setShowCloseModal] = useState(false)
+    const [showCancelModal, setShowCancelModal] = useState(false)
+    const [cancelReason, setCancelReason] = useState("")
     const [showApontamentoModal, setShowApontamentoModal] = useState(false)
     const [showAssignModal, setShowAssignModal] = useState(false)
     const [showTransferModal, setShowTransferModal] = useState(false)
@@ -381,7 +497,6 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     const [newComment, setNewComment] = useState("")
     const [replyingTo, setReplyingTo] = useState<string | null>(null)
     const [replyContent, setReplyContent] = useState("")
-    const [activeTab, setActiveTab] = useState<"descricao" | "apontamentos" | "comentarios">("descricao")
     const [apontFiles, setApontFiles] = useState<{ url: string; fileName: string; fileType: string; fileSize: number }[]>([])
     const [apontUploading, setApontUploading] = useState(false)
     const [commentFiles, setCommentFiles] = useState<File[]>([])
@@ -442,47 +557,91 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     const priority = (ticket.ticketPriority || "MEDIUM") as TicketPriority
     const type = (ticket.ticketType || "SUPPORT") as TicketType
     const transitions = STATUS_TRANSITIONS[status]
-    const totalMinutes = ticket.apontamentos.reduce((sum: number, a: ApontamentoData) => sum + a.duration, 0)
+    const totalMinutes = activeTab === "apontamentos"
+        ? apontamentos.reduce((sum: number, a: ApontamentoData) => sum + a.duration, 0)
+        : ticket.totalMinutes
     const isAssignedToMe = ticket.assignedToId === ticket.currentUserId
     const clientDoc = ticket.client.cnpj || ticket.client.cpf || "—"
-    const totalComments = ticket.comments.reduce((s: number, c: CommentData) => s + 1 + c.replies.length, 0)
+    const totalComments = activeTab === "comentarios"
+        ? comments.reduce((s: number, c: CommentData) => s + 1 + c.replies.length, 0)
+        : ticket.totalComments
+    const isTerminalStatus = status === "CLOSED" || status === "CANCELLED"
 
     return (
-        <div className="h-full overflow-hidden bg-slate-50/50">
-            {/* Top bar */}
-            <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center gap-3 sticky top-0 z-10 shadow-sm">
-                <button onClick={() => router.push("/dashboard/tickets")} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all cursor-pointer"><ArrowLeft size={16} /></button>
-                <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                    <span className="text-sm font-mono font-bold text-indigo-600 shrink-0">#{ticket.ticketNumber}</span>
-                    <h1 className="text-sm font-semibold text-slate-900 truncate">{ticket.ticketDescription}</h1>
-                    <span className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold text-white shadow-sm ${statusBadgeColors[status]}`}>{statusLabels[status]}</span>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap shrink-0">
-                    {status !== "CLOSED" && <button onClick={() => setShowApontamentoModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-all cursor-pointer"><Plus size={12} /> Apontamento</button>}
-                    {!ticket.assignedTo && <button onClick={() => setShowClaimModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-all cursor-pointer"><UserPlus size={12} /> Assumir</button>}
-                    <button onClick={() => setShowAssignModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-all cursor-pointer"><UserCheck size={12} /> Atribuir</button>
-                    {status !== "CLOSED" && ticket.apontamentos.length > 0 && <button onClick={() => setShowCloseModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-red-500 text-xs font-medium hover:bg-slate-50 transition-all cursor-pointer"><XCircle size={12} /> Fechar</button>}
-                    {status === "CLOSED" && <button onClick={() => setShowReopenModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-all cursor-pointer"><RotateCcw size={12} /> Reabrir</button>}
+        <div className="h-full overflow-y-auto bg-slate-50">
+            <div className="bg-white border-b border-slate-200">
+                <div className="px-8 py-6">
+                    <button onClick={() => router.push("/dashboard/tickets")} className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors mb-6 cursor-pointer">
+                        <ArrowLeft size={16} />
+                        <span className="text-sm font-medium">Voltar para tickets</span>
+                    </button>
+
+                    <div className="flex items-end justify-between gap-6">
+                        <div className="flex items-start gap-4 min-w-0">
+                            <div className="w-16 h-16 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-sm shrink-0">
+                                <ClipboardList size={28} />
+                            </div>
+
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                    <span className="text-sm font-mono font-bold text-indigo-600">#{ticket.ticketNumber}</span>
+                                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold text-white ${statusBadgeColors[status]}`}>{statusLabels[status]}</span>
+                                </div>
+                                <h1 className="text-2xl font-bold text-slate-900 wrap-break-word">{ticket.ticketDescription}</h1>
+                               
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 justify-end flex-wrap shrink-0">
+                            {!isTerminalStatus && <button onClick={() => setShowApontamentoModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer"><Plus size={16} /> Apontamento</button>}
+                            {!isTerminalStatus && !ticket.assignedTo && <button onClick={() => setShowClaimModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer"><UserPlus size={16} /> Assumir</button>}
+                            {!isTerminalStatus && <button onClick={() => setShowAssignModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer"><UserCheck size={16} /> Atribuir</button>}
+                            {!isTerminalStatus && ticket.totalApontamentos === 0 && <button onClick={() => setShowCancelModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-red-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer"><XCircle size={16} /> Cancelar</button>}
+                            {!isTerminalStatus && ticket.totalApontamentos > 0 && <button onClick={() => setShowCloseModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-red-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer"><XCircle size={16} /> Fechar</button>}
+                            {status === "CLOSED" && <button onClick={() => setShowReopenModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer"><RotateCcw size={16} /> Reabrir</button>}
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            {/* Two-column layout */}
-            <div className="flex h-[calc(100%-49px)]">
+            <div className="flex gap-6 p-8 w-full mx-auto">
 
                 {/* ── Left: Main content ── */}
-                <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                <div className="flex-1 space-y-4 min-w-0">
 
                     {/* Description card */}
-                    <div className="bg-white border border-gray-200 rounded-xl p-4">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Descrição</p>
+                    <div className="bg-white border border-slate-200 rounded-xl p-5">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Descrição</p>
                         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                            <span className="text-[10px] text-gray-400">{formatDate(ticket.createdAt)}</span>
+                            <span className="text-[10px] text-slate-400">{formatDate(ticket.createdAt)}</span>
                         </div>
-                        <p className="text-sm text-gray-600 leading-relaxed">{ticket.ticketDescription}</p>
+                        <p className="text-sm text-slate-600 leading-relaxed">{ticket.ticketDescription}</p>
+                        {ticket.knowledgeArticle && (
+                            <div className="mt-4 pt-4 border-t border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Base de conhecimento</p>
+                                <Link href={`/dashboard/base-conhecimento/${ticket.knowledgeArticle.id}`} className="block rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 hover:bg-indigo-50 transition-colors">
+                                    <div className="flex items-start gap-3">
+                                        <div className="w-9 h-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                                            <BookOpen size={16} />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-semibold text-slate-900">{ticket.knowledgeArticle.title}</p>
+                                            {ticket.knowledgeArticle.summary && <p className="text-xs text-slate-600 mt-1 line-clamp-2">{ticket.knowledgeArticle.summary}</p>}
+                                            <div className="flex flex-wrap gap-1.5 mt-2">
+                                                {ticket.knowledgeArticle.category && <span className="px-2 py-0.5 rounded bg-white text-indigo-700 text-[10px] font-medium">{ticket.knowledgeArticle.category}</span>}
+                                                {ticket.knowledgeArticle.products.map((product: { id: string; name: string }) => (
+                                                    <span key={product.id} className="px-2 py-0.5 rounded bg-white text-slate-600 text-[10px] font-medium">{product.name}</span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </Link>
+                            </div>
+                        )}
                         {/* Ticket attachments */}
                         {ticket.attachments && ticket.attachments.length > 0 && (
-                            <div className="mt-3 pt-3 border-t border-gray-100">
-                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Anexos</p>
+                            <div className="mt-3 pt-3 border-t border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Anexos</p>
                                 <div className="flex flex-wrap gap-2">
                                     {ticket.attachments.map((att: AttachmentData) => (
                                         isImageFile(att.fileType) ? (
@@ -507,6 +666,15 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                                 <div><p className="text-xs font-medium text-gray-700">Reaberto ({ticket.reopenCount}x)</p>{ticket.reopenReason && <p className="text-[10px] text-gray-500 mt-0.5">{ticket.reopenReason}</p>}<p className="text-[10px] text-gray-400">{formatDate(ticket.reopenDate)}</p></div>
                             </div>
                         )}
+                        {ticket.cancelReason && (
+                            <div className="mt-3 pt-3 border-t border-gray-100 flex items-start gap-2">
+                                <XCircle size={12} className="text-red-500 shrink-0 mt-0.5" />
+                                <div>
+                                    <p className="text-xs font-medium text-gray-700">Motivo do cancelamento</p>
+                                    <p className="text-[10px] text-gray-500 mt-0.5">{ticket.cancelReason}</p>
+                                </div>
+                            </div>
+                        )}
                         {ticket.ticketResolutionDate && (
                             <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2">
                                 <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
@@ -516,8 +684,8 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                     </div>
 
                     {/* Client info card */}
-                    <div className="bg-white border border-gray-200 rounded-xl p-4">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">Cliente</p>
+                    <div className="bg-white border border-slate-200 rounded-xl p-5">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Cliente</p>
                         <div className="grid grid-cols-2 gap-x-8 gap-y-2">
                             <div>
                                 <p className="text-[10px] text-gray-400 mb-0.5">Nome</p>
@@ -553,27 +721,49 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                         </div>
                     </div>
 
+                    <div className="bg-white border border-slate-200 rounded-xl p-1 flex gap-1">
+                        <button
+                            onClick={() => setActiveTab("descricao")}
+                            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${activeTab === "descricao" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+                        >
+                            Descrição
+                        </button>
+                        <button
+                            onClick={() => setActiveTab("apontamentos")}
+                            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${activeTab === "apontamentos" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+                        >
+                            Apontamentos ({ticket.totalApontamentos})
+                        </button>
+                        <button
+                            onClick={() => setActiveTab("comentarios")}
+                            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${activeTab === "comentarios" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+                        >
+                            Comentários ({ticket.totalComments})
+                        </button>
+                    </div>
+
                     {/* Apontamentos */}
-                    <div className="bg-white border border-gray-200 rounded-xl">
-                        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                    {activeTab === "apontamentos" && (
+                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                        <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <ClipboardList size={13} className="text-gray-400" />
-                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Apontamentos</p>
+                                <ClipboardList size={13} className="text-slate-400" />
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Apontamentos</p>
                             </div>
                             <div className="flex items-center gap-3">
-                                {totalMinutes > 0 && <span className="text-[10px] text-gray-400">Total: <span className="font-medium text-gray-600">{formatDuration(totalMinutes)}</span></span>}
-                                <span className="text-[10px] text-gray-400">{ticket.apontamentos.length}</span>
+                                {totalMinutes > 0 && <span className="text-[10px] text-slate-400">Total: <span className="font-medium text-slate-600">{formatDuration(totalMinutes)}</span></span>}
+                                <span className="text-[10px] text-slate-400">{apontamentos.length}</span>
                             </div>
                         </div>
-                        {ticket.apontamentos.length === 0 ? (
+                        {apontamentos.length === 0 ? (
                             <div className="flex flex-col items-center justify-center py-8 text-gray-400">
                                 <ClipboardList size={18} className="mb-1 text-gray-300" />
                                 <p className="text-xs">Nenhum apontamento</p>
                                 {status !== "CLOSED" && <button onClick={() => setShowApontamentoModal(true)} className="mt-1.5 text-[10px] text-emerald-600 hover:text-emerald-700 font-medium cursor-pointer">+ Adicionar</button>}
                             </div>
                         ) : (
-                            ticket.apontamentos.map((a: ApontamentoData, i: number) => (
-                                <div key={a.id} className={`px-4 py-3 ${i < ticket.apontamentos.length - 1 ? "border-b border-gray-50" : ""}`}>
+                            apontamentos.map((a: ApontamentoData, i: number) => (
+                                <div key={a.id} className={`px-4 py-3 ${i < apontamentos.length - 1 ? "border-b border-gray-50" : ""}`}>
                                     <div className="flex items-center gap-2 mb-1">
                                         <span className="text-xs font-medium text-gray-900">{a.user.name}</span>
                                         <span className="text-[10px] text-gray-400">{formatDate(a.date)}</span>
@@ -585,12 +775,12 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                                             {a.attachments.map((att: AttachmentData) => (
                                                 isImageFile(att.fileType) ? (
                                                     <a key={att.id} href={att.url} target="_blank" rel="noreferrer" className="block">
-                                                        <img src={att.url} alt={att.fileName} className="max-w-[120px] max-h-[80px] rounded-lg object-cover border border-gray-200 hover:shadow-md transition-shadow" />
+                                                        <img src={att.url} alt={att.fileName} className="max-w-30 max-h-20 rounded-lg object-cover border border-gray-200 hover:shadow-md transition-shadow" />
                                                     </a>
                                                 ) : (
                                                     <a key={att.id} href={att.url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors">
                                                         <FileText size={12} className="text-gray-400" />
-                                                        <span className="text-[10px] text-gray-600 max-w-[100px] truncate">{att.fileName}</span>
+                                                        <span className="text-[10px] text-gray-600 max-w-25 truncate">{att.fileName}</span>
                                                         <span className="text-[9px] text-gray-400">{formatFileSize(att.fileSize)}</span>
                                                     </a>
                                                 )
@@ -606,17 +796,19 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                             ))
                         )}
                     </div>
+                    )}
 
                     {/* Comentários */}
-                    <div className="bg-white border border-gray-200 rounded-xl">
-                        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                    {activeTab === "comentarios" && (
+                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                        <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <MessageCircle size={13} className="text-gray-400" />
-                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Comentários</p>
+                                <MessageCircle size={13} className="text-slate-400" />
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Comentários</p>
                             </div>
-                            <span className="text-[10px] text-gray-400">{totalComments}</span>
+                            <span className="text-[10px] text-slate-400">{totalComments}</span>
                         </div>
-                        <div className="px-4 py-3 border-b border-gray-100">
+                        <div className="px-5 py-4 border-b border-slate-100">
                             <div className="flex items-center gap-2">
                                 <Input placeholder="Escreva um comentário..." value={newComment} onChange={(e) => setNewComment(e.target.value)}
                                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && newComment.trim()) { commentMut.mutate({ content: newComment, files: commentFiles }) } }}
@@ -629,24 +821,16 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                                     onClick={() => commentMut.mutate({ content: newComment, files: commentFiles })}><Send size={12} /></Button>
                             </div>
                             {commentFiles.length > 0 && (
-                                <div className="flex flex-wrap gap-1.5 mt-2">
-                                    {commentFiles.map((f, i) => (
-                                        <div key={i} className="flex items-center gap-1 px-2 py-0.5 rounded bg-gray-50 text-[10px] text-gray-600">
-                                            <Paperclip size={9} className="text-gray-400" />
-                                            <span className="truncate max-w-24">{f.name}</span>
-                                            <button onClick={() => setCommentFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-gray-400 hover:text-red-500 cursor-pointer"><X size={10} /></button>
-                                        </div>
-                                    ))}
-                                </div>
+                                <LocalFilePreviewList files={commentFiles} onRemove={(index) => setCommentFiles(prev => prev.filter((_, idx) => idx !== index))} compact />
                             )}
                         </div>
-                        {ticket.comments.length === 0 ? (
+                        {comments.length === 0 ? (
                             <div className="flex flex-col items-center justify-center py-8 text-gray-400">
                                 <MessageCircle size={18} className="mb-1 text-gray-300" />
                                 <p className="text-xs">Nenhum comentário</p>
                             </div>
                         ) : (
-                            ticket.comments.map((comment) => (
+                            comments.map((comment) => (
                                 <div key={comment.id} className="border-b border-gray-50 last:border-b-0">
                                     <div className="px-4 py-3">
                                         <div className="flex items-center gap-2 mb-1"><span className="text-xs font-medium text-gray-900">{comment.user.name}</span><span className="text-[10px] text-gray-400">{formatDate(comment.createdAt)}</span></div>
@@ -656,7 +840,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                                     </div>
                                     {comment.replies.length > 0 && (
                                         <div className="ml-8 pb-2 space-y-1">
-                                            {comment.replies.map((reply) => (
+                                            {comment.replies.map((reply: CommentData) => (
                                                 <div key={reply.id} className="px-3 py-2 bg-gray-50 rounded-lg mx-4">
                                                     <div className="flex items-center gap-2 mb-0.5"><span className="text-[10px] font-medium text-gray-900">{reply.user.name}</span><span className="text-[10px] text-gray-400">{formatDate(reply.createdAt)}</span></div>
                                                     <p className="text-xs text-gray-600 leading-relaxed">{reply.content}</p>
@@ -677,11 +861,12 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                             ))
                         )}
                     </div>
+                    )}
                 </div>
 
                 {/* ── Right: Properties sidebar ── */}
-                <div className="w-72 shrink-0 border-l border-gray-200 bg-white overflow-y-auto">
-                    <div className="p-4 space-y-3">
+                <div className="w-80 shrink-0">
+                    <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3 sticky top-8">
                         <SidebarProp label="Status" value={<span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold text-white ${statusBadgeColors[status]}`}>{statusLabels[status]}</span>} />
                         <SidebarProp label="Prioridade" value={<div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${priorityDotColors[priority]}`} /><span className="text-xs">{priorityLabels[priority]}</span></div>} />
                         <SidebarProp label="Tipo" value={<span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${typeColors[type]}`}>{typeLabels[type]}</span>} />
@@ -693,8 +878,8 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                             <p className="text-[10px] text-gray-400">{ticket.client.city}</p>
                             <button
                                 onClick={() => setShowChangeClientModal(true)}
-                                disabled={ticket.apontamentos.length > 0}
-                                title={ticket.apontamentos.length > 0 ? "Não é possível mudar o cliente com apontamentos" : undefined}
+                                disabled={ticket.totalApontamentos > 0}
+                                title={ticket.totalApontamentos > 0 ? "Não é possível mudar o cliente com apontamentos" : undefined}
                                 className="mt-1 w-full flex items-center gap-1.5 px-2 py-1 rounded border border-gray-200 text-gray-500 text-[10px] font-medium hover:bg-gray-50 transition-all cursor-pointer justify-center disabled:opacity-40 disabled:cursor-not-allowed"
                             ><Users size={10} /> Mudar Cliente</button>
                         </div>
@@ -708,7 +893,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                                 </>
                             ) : ticket.requestedByContability ? (
                                 <>
-                                    <p className="text-sm font-medium text-gray-900">{ticket.requestedByContability.cnpj || ticket.requestedByContability.cpf}</p>
+                                    <p className="text-sm font-medium text-gray-900">{ticket.requestedByContability.name || ticket.requestedByContability.cnpj || ticket.requestedByContability.cpf}</p>
                                     {ticket.requestedByContability.email && <p className="text-[10px] text-gray-400">{ticket.requestedByContability.email}</p>}
                                 </>
                             ) : (
@@ -720,17 +905,19 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                             ><UserCheck size={10} /> {ticket.requestedByContact || ticket.requestedByContability ? "Alterar Solicitante" : "Definir Solicitante"}</button>
                         </div>
                         <SidebarProp label="Responsável" value={ticket.assignedTo ? <span className="text-xs">{ticket.assignedTo.name}</span> : <span className="text-xs text-gray-300">Não atribuído</span>} />
+                        {ticket.knowledgeArticle && <SidebarProp label="Artigo" value={<Link href={`/dashboard/base-conhecimento/${ticket.knowledgeArticle.id}`} className="text-xs text-indigo-600 hover:text-indigo-700">{ticket.knowledgeArticle.title}</Link>} />}
                         <div className="border-t border-gray-100 pt-3" />
                         <SidebarProp label="Criado" value={<span className="text-xs">{formatDateShort(ticket.createdAt)}</span>} />
                         <SidebarProp label="Atualizado" value={<span className="text-xs">{formatDateShort(ticket.updatedAt)}</span>} />
                         <SidebarProp label="Tempo total" value={<span className="text-xs font-medium">{formatDuration(totalMinutes)}</span>} />
-                        <SidebarProp label="Apontamentos" value={<span className="text-xs">{ticket.apontamentos.length}</span>} />
+                        <SidebarProp label="Apontamentos" value={<span className="text-xs">{ticket.totalApontamentos}</span>} />
                         <SidebarProp label="Reaberturas" value={<span className="text-xs">{ticket.reopenCount}</span>} />
                         {ticket.ticketResolutionDate && <SidebarProp label="Resolvido" value={<span className="text-xs">{formatDateShort(ticket.ticketResolutionDate)}</span>} />}
+                        {ticket.cancelReason && <SidebarProp label="Cancelado" value={<span className="text-xs text-right max-w-40 line-clamp-3">{ticket.cancelReason}</span>} />}
                         {isAssignedToMe && (
                             <>
                                 <div className="border-t border-gray-100 pt-3" />
-                                <button onClick={() => setShowTransferModal(true)} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-[11px] font-medium hover:bg-gray-50 transition-all cursor-pointer justify-center"><ArrowRightLeft size={11} /> Transferir</button>
+                                {!isTerminalStatus && <button onClick={() => setShowTransferModal(true)} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-[11px] font-medium hover:bg-gray-50 transition-all cursor-pointer justify-center"><ArrowRightLeft size={11} /> Transferir</button>}
                             </>
                         )}
                     </div>
@@ -752,6 +939,12 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
             <Dialog open={showCloseModal} onOpenChange={setShowCloseModal}>
                 <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Fechar Ticket</DialogTitle><DialogDescription>Tem certeza que deseja fechar este ticket?</DialogDescription></DialogHeader>
                     <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setShowCloseModal(false)}>Cancelar</Button><Button className="bg-red-600 hover:bg-red-700 text-white" disabled={statusMut.isPending} onClick={() => statusMut.mutate("CLOSED")}>{statusMut.isPending ? <Loader2 size={14} className="animate-spin mr-1" /> : null}Fechar Ticket</Button></DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={showCancelModal} onOpenChange={(open) => { setShowCancelModal(open); if (!open) setCancelReason("") }}>
+                <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Cancelar Ticket</DialogTitle><DialogDescription>Informe o motivo do cancelamento. Tickets cancelados não aparecem na listagem padrão.</DialogDescription></DialogHeader>
+                    <Textarea placeholder="Motivo do cancelamento..." value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} className="min-h-25" />
+                    <DialogFooter className="gap-2"><Button variant="outline" onClick={() => { setShowCancelModal(false); setCancelReason("") }}>Voltar</Button><Button className="bg-red-600 hover:bg-red-700 text-white" disabled={!cancelReason.trim() || cancelMut.isPending || ticket.totalApontamentos > 0} onClick={() => cancelMut.mutate(cancelReason.trim())}>{cancelMut.isPending ? <Loader2 size={14} className="animate-spin mr-1" /> : null}Cancelar Ticket</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
             <Dialog open={showAssignModal} onOpenChange={(open) => { setShowAssignModal(open); if (!open) setSelectedUserId("") }}>
@@ -791,7 +984,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                         )}
                         {changeContability && (
                             <optgroup label="Contabilidade">
-                                <option value={`contability:${changeContability.id}`}>{changeContability.cnpj || changeContability.cpf || changeContability.name || "Contabilidade"}</option>
+                                <option value={`contability:${changeContability.id}`}>{changeContability.name || changeContability.cnpj || changeContability.cpf || "Contabilidade"}</option>
                             </optgroup>
                         )}
                     </select>

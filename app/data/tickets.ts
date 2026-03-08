@@ -2,6 +2,12 @@
 
 import { prisma } from "../utils/prisma"
 
+function normalizeTicketId(ticketId: string | number) {
+    const parsed = typeof ticketId === "number" ? ticketId : Number(ticketId)
+    if (!Number.isInteger(parsed) || parsed <= 0) throw new Error("ID do ticket inválido")
+    return parsed
+}
+
 export const getTickets = async () => {
     const tickets = await prisma.tickets.findMany({
         include: {
@@ -13,9 +19,9 @@ export const getTickets = async () => {
     return tickets
 }
 
-export const getTicketById = async (id: string) => {
+export const getTicketById = async (id: string | number) => {
     const ticket = await prisma.tickets.findUnique({
-        where: { id },
+        where: { id: normalizeTicketId(id) },
         include: {
             client: true,
             assignedTo: true,
@@ -28,9 +34,9 @@ export const getTicketById = async (id: string) => {
     return ticket
 }
 
-export const updateTicketStatus = async (ticketId: string, status: "NOVO" | "PENDING_CLIENT" | "PENDING_EMPRESS" | "IN_PROGRESS" | "CLOSED") => {
+export const updateTicketStatus = async (ticketId: string | number, status: "NOVO" | "PENDING_CLIENT" | "PENDING_EMPRESS" | "IN_PROGRESS" | "CLOSED") => {
     const ticket = await prisma.tickets.update({
-        where: { id: ticketId },
+        where: { id: normalizeTicketId(ticketId) },
         data: {
             ticketStatus: status,
             ...(status === "CLOSED" ? { ticketResolutionDate: new Date() } : {}),
@@ -39,9 +45,9 @@ export const updateTicketStatus = async (ticketId: string, status: "NOVO" | "PEN
     return ticket
 }
 
-export const reopenTicket = async (ticketId: string, reason: string, userId: string) => {
+export const reopenTicket = async (ticketId: string | number, reason: string, userId: string) => {
     const ticket = await prisma.tickets.update({
-        where: { id: ticketId },
+        where: { id: normalizeTicketId(ticketId) },
         data: {
             ticketStatus: "NOVO",
             reopenCount: { increment: 1 },
@@ -64,9 +70,9 @@ export const getTicketsByClient = async (clientId: string) => {
     return tickets
 }
 
-export const claimTicket = async (ticketId: string, userId: string) => {
+export const claimTicket = async (ticketId: string | number, userId: string) => {
     const ticket = await prisma.tickets.update({
-        where: { id: ticketId },
+        where: { id: normalizeTicketId(ticketId) },
         data: { assignedToId: userId },
         include: {
             client: true,
@@ -77,7 +83,7 @@ export const claimTicket = async (ticketId: string, userId: string) => {
 }
 
 export const createApontamento = async (data: {
-    ticketId: string
+    ticketId: string | number
     userId: string
     description: string
     category: "PROBLEMA_RESOLVIDO" | "TREINAMENTO" | "REUNIAO" | "TIRA_DUVIDAS" | "DESENVOLVIMENTO"
@@ -85,9 +91,10 @@ export const createApontamento = async (data: {
     date: Date
     statusChange?: "NOVO" | "PENDING_CLIENT" | "PENDING_EMPRESS" | "IN_PROGRESS" | "CLOSED" | null
 }) => {
+    const normalizedTicketId = normalizeTicketId(data.ticketId)
     const apontamento = await prisma.apontamento.create({
         data: {
-            ticketId: data.ticketId,
+            ticketId: normalizedTicketId,
             userId: data.userId,
             description: data.description,
             category: data.category,
@@ -100,7 +107,7 @@ export const createApontamento = async (data: {
 
     if (data.statusChange) {
         await prisma.tickets.update({
-            where: { id: data.ticketId },
+            where: { id: normalizedTicketId },
             data: {
                 ticketStatus: data.statusChange,
                 ...(data.statusChange === "CLOSED" ? { ticketResolutionDate: new Date() } : {}),
@@ -111,9 +118,9 @@ export const createApontamento = async (data: {
     return apontamento
 }
 
-export const getApontamentosByTicket = async (ticketId: string) => {
+export const getApontamentosByTicket = async (ticketId: string | number) => {
     const apontamentos = await prisma.apontamento.findMany({
-        where: { ticketId },
+        where: { ticketId: normalizeTicketId(ticketId) },
         include: { user: true },
         orderBy: { date: "desc" },
     })

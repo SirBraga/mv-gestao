@@ -45,6 +45,21 @@ export async function getContabilities() {
     }))
 }
 
+export async function getContabilityOptions() {
+    await getSession()
+    const contabilities = await prisma.contability.findMany({
+        orderBy: { name: "asc" },
+        select: {
+            id: true,
+            name: true,
+            cnpj: true,
+            cpf: true,
+        },
+    })
+
+    return contabilities
+}
+
 export async function createContability(data: {
     name?: string
     phone: string
