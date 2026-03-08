@@ -1023,6 +1023,18 @@ export default function Clientes() {
                                 <input type="checkbox" checked={form.supportReleased} onChange={e => setForm({...form, supportReleased: e.target.checked})} className="rounded" /> Suporte liberado
                             </label>
                         </div>
+                        {form.type === "PJ" && (
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Código CSC</label>
+                                    <Input placeholder="Código CSC" className="h-9 rounded-lg text-sm" value={form.codigoCSC} onChange={e => setForm({...form, codigoCSC: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Token</label>
+                                    <Input placeholder="Token" className="h-9 rounded-lg text-sm" value={form.tokenCSC} onChange={e => setForm({...form, tokenCSC: e.target.value})} />
+                                </div>
+                            </div>
+                        )}
                         {form.hasContract && (
                             <div className="space-y-3">
                                 <div>
@@ -1035,19 +1047,6 @@ export default function Clientes() {
                                         <option value="CANCELADO">Cancelado</option>
                                     </select>
                                 </div>
-
-                                {form.type === "PJ" && (
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Código CSC</label>
-                                            <Input placeholder="Código CSC" className="h-9 rounded-lg text-sm" value={form.codigoCSC} onChange={e => setForm({...form, codigoCSC: e.target.value})} />
-                                        </div>
-                                        <div>
-                                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Token</label>
-                                            <Input placeholder="Token" className="h-9 rounded-lg text-sm" value={form.tokenCSC} onChange={e => setForm({...form, tokenCSC: e.target.value})} />
-                                        </div>
-                                    </div>
-                                )}
                             </div>
                         )}
 
