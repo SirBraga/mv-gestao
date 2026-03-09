@@ -91,7 +91,7 @@ const INITIAL_FORM = {
     phone: "", mobile: "", email: "", aditionalInfo: "",
     address: "", city: "", houseNumber: "", neighborhood: "", zipCode: "", complement: "",
     ownerName: "", ownerPhone: "", ownerEmail: "", ownerCpf: "",
-    hasContract: false, contractType: "" as "" | "MENSAL" | "ANUAL" | "AVULSO" | "CANCELADO",
+    hasContract: true, contractType: "MENSAL" as "MENSAL" | "ANUAL" | "AVULSO",
     supportReleased: false,
     certificateType: "", certificateExpiresDate: "",
     photoUrl: "",
@@ -127,7 +127,7 @@ function compareClients(a: ClientData, b: ClientData, key: SortKey, dir: SortDir
         case "phone": valA = a.phone || ""; valB = b.phone || ""; break
         case "email": valA = a.email || ""; valB = b.email || ""; break
         case "status": valA = a.supportReleased; valB = b.supportReleased; break
-        case "contract": valA = a.hasContract; valB = b.hasContract; break
+        case "contract": valA = a.contractType || ""; valB = b.contractType || ""; break
         case "type": valA = a.type; valB = b.type; break
     }
     if (typeof valA === "boolean") {
@@ -218,7 +218,7 @@ export default function Clientes() {
                         city: variables.city,
                         phone: variables.ownerPhone || null,
                         email: variables.ownerEmail || null,
-                        hasContract: variables.hasContract ?? false,
+                        hasContract: true,
                         contractType: variables.contractType || undefined,
                         supportReleased: variables.supportReleased ?? false,
                         certificateExpiresDate: variables.certificateExpiresDate?.toISOString() || null,
@@ -327,7 +327,7 @@ export default function Clientes() {
                 photoUrl: photoUrl || undefined,
                 ownerName: form.ownerName || undefined, ownerPhone: form.ownerPhone || undefined,
                 ownerEmail: form.ownerEmail || undefined, ownerCpf: form.ownerCpf || undefined,
-                hasContract: form.hasContract, supportReleased: form.supportReleased,
+                hasContract: true, supportReleased: form.supportReleased,
                 contabilityId: selectedContabilityIds[0] || undefined,
             })
 
@@ -1110,9 +1110,20 @@ export default function Clientes() {
                         {/* Contrato */}
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Contrato</p>
                         <div className="grid grid-cols-2 gap-3">
-                            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                                <input type="checkbox" checked={form.hasContract} onChange={e => setForm({...form, hasContract: e.target.checked})} className="rounded" /> Tem contrato
-                            </label>
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Contrato *</label>
+                                <select 
+                                    className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" 
+                                    value={form.contractType} 
+                                    onChange={e => setForm({...form, contractType: (e.target.value || "MENSAL") as "MENSAL" | "ANUAL" | "AVULSO"})}
+                                    required
+                                >
+                                    <option value="">Selecione o tipo</option>
+                                    <option value="MENSAL">Mensal</option>
+                                    <option value="ANUAL">Anual</option>
+                                    <option value="AVULSO">Avulso</option>
+                                </select>
+                            </div>
                             <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
                                 <input type="checkbox" checked={form.supportReleased} onChange={e => setForm({...form, supportReleased: e.target.checked})} className="rounded" /> Suporte liberado
                             </label>
@@ -1129,21 +1140,7 @@ export default function Clientes() {
                                 </div>
                             </div>
                         )}
-                        {form.hasContract && (
-                            <div className="space-y-3">
-                                <div>
-                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo de Contrato</label>
-                                    <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.contractType} onChange={e => setForm({...form, contractType: e.target.value as "" | "MENSAL" | "ANUAL" | "AVULSO" | "CANCELADO"})}>
-                                        <option value="">Selecione</option>
-                                        <option value="MENSAL">Mensal</option>
-                                        <option value="ANUAL">Anual</option>
-                                        <option value="AVULSO">Avulso</option>
-                                        <option value="CANCELADO">Cancelado</option>
-                                    </select>
-                                </div>
-                            </div>
-                        )}
-
+                        
                         {/* Contabilidades (opcional) */}
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Contabilidades <span className="normal-case font-normal">(opcional)</span></p>
                         <MultiSelect
