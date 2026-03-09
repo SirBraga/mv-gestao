@@ -560,6 +560,39 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
         )
     }
 
+    const clientTickets = client?.tickets ?? []
+    const openTickets = clientTickets.filter((t: TicketSummary) => t.status !== "CLOSED").length
+    const filteredTickets = useMemo(() => {
+        return clientTickets.filter((ticket: TicketSummary) => {
+            const matchesClosed = showClosedTickets || ticket.status !== "CLOSED"
+            const normalizedQuery = ticketSearchQuery.trim().toLowerCase()
+
+            const matchesSearch = !normalizedQuery
+                || ticket.ticketDescription.toLowerCase().includes(normalizedQuery)
+                || String(ticket.ticketNumber).includes(normalizedQuery)
+                || (ticket.assignedTo || "").toLowerCase().includes(normalizedQuery)
+                || (statusLabels[ticket.status] || ticket.status).toLowerCase().includes(normalizedQuery)
+
+            return matchesClosed && matchesSearch
+        })
+    }, [clientTickets, showClosedTickets, ticketSearchQuery])
+    const ticketsPageSize = 5
+    const totalTicketPages = Math.max(1, Math.ceil(filteredTickets.length / ticketsPageSize))
+    const paginatedTickets = useMemo(() => {
+        const start = (ticketsPage - 1) * ticketsPageSize
+        return filteredTickets.slice(start, start + ticketsPageSize)
+    }, [filteredTickets, ticketsPage])
+
+    useEffect(() => {
+        setTicketsPage(1)
+    }, [showClosedTickets, ticketSearchQuery])
+
+    useEffect(() => {
+        if (ticketsPage > totalTicketPages) {
+            setTicketsPage(totalTicketPages)
+        }
+    }, [ticketsPage, totalTicketPages])
+
     if (isLoading) {
         return (
             <div className="min-h-screen bg-slate-50" />
@@ -577,38 +610,6 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             </div>
         )
     }
-
-    const openTickets = client.tickets.filter((t: TicketSummary) => t.status !== "CLOSED").length
-    const filteredTickets = useMemo(() => {
-        return client.tickets.filter((ticket: TicketSummary) => {
-            const matchesClosed = showClosedTickets || ticket.status !== "CLOSED"
-            const normalizedQuery = ticketSearchQuery.trim().toLowerCase()
-
-            const matchesSearch = !normalizedQuery
-                || ticket.ticketDescription.toLowerCase().includes(normalizedQuery)
-                || String(ticket.ticketNumber).includes(normalizedQuery)
-                || (ticket.assignedTo || "").toLowerCase().includes(normalizedQuery)
-                || (statusLabels[ticket.status] || ticket.status).toLowerCase().includes(normalizedQuery)
-
-            return matchesClosed && matchesSearch
-        })
-    }, [client.tickets, showClosedTickets, ticketSearchQuery])
-    const ticketsPageSize = 5
-    const totalTicketPages = Math.max(1, Math.ceil(filteredTickets.length / ticketsPageSize))
-    const paginatedTickets = useMemo(() => {
-        const start = (ticketsPage - 1) * ticketsPageSize
-        return filteredTickets.slice(start, start + ticketsPageSize)
-    }, [filteredTickets, ticketsPage])
-
-    useEffect(() => {
-        setTicketsPage(1)
-    }, [showClosedTickets, ticketSearchQuery])
-
-    useEffect(() => {
-        if (ticketsPage > totalTicketPages) {
-            setTicketsPage(totalTicketPages)
-        }
-    }, [ticketsPage, totalTicketPages])
 
     const doc = client.cnpj || client.cpf || "—"
     const phone = client.ownerPhone || "—"
