@@ -7,6 +7,7 @@ import { getProductOptions, createClientProductSerial } from "@/app/actions/prod
 import { getContabilityOptions } from "@/app/actions/contability"
 import ClientCard from "../_components/clientCard"
 import type { ClientData } from "../_components/clientCard"
+import { GlobalScreenLoader } from "@/app/components/global-screen-loader"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
@@ -475,6 +476,10 @@ export default function Clientes() {
         serial_expired: allClients.filter((c) => isSerialExpired(c)).length,
     }
 
+    if (isLoading) {
+        return <GlobalScreenLoader />
+    }
+
     return (
         <div className="flex h-full bg-slate-50">
             {/* Left Filter Panel */}
@@ -643,12 +648,7 @@ export default function Clientes() {
 
                 {/* Rows */}
                 <div className="flex-1 overflow-y-auto bg-white">
-                    {isLoading ? (
-                        <div className="flex flex-col items-center justify-center py-20">
-                            <Loader2 size={28} className="animate-spin text-indigo-600" />
-                            <p className="text-sm text-slate-500 mt-3">Carregando clientes...</p>
-                        </div>
-                    ) : filteredClients.length === 0 ? (
+                    {filteredClients.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-20 text-slate-400">
                             <Users size={40} className="text-slate-300 mb-3" />
                             <p className="text-sm font-medium text-slate-600">Nenhum cliente encontrado</p>
@@ -661,7 +661,7 @@ export default function Clientes() {
                     )}
                 </div>
 
-                {!isLoading && filteredClients.length > 0 && (
+                {filteredClients.length > 0 && (
                     <div className="flex items-center justify-between px-6 py-3 border-t border-slate-200 bg-white">
                         <p className="text-sm text-slate-500">Página <span className="font-medium text-slate-900">{currentPage}</span> de <span className="font-medium text-slate-900">{totalPages}</span></p>
                         <div className="flex items-center gap-2">

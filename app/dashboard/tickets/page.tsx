@@ -19,6 +19,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog"
 import TicketCreateDrawer from "@/app/dashboard/_components/ticket-create-drawer"
+import { GlobalScreenLoader } from "@/app/components/global-screen-loader"
 import {
     Search,
     ChevronUp,
@@ -240,6 +241,10 @@ export default function TicketsPage() {
 
     const claimingTicket = allTickets.find((t) => t.id === claimTicketId)
 
+    if (isLoading) {
+        return <GlobalScreenLoader />
+    }
+
     return (
         <div className="flex h-full bg-slate-50">
             {/* Left Filter Panel */}
@@ -406,12 +411,7 @@ export default function TicketsPage() {
 
                 {/* Rows */}
                 <div className="flex-1 overflow-y-auto bg-white">
-                    {isLoading ? (
-                        <div className="flex flex-col items-center justify-center py-20">
-                            <Loader2 size={28} className="animate-spin text-indigo-600" />
-                            <p className="text-sm text-slate-500 mt-3">Carregando tickets...</p>
-                        </div>
-                    ) : filteredTickets.length === 0 ? (
+                    {filteredTickets.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-20 text-slate-400">
                             <Ticket size={40} className="text-slate-300 mb-3" />
                             <p className="text-sm font-medium text-slate-600">Nenhum ticket encontrado</p>
@@ -424,7 +424,7 @@ export default function TicketsPage() {
                     )}
                 </div>
 
-                {!isLoading && filteredTickets.length > 0 && (
+                {filteredTickets.length > 0 && (
                     <div className="flex items-center justify-between px-6 py-3 border-t border-slate-200 bg-white">
                         <p className="text-sm text-slate-500">Página <span className="font-medium text-slate-900">{currentPage}</span> de <span className="font-medium text-slate-900">{totalPages}</span></p>
                         <div className="flex items-center gap-2">

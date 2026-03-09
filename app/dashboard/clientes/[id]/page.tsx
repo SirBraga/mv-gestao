@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { use } from "react"
 import Link from "next/link"
@@ -148,6 +148,9 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     const queryClient = useQueryClient()
     const [editing, setEditing] = useState(false)
     const [showTicketDrawer, setShowTicketDrawer] = useState(false)
+    const [showClosedTickets, setShowClosedTickets] = useState(false)
+    const [ticketSearchQuery, setTicketSearchQuery] = useState("")
+    const [ticketsPage, setTicketsPage] = useState(1)
 
     const { data: client, isLoading, isError } = useQuery({
         queryKey: ["client", id],
@@ -576,6 +579,37 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     }
 
     const openTickets = client.tickets.filter((t: TicketSummary) => t.status !== "CLOSED").length
+    const filteredTickets = useMemo(() => {
+        return client.tickets.filter((ticket: TicketSummary) => {
+            const matchesClosed = showClosedTickets || ticket.status !== "CLOSED"
+            const normalizedQuery = ticketSearchQuery.trim().toLowerCase()
+
+            const matchesSearch = !normalizedQuery
+                || ticket.ticketDescription.toLowerCase().includes(normalizedQuery)
+                || String(ticket.ticketNumber).includes(normalizedQuery)
+                || (ticket.assignedTo || "").toLowerCase().includes(normalizedQuery)
+                || (statusLabels[ticket.status] || ticket.status).toLowerCase().includes(normalizedQuery)
+
+            return matchesClosed && matchesSearch
+        })
+    }, [client.tickets, showClosedTickets, ticketSearchQuery])
+    const ticketsPageSize = 5
+    const totalTicketPages = Math.max(1, Math.ceil(filteredTickets.length / ticketsPageSize))
+    const paginatedTickets = useMemo(() => {
+        const start = (ticketsPage - 1) * ticketsPageSize
+        return filteredTickets.slice(start, start + ticketsPageSize)
+    }, [filteredTickets, ticketsPage])
+
+    useEffect(() => {
+        setTicketsPage(1)
+    }, [showClosedTickets, ticketSearchQuery])
+
+    useEffect(() => {
+        if (ticketsPage > totalTicketPages) {
+            setTicketsPage(totalTicketPages)
+        }
+    }, [ticketsPage, totalTicketPages])
+
     const doc = client.cnpj || client.cpf || "—"
     const phone = client.ownerPhone || "—"
     const email = client.ownerEmail || "—"
@@ -1420,19 +1454,87 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                     <p className="text-sm text-slate-500">Nenhum ticket</p>
                                 </div>
                             ) : (
-                                <div className="divide-y divide-slate-100">
-                                    {client.tickets.map((ticket: TicketSummary) => (
-                                        <Link key={ticket.id} href={`/dashboard/tickets/${ticket.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
-                                            <span className="text-xs font-mono font-semibold text-slate-400 shrink-0 w-8">#{ticket.ticketNumber}</span>
-                                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityDot[ticket.priority] || "bg-slate-400"}`} />
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm text-slate-900 truncate">{ticket.ticketDescription}</p>
-                                                <p className="text-xs text-slate-500 mt-0.5">{formatDateShort(ticket.createdAt)}{ticket.assignedTo ? ` · ${ticket.assignedTo}` : ""}</p>
+                                <>
+                                    <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/60 space-y-3">
+                                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                            <div className="relative w-full md:max-w-sm">
+                                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                                <Input
+                                                    value={ticketSearchQuery}
+                                                    onChange={(e) => setTicketSearchQuery(e.target.value)}
+                                                    placeholder="Buscar por ticket, número, responsável ou status"
+                                                    className="pl-10 h-10 bg-white border-slate-200 text-sm"
+                                                />
                                             </div>
-                                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold text-white shrink-0 ${statusBadgeColors[ticket.status] || "bg-slate-400"}`}>{statusLabels[ticket.status] || ticket.status}</span>
-                                        </Link>
-                                    ))}
-                                </div>
+                                            <label className="inline-flex items-center gap-2 text-sm text-slate-600 select-none">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={showClosedTickets}
+                                                    onChange={(e) => setShowClosedTickets(e.target.checked)}
+                                                    className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                                />
+                                                <span>Exibir fechados</span>
+                                            </label>
+                                        </div>
+                                        <div className="flex items-center justify-between text-xs text-slate-500">
+                                            <span>
+                                                Mostrando {paginatedTickets.length} de {filteredTickets.length} ticket{filteredTickets.length === 1 ? "" : "s"}
+                                            </span>
+                                            <span>
+                                                Página {totalTicketPages === 0 ? 0 : ticketsPage} de {totalTicketPages}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {filteredTickets.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center py-8 text-slate-400">
+                                            <Ticket size={20} className="mb-2 text-slate-300" />
+                                            <p className="text-sm text-slate-500">Nenhum ticket encontrado</p>
+                                        </div>
+                                    ) : (
+                                        <div className="divide-y divide-slate-100">
+                                            {paginatedTickets.map((ticket: TicketSummary) => (
+                                                <Link key={ticket.id} href={`/dashboard/tickets/${ticket.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
+                                                    <span className="text-xs font-mono font-semibold text-slate-400 shrink-0 w-8">#{ticket.ticketNumber}</span>
+                                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityDot[ticket.priority] || "bg-slate-400"}`} />
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm text-slate-900 truncate">{ticket.ticketDescription}</p>
+                                                        <p className="text-xs text-slate-500 mt-0.5">{formatDateShort(ticket.createdAt)}{ticket.assignedTo ? ` · ${ticket.assignedTo}` : ""}</p>
+                                                    </div>
+                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold text-white shrink-0 ${statusBadgeColors[ticket.status] || "bg-slate-400"}`}>{statusLabels[ticket.status] || ticket.status}</span>
+                                                </Link>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {filteredTickets.length > 0 && totalTicketPages > 1 && (
+                                        <div className="px-5 py-3 border-t border-slate-100 bg-white flex items-center justify-between">
+                                            <p className="text-xs text-slate-500">
+                                                Exibindo {(ticketsPage - 1) * ticketsPageSize + 1} a {Math.min(ticketsPage * ticketsPageSize, filteredTickets.length)} de {filteredTickets.length}
+                                            </p>
+                                            <div className="flex items-center gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    className="h-8 px-3 text-xs"
+                                                    onClick={() => setTicketsPage((current) => Math.max(1, current - 1))}
+                                                    disabled={ticketsPage === 1}
+                                                >
+                                                    Anterior
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    className="h-8 px-3 text-xs"
+                                                    onClick={() => setTicketsPage((current) => Math.min(totalTicketPages, current + 1))}
+                                                    disabled={ticketsPage === totalTicketPages}
+                                                >
+                                                    Próxima
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </div>
                     </div>
