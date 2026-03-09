@@ -52,6 +52,12 @@ export async function getClients() {
             clientProductSerials: {
                 select: {
                     expiresAt: true,
+                    product: {
+                        select: {
+                            id: true,
+                            name: true,
+                        },
+                    },
                 },
             },
             _count: { select: { tickets: true, contacts: true } },
@@ -73,7 +79,10 @@ export async function getClients() {
         certificateType: c.certificateType,
         ticketCount: c._count.tickets,
         contactCount: c._count.contacts,
-        clientProductSerials: c.clientProductSerials,
+        clientProductSerials: c.clientProductSerials.map((serial) => ({
+            expiresAt: serial.expiresAt?.toISOString() || null,
+            product: serial.product,
+        })),
         createdAt: c.createdAt.toISOString(),
     }))
 }

@@ -2,13 +2,11 @@
 
 import { useEffect, useRef, useState } from "react"
 import { usePathname } from "next/navigation"
-import { useIsFetching } from "@tanstack/react-query"
 import { GlobalScreenLoader } from "@/app/components/global-screen-loader"
 
 export function NavigationLoader() {
     const pathname = usePathname()
-    const isFetching = useIsFetching()
-    const [loading, setLoading] = useState(true)
+    const [loading, setLoading] = useState(false)
     const pathnameRef = useRef(pathname)
 
     useEffect(() => {
@@ -29,21 +27,13 @@ export function NavigationLoader() {
         if (pathnameRef.current !== pathname) {
             pathnameRef.current = pathname
             setLoading(true)
+            const timeout = setTimeout(() => {
+                setLoading(false)
+            }, 220)
+
+            return () => clearTimeout(timeout)
         }
     }, [pathname])
-
-    useEffect(() => {
-        if (isFetching > 0) {
-            setLoading(true)
-            return
-        }
-
-        const timeout = setTimeout(() => {
-            setLoading(false)
-        }, 220)
-
-        return () => clearTimeout(timeout)
-    }, [isFetching, pathname])
 
     return <GlobalScreenLoader visible={loading} />
 }

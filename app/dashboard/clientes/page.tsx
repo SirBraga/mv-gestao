@@ -140,7 +140,9 @@ function compareClients(a: ClientData, b: ClientData, key: SortKey, dir: SortDir
 export default function Clientes() {
     const queryClient = useQueryClient()
     const [activeFilter, setActiveFilter] = useState<FilterType>("all")
+    const [activeProductId, setActiveProductId] = useState<string>("")
     const [defaultOpen, setDefaultOpen] = useState(true)
+    const [productsOpen, setProductsOpen] = useState(true)
     const [favoritesOpen, setFavoritesOpen] = useState(true)
     const [searchQuery, setSearchQuery] = useState("")
     const [sortKey, setSortKey] = useState<SortKey>("name")
@@ -371,8 +373,57 @@ export default function Clientes() {
         }
     }
 
+    const allClients = clients as (ClientData & { clientProductSerials?: Array<{ expiresAt: string | null; product: { id: string; name: string } | null }> })[]
+
+    const clientsForProductCounts = useMemo(() => {
+        return allClients.filter((client) => {
+            return (
+                activeFilter === "all" ||
+                (activeFilter === "active" && client.supportReleased) ||
+                (activeFilter === "blocked" && !client.supportReleased) ||
+                (activeFilter === "cert_expired" && isCertExpired(client.certificateExpiresDate)) ||
+                (activeFilter === "cert_expiring" && isCertExpiring30d(client.certificateExpiresDate)) ||
+                (activeFilter === "serial_expired" && isSerialExpired(client)) ||
+                (activeFilter === "serial_expiring" && isSerialExpiring45d(client))
+            )
+        })
+    }, [allClients, activeFilter])
+
+    const clientsWithoutProductCount = useMemo(() => {
+        return clientsForProductCounts.filter((client) => !client.clientProductSerials || client.clientProductSerials.length === 0).length
+    }, [clientsForProductCounts])
+
+    const totalProductsFilterCount = useMemo(() => {
+        return clientsForProductCounts.length
+    }, [clientsForProductCounts])
+
+    const clientProducts = useMemo(() => {
+        const productMap = new Map<string, { id: string; name: string; count: number }>()
+
+        clientsForProductCounts.forEach((client) => {
+            const uniqueProducts = new Map<string, { id: string; name: string }>()
+
+            client.clientProductSerials?.forEach((serial) => {
+                if (serial.product) {
+                    uniqueProducts.set(serial.product.id, serial.product)
+                }
+            })
+
+            uniqueProducts.forEach((product) => {
+                const existing = productMap.get(product.id)
+                if (existing) {
+                    existing.count += 1
+                } else {
+                    productMap.set(product.id, { ...product, count: 1 })
+                }
+            })
+        })
+
+        return Array.from(productMap.values()).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
+    }, [clientsForProductCounts])
+
     const filteredClients = useMemo(() => {
-        return (clients as ClientData[])
+        return allClients
             .filter((client) => {
                 const matchesFilter =
                     activeFilter === "all" ||
@@ -383,23 +434,28 @@ export default function Clientes() {
                     (activeFilter === "serial_expired" && isSerialExpired(client)) ||
                     (activeFilter === "serial_expiring" && isSerialExpiring45d(client))
 
+                const matchesProduct = !activeProductId
+                    || (activeProductId === "__NO_PRODUCT__"
+                        ? !client.clientProductSerials || client.clientProductSerials.length === 0
+                        : (client.clientProductSerials || []).some((serial) => serial.product?.id === activeProductId))
+
                 const matchesSearch =
                     !searchQuery ||
                     client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                     (client.cnpj || "").includes(searchQuery) ||
                     (client.cpf || "").includes(searchQuery)
 
-                return matchesFilter && matchesSearch
+                return matchesFilter && matchesProduct && matchesSearch
             })
             .sort((a, b) => compareClients(a, b, sortKey, sortDir))
-    }, [clients, activeFilter, searchQuery, sortKey, sortDir])
+    }, [allClients, activeFilter, activeProductId, searchQuery, sortKey, sortDir])
 
     const [currentPage, setCurrentPage] = useState(1)
     const [pageSize, setPageSize] = useState(15)
 
     useEffect(() => {
         setCurrentPage(1)
-    }, [activeFilter, searchQuery, sortKey, sortDir, pageSize])
+    }, [activeFilter, activeProductId, searchQuery, sortKey, sortDir, pageSize])
 
     const totalPages = Math.max(1, Math.ceil(filteredClients.length / pageSize))
     const paginatedClients = useMemo(() => {
@@ -409,7 +465,6 @@ export default function Clientes() {
     const pageStart = filteredClients.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
     const pageEnd = Math.min(currentPage * pageSize, filteredClients.length)
 
-    const allClients = clients as ClientData[]
     const counts: Record<FilterType, number> = {
         all: allClients.length,
         active: allClients.filter((c) => c.supportReleased).length,
@@ -465,6 +520,45 @@ export default function Clientes() {
                                     </button>
                                 )
                             })}
+                        </div>
+                    )}
+                </div>
+
+                <div className="mb-6">
+                    <button
+                        onClick={() => setProductsOpen(!productsOpen)}
+                        className="flex items-center justify-between w-full px-2 mb-2"
+                    >
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Produtos</span>
+                        {productsOpen ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+                    </button>
+
+                    {productsOpen && (
+                        <div className="flex flex-col gap-0.5">
+                            <button
+                                onClick={() => setActiveProductId("")}
+                                className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all cursor-pointer ${!activeProductId ? "bg-indigo-50 text-indigo-700 font-medium" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
+                            >
+                                <span>Todos</span>
+                                <span className={`text-xs min-w-6 text-center rounded-full px-2 py-0.5 font-semibold ${!activeProductId ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{totalProductsFilterCount}</span>
+                            </button>
+                            {clientProducts.map((product) => (
+                                <button
+                                    key={product.id}
+                                    onClick={() => setActiveProductId((current) => current === product.id ? "" : product.id)}
+                                    className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all cursor-pointer ${activeProductId === product.id ? "bg-indigo-50 text-indigo-700 font-medium" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
+                                >
+                                    <span className="truncate pr-2">{product.name}</span>
+                                    <span className={`text-xs min-w-6 text-center rounded-full px-2 py-0.5 font-semibold ${activeProductId === product.id ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{product.count}</span>
+                                </button>
+                            ))}
+                            <button
+                                onClick={() => setActiveProductId((current) => current === "__NO_PRODUCT__" ? "" : "__NO_PRODUCT__")}
+                                className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all cursor-pointer ${activeProductId === "__NO_PRODUCT__" ? "bg-indigo-50 text-indigo-700 font-medium" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
+                            >
+                                <span>Sem produtos</span>
+                                <span className={`text-xs min-w-6 text-center rounded-full px-2 py-0.5 font-semibold ${activeProductId === "__NO_PRODUCT__" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"}`}>{clientsWithoutProductCount}</span>
+                            </button>
                         </div>
                     )}
                 </div>
