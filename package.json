@@ -6,12 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "seed": "tsx prisma/seed.ts",
-    "db:clear-keep-users": "tsx prisma/seeds/clear-data.ts"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "lint": "eslint"
   },
   "dependencies": {
     "@ably/chat": "^1.3.0",
