@@ -2040,7 +2040,14 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                                     <div className="flex items-center gap-1.5">
                                                         {contact.role && <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded capitalize">{contact.role}</span>}
                                                         <button onClick={() => openEditContactModal(contact)} className="text-slate-300 hover:text-indigo-500 cursor-pointer" title="Editar contato"><Pencil size={10} /></button>
-                                                        <button onClick={() => deleteContactMut.mutate(contact.id)} className="text-slate-300 hover:text-red-500 cursor-pointer" title="Remover contato"><Trash2 size={10} /></button>
+                                                        <button
+                                                            onClick={() => {
+                                                                if (!confirm(`Deseja realmente excluir o contato "${contact.name}"?`)) return
+                                                                deleteContactMut.mutate(contact.id)
+                                                            }}
+                                                            className="text-slate-300 hover:text-red-500 cursor-pointer"
+                                                            title="Remover contato"
+                                                        ><Trash2 size={10} /></button>
                                                     </div>
                                                 </div>
                                                 {contact.phone && (

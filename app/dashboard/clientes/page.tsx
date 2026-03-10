@@ -48,6 +48,10 @@ type FilterType = "all" | "active" | "blocked" | "cert_expired" | "cert_expiring
 type SortKey = "id" | "name" | "phone" | "email" | "status" | "contract" | "type"
 type SortDir = "asc" | "desc"
 
+function normalizeDigits(value: string) {
+    return value.replace(/\D/g, "")
+}
+
 function isCertExpired(dateStr: string | null) {
     if (!dateStr) return false
     return new Date(dateStr) < new Date()
@@ -470,6 +474,7 @@ export default function Clientes() {
     const filteredClients = useMemo(() => {
         return allClients
             .filter((client) => {
+                const digitsQuery = normalizeDigits(searchQuery)
                 const matchesFilter =
                     activeFilter === "all" ||
                     (activeFilter === "active" && client.supportReleased) ||
@@ -487,8 +492,8 @@ export default function Clientes() {
                 const matchesSearch =
                     !searchQuery ||
                     client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    (client.cnpj || "").includes(searchQuery) ||
-                    (client.cpf || "").includes(searchQuery)
+                    (!!digitsQuery && normalizeDigits(client.cnpj || "").includes(digitsQuery)) ||
+                    (!!digitsQuery && normalizeDigits(client.cpf || "").includes(digitsQuery))
 
                 return matchesFilter && matchesProduct && matchesSearch
             })

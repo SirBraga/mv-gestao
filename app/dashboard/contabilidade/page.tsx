@@ -17,6 +17,10 @@ type FilterType = "all" | "pj" | "pf"
 type SortKey = "clientName" | "clientCount" | "phone" | "city" | "type"
 type SortDir = "asc" | "desc"
 
+function normalizeDigits(value: string) {
+    return value.replace(/\D/g, "")
+}
+
 const STATES = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"]
 
 const FILTERS = [
@@ -349,13 +353,15 @@ export default function ContabilidadePage() {
 
         return allContabilities
             .filter((item) => {
+                const normalizedSearch = searchQuery.toLowerCase()
+                const digitsQuery = normalizeDigits(searchQuery)
                 const normalizedType = getNormalizedContabilityType(item)
                 const matchesFilter = filterTypeMap[activeFilter].includes(normalizedType)
                 const matchesSearch = searchQuery === "" ||
-                    (item.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    (item.clientNames || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    (item.cnpj || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    (item.city || "").toLowerCase().includes(searchQuery.toLowerCase())
+                    (item.name || "").toLowerCase().includes(normalizedSearch) ||
+                    (item.clientNames || "").toLowerCase().includes(normalizedSearch) ||
+                    (!!digitsQuery && normalizeDigits(item.cnpj || "").includes(digitsQuery)) ||
+                    (item.city || "").toLowerCase().includes(normalizedSearch)
                 return matchesFilter && matchesSearch
             })
             .sort((a, b) => compareContabilities(a, b, sortKey, sortDir))
