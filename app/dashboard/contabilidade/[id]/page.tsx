@@ -21,6 +21,7 @@ const STATES = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT"
 type ContabilityDetail = NonNullable<Awaited<ReturnType<typeof getContabilityById>>>
 type ClientSearchResults = Awaited<ReturnType<typeof getClientSearchOptions>>
 type LinkedClient = ContabilityDetail["clients"][number]
+type ContabilityContact = ContabilityDetail["contacts"][number]
 type SearchClient = ClientSearchResults["items"][number]
 
 const INITIAL_FORM = {
@@ -438,7 +439,7 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                             </div>
                         ) : (
                             <div className="divide-y divide-slate-100">
-                                {firm.clients.map((client) => (
+                                {firm.clients.map((client: LinkedClient) => (
                                     <Link key={client.id} href={`/dashboard/clientes/${client.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
                                         <Avatar className="h-9 w-9 shrink-0">
                                             <AvatarFallback className="text-[10px] font-bold text-white bg-indigo-600">
@@ -522,7 +523,7 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                                     </div>
                                 ) : (
                                     <div className="divide-y divide-slate-50">
-                                        {firm.contacts.map((contact: any) => (
+                                        {firm.contacts.map((contact: ContabilityContact) => (
                                             <div key={contact.id} className="px-3 py-2.5">
                                                 <div className="flex items-center justify-between mb-1">
                                                     <span className="text-xs font-semibold text-slate-900 truncate">{contact.name}</span>
@@ -573,7 +574,7 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                                     </div>
                                 ) : (
                                     <div className="divide-y divide-slate-50">
-                                        {firm.clients.map((client) => (
+                                        {firm.clients.map((client: LinkedClient) => (
                                             <div key={client.id} className="px-3 py-2.5">
                                                 <div className="flex items-center justify-between mb-1">
                                                     <span className="text-xs font-semibold text-slate-900 truncate">{client.name}</span>
@@ -655,7 +656,7 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                                     Nenhum cliente disponível para vínculo.
                                 </div>
                             ) : (
-                                availableClients.map((client) => {
+                                availableClients.map((client: SearchClient) => {
                                     const clientDoc = client.cnpj || client.cpf || "Sem documento"
                                     return (
                                         <button
