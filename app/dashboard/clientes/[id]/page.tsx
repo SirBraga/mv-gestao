@@ -7,7 +7,7 @@ import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getClientById, updateClient, toggleClientSupport, addClientContact, updateClientContact, deleteClientContact, addClientAttachment, deleteClientAttachment, cancelContract } from "@/app/actions/clients"
 import { getContabilityOptions } from "@/app/actions/contability"
-import { getProductOptions, createClientProductSerial, getClientProductSerials } from "@/app/actions/products"
+import { getProductOptions, createClientProductSerial, getClientProductSerials, createOrUpdateClientProduct, createClientProductPlugin, deleteClientProductPlugin } from "@/app/actions/products"
 import { lookupCnpj } from "@/app/actions/cnpj"
 import { maskCPF, maskCNPJ, maskPhone, maskCEP, maskContactTime } from "@/app/utils/masks"
 import { CONTACT_ROLES } from "@/app/constants/options"
@@ -430,7 +430,8 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                 }
             })
 
-            // Salvar seriais após atualizar o cliente
+            // Salvar produtos e seriais após atualizar o cliente
+            await saveClientProducts()
             await saveProductSerials()
             
             queryClient.invalidateQueries({ queryKey: ["client", id] })
@@ -441,6 +442,8 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             // Limpa estados de produtos
             setSelectedProductIds([])
             setProductSerials({})
+            setSelectedPlugins({})
+            setProductInstallationTypes({})
             setProductSearch("")
         },
         onError: (err: Error) => toast.error(err.message),
@@ -449,7 +452,8 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     const cancelContractMutation = useMutation({
         mutationFn: (data: { reason: string; date?: string }) => cancelContract(id, data.reason, data.date),
         onSuccess: async () => {
-            // Salvar seriais após cancelamento
+            // Salvar produtos e seriais após cancelamento
+            await saveClientProducts()
             await saveProductSerials()
             
             queryClient.invalidateQueries({ queryKey: ["client", id] })
@@ -460,6 +464,8 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             // Limpa estados de produtos
             setSelectedProductIds([])
             setProductSerials({})
+            setSelectedPlugins({})
+            setProductInstallationTypes({})
             setProductSearch("")
         },
         onError: (err: Error) => toast.error(err.message),
@@ -477,11 +483,14 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     const [attachUploading, setAttachUploading] = useState(false)
     const [pendingAttachFiles, setPendingAttachFiles] = useState<File[]>([])
     const [cnpjLoading, setCnpjLoading] = useState(false)
+    const [cepLoading, setCepLoading] = useState(false)
 
     // Estados para produtos na edição
     const [productSearch, setProductSearch] = useState("")
     const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
     const [productSerials, setProductSerials] = useState<Record<string, { serial: string; expiresAt: string }>>({})
+    const [selectedPlugins, setSelectedPlugins] = useState<Record<string, string[]>>({}) // productId -> pluginIds[]
+    const [productInstallationTypes, setProductInstallationTypes] = useState<Record<string, string>>({}) // productId -> installationType
     const [selectedContabilityId, setSelectedContabilityId] = useState("")
 
     const handleCopy = (text: string, label: string) => {
@@ -553,13 +562,29 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             ownerEmail: client.ownerEmail || "",
         })
         setSelectedContabilityId(client.contability?.id || "")
-        // Carregar produtos e seriais existentes ao iniciar edição
+        // Carregar produtos, seriais, plugins e modalidades existentes ao iniciar edição
         const existingProductIds: string[] = []
         const existingSerials: Record<string, { serial: string; expiresAt: string }> = {}
+        const existingPlugins: Record<string, string[]> = {}
+        const existingInstallationTypes: Record<string, string> = {}
 
+        // Carregar produtos existentes do cliente
+        if (client.clientProducts && client.clientProducts.length > 0) {
+            client.clientProducts.forEach(clientProduct => {
+                existingProductIds.push(clientProduct.productId)
+                if (clientProduct.installationType) {
+                    existingInstallationTypes[clientProduct.productId] = clientProduct.installationType
+                }
+                // Carregar plugins do produto
+                if (clientProduct.plugins && clientProduct.plugins.length > 0) {
+                    existingPlugins[clientProduct.productId] = clientProduct.plugins.map(plugin => plugin.productPluginId)
+                }
+            })
+        }
+
+        // Carregar seriais existentes
         if (serials.length > 0) {
             serials.forEach(serial => {
-                existingProductIds.push(serial.productId)
                 existingSerials[serial.productId] = {
                     serial: serial.serial,
                     expiresAt: serial.expiresAt ? new Date(serial.expiresAt).toISOString().split('T')[0] : ""
@@ -569,6 +594,8 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
         setSelectedProductIds(existingProductIds)
         setProductSerials(existingSerials)
+        setSelectedPlugins(existingPlugins)
+        setProductInstallationTypes(existingInstallationTypes)
         setProductSearch("")
         setEditing(true)
     }
@@ -663,6 +690,33 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
         }
     }
 
+    const fetchViaCEP = async (cep: string) => {
+        if (cep.replace(/\D/g, "").length !== 8) return
+        
+        setCepLoading(true)
+        try {
+            const res = await fetch(`https://viacep.com.br/ws/${cep.replace(/\D/g, "")}/json/`)
+            const data = await res.json()
+            if (!data.erro) {
+                setEditForm((current) => ({
+                    ...current,
+                    address: data.logradouro || current.address || "",
+                    neighborhood: data.bairro || current.neighborhood || "",
+                    city: data.localidade || current.city || "",
+                    state: data.uf || current.state || "",
+                    zipCode: maskCEP(data.cep || current.zipCode || ""),
+                }))
+                toast.success("Endereço encontrado com sucesso!")
+            } else {
+                toast.error("CEP não encontrado")
+            }
+        } catch (error) {
+            toast.error("Erro ao buscar CEP")
+        } finally {
+            setCepLoading(false)
+        }
+    }
+
     const saveProductSerials = async () => {
         await Promise.all(
             selectedProductIds.flatMap((productId) => {
@@ -677,6 +731,44 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                         expiresAt: serialData.expiresAt ? new Date(serialData.expiresAt) : undefined,
                     }),
                 ]
+            })
+        )
+    }
+
+    const saveClientProducts = async () => {
+        await Promise.all(
+            selectedProductIds.map(async (productId) => {
+                // Criar/atualizar ClientProduct com modalidade de instalação
+                const clientProductResult = await createOrUpdateClientProduct({
+                    clientId: id,
+                    productId,
+                    installationType: productInstallationTypes[productId] || undefined,
+                })
+
+                const clientProductId = clientProductResult.id
+
+                // Remover todos os plugins existentes deste produto
+                const existingProduct = (allProducts as { id: string; plugins: Array<{ id: string }> }[]).find(p => p.id === productId)
+                if (existingProduct && existingProduct.plugins.length > 0) {
+                    await Promise.all(
+                        existingProduct.plugins.map(plugin =>
+                            deleteClientProductPlugin(clientProductId, plugin.id)
+                        )
+                    )
+                }
+
+                // Adicionar plugins selecionados
+                const selectedPluginIds = selectedPlugins[productId] || []
+                if (selectedPluginIds.length > 0) {
+                    await Promise.all(
+                        selectedPluginIds.map(pluginId =>
+                            createClientProductPlugin({
+                                clientProductId,
+                                productPluginId: pluginId,
+                            })
+                        )
+                    )
+                }
             })
         )
     }
@@ -1177,7 +1269,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
                             {/* Lista de produtos */}
                             <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg mb-3">
-                                {(allProducts as { id: string; name: string; hasSerialControl: boolean }[])
+                                {(allProducts as { id: string; name: string; hasSerialControl: boolean; plugins: Array<{ id: string; name: string }> }[])
                                     .filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()))
                                     .map(p => {
                                         const selected = selectedProductIds.includes(p.id)
@@ -1187,16 +1279,37 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                                     type="button"
                                                     onClick={() => {
                                                         setSelectedProductIds(prev => selected ? prev.filter(x => x !== p.id) : [...prev, p.id])
-                                                        if (!selected && p.hasSerialControl) {
-                                                            setProductSerials(prev => ({
-                                                                ...prev,
-                                                                [p.id]: { serial: "", expiresAt: "" }
-                                                            }))
-                                                        } else if (selected) {
+                                                        if (!selected) {
+                                                            // Adicionando produto
+                                                            if (p.hasSerialControl) {
+                                                                setProductSerials(prev => ({
+                                                                    ...prev,
+                                                                    [p.id]: { serial: "", expiresAt: "" }
+                                                                }))
+                                                            }
+                                                            // Inicializar plugins vazios se houver plugins disponíveis
+                                                            if (p.plugins && p.plugins.length > 0) {
+                                                                setSelectedPlugins(prev => ({
+                                                                    ...prev,
+                                                                    [p.id]: []
+                                                                }))
+                                                            }
+                                                        } else {
+                                                            // Removendo produto
                                                             setProductSerials(prev => {
                                                                 const newSerials = { ...prev }
                                                                 delete newSerials[p.id]
                                                                 return newSerials
+                                                            })
+                                                            setSelectedPlugins(prev => {
+                                                                const newPlugins = { ...prev }
+                                                                delete newPlugins[p.id]
+                                                                return newPlugins
+                                                            })
+                                                            setProductInstallationTypes(prev => {
+                                                                const newTypes = { ...prev }
+                                                                delete newTypes[p.id]
+                                                                return newTypes
                                                             })
                                                         }
                                                     }}
@@ -1207,9 +1320,14 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                                     </span>
                                                     <div className="flex-1 text-left">
                                                         <div>{p.name}</div>
-                                                        {p.hasSerialControl && (
-                                                            <div className="text-xs text-amber-600 mt-0.5">• Exige serial</div>
-                                                        )}
+                                                        <div className="flex flex-wrap gap-2 mt-0.5">
+                                                            {p.hasSerialControl && (
+                                                                <div className="text-xs text-amber-600">• Exige serial</div>
+                                                            )}
+                                                            {p.plugins && p.plugins.length > 0 && (
+                                                                <div className="text-xs text-blue-600">• {p.plugins.length} plugin(s)</div>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </button>
                                                 {selected && p.hasSerialControl && (
@@ -1242,6 +1360,65 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                                         </div>
                                                     </div>
                                                 )}
+                                                {selected && (
+                                                    <div className="px-3 pb-2 space-y-3">
+                                                        {/* Modalidade de Instalação */}
+                                                        <div>
+                                                            <label className="text-xs font-medium text-slate-600 mb-1 block">Modalidade de Instalação</label>
+                                                            <select
+                                                                className="w-full h-8 rounded border border-slate-200 px-2 text-xs text-slate-700 bg-white"
+                                                                value={productInstallationTypes[p.id] || ""}
+                                                                onChange={e => setProductInstallationTypes(prev => ({
+                                                                    ...prev,
+                                                                    [p.id]: e.target.value
+                                                                }))}
+                                                            >
+                                                                <option value="">Selecione...</option>
+                                                                <option value="LOCAL">Local</option>
+                                                                <option value="SERVIDOR">Servidor</option>
+                                                                <option value="ONLINE">Online</option>
+                                                            </select>
+                                                        </div>
+                                                        
+                                                        {/* Plugins */}
+                                                        {p.plugins && p.plugins.length > 0 && (
+                                                            <div>
+                                                                <label className="text-xs font-medium text-slate-600 mb-1 block">Plugins</label>
+                                                                <div className="space-y-1">
+                                                                    {p.plugins.map(plugin => {
+                                                                        const pluginSelected = selectedPlugins[p.id]?.includes(plugin.id)
+                                                                        return (
+                                                                            <label key={plugin.id} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    checked={pluginSelected}
+                                                                                    onChange={e => {
+                                                                                        setSelectedPlugins(prev => {
+                                                                                            const currentPlugins = prev[p.id] || []
+                                                                                            if (e.target.checked) {
+                                                                                                return {
+                                                                                                    ...prev,
+                                                                                                    [p.id]: [...currentPlugins, plugin.id]
+                                                                                                }
+                                                                                            } else {
+                                                                                                return {
+                                                                                                    ...prev,
+                                                                                                    [p.id]: currentPlugins.filter(id => id !== plugin.id)
+                                                                                                }
+                                                                                            }
+                                                                                        })
+                                                                                    }}
+                                                                                    className="h-3 w-3 rounded border-slate-300 text-indigo-600"
+                                                                                />
+                                                                                <span>{plugin.name}</span>
+                                                                            </label>
+                                                                        )
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         )
                                     })}
@@ -1265,6 +1442,16 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                                                 const newSerials = { ...prev }
                                                                 delete newSerials[productId]
                                                                 return newSerials
+                                                            })
+                                                            setSelectedPlugins(prev => {
+                                                                const newPlugins = { ...prev }
+                                                                delete newPlugins[productId]
+                                                                return newPlugins
+                                                            })
+                                                            setProductInstallationTypes(prev => {
+                                                                const newTypes = { ...prev }
+                                                                delete newTypes[productId]
+                                                                return newTypes
                                                             })
                                                         }}
                                                         className="cursor-pointer hover:text-red-500"
@@ -1352,7 +1539,18 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                 </div>
                                 <div>
                                     <label className="text-xs text-slate-600 mb-1.5 block font-medium">CEP</label>
-                                    <Input className="h-9 text-sm" value={editForm.zipCode || ""} onChange={e => setEditForm({ ...editForm, zipCode: maskCEP(e.target.value) })} />
+                                    <div className="relative">
+                                        <Input className="h-9 text-sm pr-9" value={editForm.zipCode || ""} onChange={e => setEditForm({ ...editForm, zipCode: maskCEP(e.target.value) })} />
+                                        <button
+                                            type="button"
+                                            title="Buscar endereço pelo CEP"
+                                            disabled={editForm.zipCode.replace(/\D/g, "").length !== 8 || cepLoading}
+                                            onClick={() => fetchViaCEP(editForm.zipCode)}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                                        >
+                                            {cepLoading ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
+                                        </button>
+                                    </div>
                                 </div>
                                 <div>
                                     <label className="text-xs text-slate-600 mb-1.5 block font-medium">Complemento</label>

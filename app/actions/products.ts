@@ -65,14 +65,24 @@ export async function getProductOptions() {
     await getSession()
     const products = await prisma.products.findMany({
         orderBy: { name: "asc" },
-        select: {
-            id: true,
-            name: true,
-            hasSerialControl: true,
+        include: {
+            productPlugins: {
+                orderBy: { name: "asc" },
+                select: {
+                    id: true,
+                    name: true,
+                    status: true,
+                },
+            },
         },
     })
 
-    return products
+    return products.map(p => ({
+        id: p.id,
+        name: p.name,
+        hasSerialControl: p.hasSerialControl,
+        plugins: p.productPlugins.filter(plugin => plugin.status === "ATIVO"),
+    }))
 }
 
 export async function createProduct(data: {
@@ -308,5 +318,82 @@ export async function updateClientProductSerial(id: string, data: {
 export async function deleteClientProductSerial(id: string) {
     await getSession()
     await prisma.clientProductSerial.delete({ where: { id } })
+    return { success: true }
+}
+
+// Actions para ClientProduct
+export async function createOrUpdateClientProduct(data: {
+    clientId: string
+    productId: string
+    installationType?: string
+    notes?: string
+}) {
+    await getSession()
+    
+    // Buscar se já existe um ClientProduct para este cliente/produto
+    const existingClientProduct = await prisma.clientProduct.findFirst({
+        where: {
+            clientId: data.clientId,
+            productId: data.productId,
+        },
+    })
+
+    let clientProduct
+    if (existingClientProduct) {
+        // Atualizar o existente
+        clientProduct = await prisma.clientProduct.update({
+            where: { id: existingClientProduct.id },
+            data: {
+                installationType: data.installationType,
+                notes: data.notes,
+            },
+        })
+    } else {
+        // Criar novo
+        clientProduct = await prisma.clientProduct.create({
+            data: {
+                clientId: data.clientId,
+                productId: data.productId,
+                installationType: data.installationType,
+                notes: data.notes,
+            },
+        })
+    }
+
+    return { success: true, id: clientProduct.id }
+}
+
+export async function createClientProductPlugin(data: {
+    clientProductId: string
+    productPluginId: string
+    priceMonthly?: number
+    priceQuarterly?: number
+    priceYearly?: number
+}) {
+    await getSession()
+    
+    const clientProductPlugin = await prisma.clientProductPlugin.create({
+        data: {
+            clientProductId: data.clientProductId,
+            productPluginId: data.productPluginId,
+            priceMonthly: data.priceMonthly,
+            priceQuarterly: data.priceQuarterly,
+            priceYearly: data.priceYearly,
+        },
+    })
+
+    return { success: true, id: clientProductPlugin.id }
+}
+
+export async function deleteClientProductPlugin(clientProductId: string, productPluginId: string) {
+    await getSession()
+    
+    await prisma.clientProductPlugin.deleteMany({
+        where: {
+            clientProductId,
+            productPluginId,
+        },
+    })
+
     return { success: true }
 }
