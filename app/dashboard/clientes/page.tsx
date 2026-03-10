@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getClients, createClient, addClientContact } from "@/app/actions/clients"
 import { getProductOptions, createClientProductSerial } from "@/app/actions/products"
 import { getContabilityOptions } from "@/app/actions/contability"
+import { lookupCnpj } from "@/app/actions/cnpj"
 import ClientCard from "../_components/clientCard"
 import type { ClientData } from "../_components/clientCard"
 import { GlobalScreenLoader } from "@/app/components/global-screen-loader"
@@ -17,6 +18,7 @@ import { maskCPF, maskCNPJ, maskPhone, maskCEP, maskContactTime } from "@/app/ut
 import { uploadFile } from "@/app/utils/upload"
 import { CONTACT_ROLES, CERTIFICATE_TYPES } from "@/app/constants/options"
 import { ImagePositioner } from "../_components/ImagePositioner"
+import { getEntityDisplayName } from "@/app/utils/entity-names"
 import {
     Search,
     Filter,
@@ -85,7 +87,7 @@ function isSerialExpiring45d(client: any) {
 }
 
 const INITIAL_FORM = {
-    name: "", type: "PJ" as "PF" | "PJ", cnpj: "", cpf: "", ie: "", state: "",
+    name: "", razaoSocial: "", nomeFantasia: "", type: "PJ" as "PF" | "PJ", cnpj: "", cpf: "", ie: "", state: "",
     codigoCSC: "", tokenCSC: "",
     cnae: "", businessSector: "",
     phone: "", mobile: "", email: "", aditionalInfo: "",
@@ -155,6 +157,7 @@ export default function Clientes() {
     const [photoPos, setPhotoPos] = useState("50% 50%")
     const [uploading, setUploading] = useState(false)
     const [cepLoading, setCepLoading] = useState(false)
+    const [cnpjLoading, setCnpjLoading] = useState(false)
     const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
     const [selectedContabilityIds, setSelectedContabilityIds] = useState<string[]>([])
     const [productSerials, setProductSerials] = useState<Record<string, { serial: string; expiresAt: string }>>({})
@@ -211,7 +214,14 @@ export default function Clientes() {
                 return [
                     {
                         id: result.id || "",
-                        name: variables.name,
+                        name: getEntityDisplayName({
+                            type: variables.type,
+                            name: variables.name,
+                            razaoSocial: variables.razaoSocial,
+                            nomeFantasia: variables.nomeFantasia,
+                        }),
+                        razaoSocial: variables.razaoSocial || null,
+                        nomeFantasia: variables.nomeFantasia || null,
                         cnpj: variables.cnpj,
                         cpf: variables.cpf,
                         type: variables.type,
@@ -240,6 +250,38 @@ export default function Clientes() {
         },
         onError: (err: Error) => toast.error(err.message),
     })
+
+    const applyCnpjDataToForm = async () => {
+        if (form.type !== "PJ") return
+
+        try {
+            setCnpjLoading(true)
+            const data = await lookupCnpj(form.cnpj)
+            setForm((current) => ({
+                ...current,
+                cnpj: maskCNPJ(data.cnpj || current.cnpj),
+                razaoSocial: data.razaoSocial || current.razaoSocial,
+                nomeFantasia: data.nomeFantasia || current.nomeFantasia,
+                name: data.nomeFantasia || data.razaoSocial || current.name,
+                ie: data.ie || current.ie,
+                cnae: data.cnae || current.cnae,
+                businessSector: data.mainActivity || current.businessSector,
+                phone: data.phone ? maskPhone(data.phone) : current.phone,
+                email: data.email || current.email,
+                address: data.address || current.address,
+                houseNumber: data.houseNumber || current.houseNumber,
+                neighborhood: data.neighborhood || current.neighborhood,
+                zipCode: data.zipCode ? maskCEP(data.zipCode) : current.zipCode,
+                city: data.city || current.city,
+                state: data.state || current.state,
+            }))
+            toast.success("Dados do CNPJ carregados com sucesso!")
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Não foi possível consultar o CNPJ")
+        } finally {
+            setCnpjLoading(false)
+        }
+    }
 
     const handleSort = (key: SortKey) => {
         if (sortKey === key) {
@@ -284,7 +326,8 @@ export default function Clientes() {
     }
 
     const handleSubmit = async () => {
-        if (!form.name.trim()) return toast.error("Nome é obrigatório")
+        if (form.type === "PF" && !form.name.trim()) return toast.error("Nome é obrigatório")
+        if (form.type === "PJ" && !form.razaoSocial.trim()) return toast.error("Razão social é obrigatória")
         if (!form.city.trim()) return toast.error("Cidade é obrigatória")
         
         // Validar seriais para produtos que exigem
@@ -309,7 +352,10 @@ export default function Clientes() {
                 photoUrl = res.url
             }
             const createdClient = await createMutation.mutateAsync({
-                name: form.name, type: form.type,
+                name: form.type === "PJ" ? (form.nomeFantasia || form.razaoSocial || form.name) : form.name,
+                razaoSocial: form.type === "PJ" ? form.razaoSocial || undefined : undefined,
+                nomeFantasia: form.type === "PJ" ? form.nomeFantasia || undefined : undefined,
+                type: form.type,
                 cnpj: form.type === "PJ" ? form.cnpj : undefined,
                 cpf: form.type === "PF" ? form.cpf : undefined,
                 ie: form.ie || undefined,
@@ -481,9 +527,9 @@ export default function Clientes() {
     }
 
     return (
-        <div className="flex h-full bg-slate-50">
+        <div className="flex h-full bg-slate-50 overflow-hidden">
             {/* Left Filter Panel */}
-            <div className="w-60 min-w-60 bg-white h-full flex flex-col px-4 pt-6 border-r border-slate-200">
+            <div className="w-60 min-w-60 bg-white h-full flex flex-col px-4 pt-6 border-r border-slate-200 overflow-y-auto">
                 {/* Header */}
                 <div className="mb-6">
                     <h1 className="text-lg font-bold text-slate-900">Clientes</h1>
@@ -685,23 +731,43 @@ export default function Clientes() {
 
                         {/* Dados básicos */}
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Dados do Cliente</p>
-                        <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome / Razão social *</label>
-                            <Input placeholder="Ex: Empresa ABC Ltda" className="h-9 rounded-lg text-sm" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-                        </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo</label>
-                                <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.type} onChange={e => setForm({...form, type: e.target.value as "PF"|"PJ"})}>
+                                <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.type} onChange={e => setForm({...form, type: e.target.value as "PF"|"PJ", name: "", razaoSocial: "", nomeFantasia: "", cnpj: "", cpf: "", ie: ""})}>
                                     <option value="PJ">Pessoa Jurídica</option>
                                     <option value="PF">Pessoa Física</option>
                                 </select>
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">{form.type === "PJ" ? "CNPJ" : "CPF"}</label>
-                                <Input placeholder={form.type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"} className="h-9 rounded-lg text-sm" value={form.type === "PJ" ? form.cnpj : form.cpf} onChange={e => setForm({...form, [form.type === "PJ" ? "cnpj" : "cpf"]: form.type === "PJ" ? maskCNPJ(e.target.value) : maskCPF(e.target.value)})} />
+                                <div className="flex gap-2">
+                                    <Input placeholder={form.type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"} className="h-9 rounded-lg text-sm" value={form.type === "PJ" ? form.cnpj : form.cpf} onChange={e => setForm({...form, [form.type === "PJ" ? "cnpj" : "cpf"]: form.type === "PJ" ? maskCNPJ(e.target.value) : maskCPF(e.target.value)})} />
+                                    {form.type === "PJ" && (
+                                        <Button type="button" variant="outline" className="h-9 px-3" onClick={applyCnpjDataToForm} disabled={form.cnpj.replace(/\D/g, "").length !== 14 || cnpjLoading}>
+                                            {cnpjLoading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
                         </div>
+                        {form.type === "PF" ? (
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome *</label>
+                                <Input placeholder="Ex: João da Silva" className="h-9 rounded-lg text-sm" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+                            </div>
+                        ) : (
+                            <>
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Razão social *</label>
+                                    <Input placeholder="Ex: Empresa ABC Ltda" className="h-9 rounded-lg text-sm" value={form.razaoSocial} onChange={e => setForm({...form, razaoSocial: e.target.value, name: form.nomeFantasia || e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome fantasia</label>
+                                    <Input placeholder="Ex: ABC Sistemas" className="h-9 rounded-lg text-sm" value={form.nomeFantasia} onChange={e => setForm({...form, nomeFantasia: e.target.value, name: e.target.value || form.razaoSocial})} />
+                                </div>
+                            </>
+                        )}
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">IE</label>
@@ -1144,9 +1210,9 @@ export default function Clientes() {
                         {/* Contabilidades (opcional) */}
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Contabilidades <span className="normal-case font-normal">(opcional)</span></p>
                         <MultiSelect
-                            options={(allContabilities as {id: string; name: string | null; cnpj: string | null; cpf: string | null; clientNames: string}[]).map(c => ({
+                            options={(allContabilities as {id: string; name: string | null; cnpj: string | null; cpf: string | null}[]).map(c => ({
                                 value: c.id,
-                                label: c.name || c.clientNames,
+                                label: c.name || c.cnpj || c.cpf || "Contabilidade",
                                 subtitle: c.cnpj || c.cpf || undefined
                             }))}
                             value={selectedContabilityIds}

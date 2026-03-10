@@ -7,7 +7,7 @@ import { GlobalScreenLoader } from "@/app/components/global-screen-loader"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
-import { Search, Package, Plus, Loader2, Pencil, Trash2, MoreHorizontal, Key, ChevronUp, ChevronDown, ArrowUp, ArrowDown, CheckCircle, XCircle, PauseCircle, Star } from "lucide-react"
+import { Search, Package, Plus, Loader2, Pencil, Trash2, MoreHorizontal, Key, ChevronUp, ChevronDown, ArrowUp, ArrowDown, CheckCircle, XCircle, PauseCircle, Star, Plug, Settings2, Link2 } from "lucide-react"
 import { toast } from "react-toastify"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 
@@ -40,6 +40,16 @@ interface ProductData {
     priceYearly: number | null
     hasSerialControl: boolean
     clientId: string | null
+    clientUsageCount?: number
+    installationTypesInUse?: string[]
+    plugins?: Array<{
+        id: string
+        name: string
+        status: string
+        priceMonthly: number | null
+        priceQuarterly: number | null
+        priceYearly: number | null
+    }>
     createdAt: string
 }
 
@@ -47,6 +57,7 @@ const INITIAL_FORM = {
     name: "", description: "", category: "ERP",
     status: "ATIVO", priceMonthly: "", priceQuarterly: "", priceYearly: "",
     hasSerialControl: false,
+    plugins: [{ name: "", status: "ATIVO", priceMonthly: "", priceQuarterly: "", priceYearly: "" }],
 }
 
 const statusTag: Record<string, string> = {
@@ -57,6 +68,7 @@ const statusTag: Record<string, string> = {
 
 const categoryTag: Record<string, string> = {
     ERP: "bg-sky-500",
+    Serviço: "bg-amber-500",
     "Módulo": "bg-violet-500",
     Analytics: "bg-cyan-500",
     "Integração": "bg-emerald-500",
@@ -131,6 +143,52 @@ export default function ProdutosPage() {
         onError: (err: Error) => toast.error(err.message),
     })
 
+    const addPluginRow = (mode: "create" | "edit") => {
+        const emptyPlugin = { name: "", status: "ATIVO", priceMonthly: "", priceQuarterly: "", priceYearly: "" }
+        if (mode === "create") {
+            setForm((current) => ({ ...current, plugins: [...current.plugins, emptyPlugin] }))
+            return
+        }
+        setEditForm((current) => ({ ...current, plugins: [...current.plugins, emptyPlugin] }))
+    }
+
+    const removePluginRow = (mode: "create" | "edit", index: number) => {
+        if (mode === "create") {
+            setForm((current) => ({
+                ...current,
+                plugins: current.plugins.filter((_, currentIndex) => currentIndex !== index),
+            }))
+            return
+        }
+        setEditForm((current) => ({
+            ...current,
+            plugins: current.plugins.filter((_, currentIndex) => currentIndex !== index),
+        }))
+    }
+
+    const updatePluginRow = (
+        mode: "create" | "edit",
+        index: number,
+        field: "name" | "status" | "priceMonthly" | "priceQuarterly" | "priceYearly",
+        value: string
+    ) => {
+        if (mode === "create") {
+            setForm((current) => ({
+                ...current,
+                plugins: current.plugins.map((plugin, currentIndex) =>
+                    currentIndex === index ? { ...plugin, [field]: value } : plugin
+                ),
+            }))
+            return
+        }
+        setEditForm((current) => ({
+            ...current,
+            plugins: current.plugins.map((plugin, currentIndex) =>
+                currentIndex === index ? { ...plugin, [field]: value } : plugin
+            ),
+        }))
+    }
+
     const handleSubmit = () => {
         if (!form.name.trim()) return toast.error("Nome é obrigatório")
         createMutation.mutate({
@@ -142,6 +200,15 @@ export default function ProdutosPage() {
             priceQuarterly: form.priceQuarterly ? parseFloat(form.priceQuarterly) : undefined,
             priceYearly: form.priceYearly ? parseFloat(form.priceYearly) : undefined,
             hasSerialControl: form.hasSerialControl,
+            plugins: form.plugins
+                .filter((plugin) => plugin.name.trim())
+                .map((plugin) => ({
+                    name: plugin.name.trim(),
+                    status: plugin.status,
+                    priceMonthly: plugin.priceMonthly ? parseFloat(plugin.priceMonthly) : undefined,
+                    priceQuarterly: plugin.priceQuarterly ? parseFloat(plugin.priceQuarterly) : undefined,
+                    priceYearly: plugin.priceYearly ? parseFloat(plugin.priceYearly) : undefined,
+                })),
         })
     }
 
@@ -159,6 +226,15 @@ export default function ProdutosPage() {
                 priceQuarterly: editForm.priceQuarterly ? parseFloat(editForm.priceQuarterly) : null,
                 priceYearly: editForm.priceYearly ? parseFloat(editForm.priceYearly) : null,
                 hasSerialControl: editForm.hasSerialControl,
+                plugins: editForm.plugins
+                    .filter((plugin) => plugin.name.trim())
+                    .map((plugin) => ({
+                        name: plugin.name.trim(),
+                        status: plugin.status,
+                        priceMonthly: plugin.priceMonthly ? parseFloat(plugin.priceMonthly) : null,
+                        priceQuarterly: plugin.priceQuarterly ? parseFloat(plugin.priceQuarterly) : null,
+                        priceYearly: plugin.priceYearly ? parseFloat(plugin.priceYearly) : null,
+                    })),
             },
         })
     }
@@ -174,6 +250,15 @@ export default function ProdutosPage() {
             priceQuarterly: product.priceQuarterly?.toString() || "",
             priceYearly: product.priceYearly?.toString() || "",
             hasSerialControl: product.hasSerialControl,
+            plugins: product.plugins?.length
+                ? product.plugins.map((plugin) => ({
+                    name: plugin.name,
+                    status: plugin.status,
+                    priceMonthly: plugin.priceMonthly?.toString() || "",
+                    priceQuarterly: plugin.priceQuarterly?.toString() || "",
+                    priceYearly: plugin.priceYearly?.toString() || "",
+                }))
+                : [{ name: "", status: "ATIVO", priceMonthly: "", priceQuarterly: "", priceYearly: "" }],
         })
         setEditDrawerOpen(true)
     }
@@ -239,9 +324,9 @@ export default function ProdutosPage() {
     }
 
     return (
-        <div className="flex h-full bg-slate-50">
+        <div className="flex h-full bg-slate-50 overflow-hidden">
             {/* Left Filter Panel */}
-            <div className="w-60 min-w-60 bg-white h-full flex flex-col px-4 pt-6 border-r border-slate-200">
+            <div className="w-60 min-w-60 bg-white h-full flex flex-col px-4 pt-6 border-r border-slate-200 overflow-y-auto">
                 {/* Header */}
                 <div className="mb-6">
                     <h1 className="text-lg font-bold text-slate-900">Produtos</h1>
@@ -392,6 +477,23 @@ export default function ProdutosPage() {
                                             )}
                                         </div>
                                         {product.description && <p className="text-xs text-slate-400 truncate mt-0.5">{product.description}</p>}
+                                        <div className="mt-1 flex flex-wrap gap-1.5">
+                                            {!!product.clientUsageCount && (
+                                                <span className="inline-flex items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700">
+                                                    <Link2 size={10} /> {product.clientUsageCount} cliente{product.clientUsageCount > 1 ? "s" : ""}
+                                                </span>
+                                            )}
+                                            {!!product.installationTypesInUse?.length && (
+                                                <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                                                    <Settings2 size={10} /> {product.installationTypesInUse.join(", ")}
+                                                </span>
+                                            )}
+                                            {!!product.plugins?.length && (
+                                                <span className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700">
+                                                    <Plug size={10} /> {product.plugins.length} plugin{product.plugins.length > 1 ? "s" : ""}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -472,6 +574,7 @@ export default function ProdutosPage() {
                             <label className="text-xs font-medium text-gray-500 mb-1.5 block">Categoria</label>
                             <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
                                 <option value="ERP">ERP</option>
+                                <option value="Serviço">Serviço</option>
                                 <option value="Módulo">Módulo</option>
                                 <option value="Analytics">Analytics</option>
                                 <option value="Integração">Integração</option>
@@ -512,6 +615,39 @@ export default function ProdutosPage() {
                                 Exige controle de seriais
                             </label>
                         </div>
+                        <div className="space-y-3 rounded-xl border border-slate-200 p-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-900">Plugins base do produto</p>
+                                    <p className="text-xs text-slate-500">Esses plugins ficam disponíveis para contratação quando o produto for vinculado a clientes.</p>
+                                </div>
+                                <Button type="button" variant="outline" className="h-8 px-3 text-xs" onClick={() => addPluginRow("create")}>
+                                    <Plus size={12} className="mr-1" /> Plugin
+                                </Button>
+                            </div>
+                            <div className="space-y-3">
+                                {form.plugins.map((plugin, index) => (
+                                    <div key={`create-plugin-${index}`} className="rounded-lg border border-slate-200 p-3 space-y-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <Input placeholder="Nome do plugin" className="h-9 text-sm" value={plugin.name} onChange={(e) => updatePluginRow("create", index, "name", e.target.value)} />
+                                            <Button type="button" variant="ghost" className="h-9 px-2 text-slate-500" onClick={() => removePluginRow("create", index)} disabled={form.plugins.length === 1}>
+                                                <Trash2 size={14} />
+                                            </Button>
+                                        </div>
+                                        <div className="grid grid-cols-4 gap-2">
+                                            <select className="h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 bg-white" value={plugin.status} onChange={(e) => updatePluginRow("create", index, "status", e.target.value)}>
+                                                <option value="ATIVO">Ativo</option>
+                                                <option value="INATIVO">Inativo</option>
+                                                <option value="SUSPENSO">Suspenso</option>
+                                            </select>
+                                            <Input placeholder="Mensal" type="number" className="h-9 text-sm" value={plugin.priceMonthly} onChange={(e) => updatePluginRow("create", index, "priceMonthly", e.target.value)} />
+                                            <Input placeholder="Trim." type="number" className="h-9 text-sm" value={plugin.priceQuarterly} onChange={(e) => updatePluginRow("create", index, "priceQuarterly", e.target.value)} />
+                                            <Input placeholder="Anual" type="number" className="h-9 text-sm" value={plugin.priceYearly} onChange={(e) => updatePluginRow("create", index, "priceYearly", e.target.value)} />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     </div>
                     <SheetFooter className="px-6 py-4 border-t border-gray-100">
                         <div className="flex gap-2 w-full">
@@ -545,6 +681,7 @@ export default function ProdutosPage() {
                             <label className="text-xs font-medium text-gray-500 mb-1.5 block">Categoria</label>
                             <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={editForm.category} onChange={e => setEditForm({...editForm, category: e.target.value})}>
                                 <option value="ERP">ERP</option>
+                                <option value="Serviço">Serviço</option>
                                 <option value="Módulo">Módulo</option>
                                 <option value="Analytics">Analytics</option>
                                 <option value="Integração">Integração</option>
@@ -579,11 +716,56 @@ export default function ProdutosPage() {
                                 id="editHasSerialControl"
                                 checked={editForm.hasSerialControl}
                                 onChange={e => setEditForm({...editForm, hasSerialControl: e.target.checked})}
+                                disabled={(selectedProduct?.clientUsageCount || 0) > 0 && selectedProduct?.hasSerialControl}
                                 className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                             />
                             <label htmlFor="editHasSerialControl" className="text-sm font-medium text-gray-700">
                                 Exige controle de seriais
                             </label>
+                        </div>
+                        {(selectedProduct?.clientUsageCount || 0) > 0 && selectedProduct?.hasSerialControl && (
+                            <p className="text-xs text-amber-600 -mt-1">
+                                Este produto já possui clientes vinculados. Por segurança, o controle de serial não pode ser desativado.
+                            </p>
+                        )}
+                        {!!selectedProduct?.installationTypesInUse?.length && (
+                            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                <p className="text-xs font-semibold text-slate-700">Modos de instalação em uso</p>
+                                <p className="mt-1 text-xs text-slate-500">{selectedProduct.installationTypesInUse.join(", ")}</p>
+                            </div>
+                        )}
+                        <div className="space-y-3 rounded-xl border border-slate-200 p-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-900">Plugins base do produto</p>
+                                    <p className="text-xs text-slate-500">Atualize os plugins disponíveis para novos vínculos deste produto.</p>
+                                </div>
+                                <Button type="button" variant="outline" className="h-8 px-3 text-xs" onClick={() => addPluginRow("edit")}>
+                                    <Plus size={12} className="mr-1" /> Plugin
+                                </Button>
+                            </div>
+                            <div className="space-y-3">
+                                {editForm.plugins.map((plugin, index) => (
+                                    <div key={`edit-plugin-${index}`} className="rounded-lg border border-slate-200 p-3 space-y-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <Input placeholder="Nome do plugin" className="h-9 text-sm" value={plugin.name} onChange={(e) => updatePluginRow("edit", index, "name", e.target.value)} />
+                                            <Button type="button" variant="ghost" className="h-9 px-2 text-slate-500" onClick={() => removePluginRow("edit", index)} disabled={editForm.plugins.length === 1}>
+                                                <Trash2 size={14} />
+                                            </Button>
+                                        </div>
+                                        <div className="grid grid-cols-4 gap-2">
+                                            <select className="h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 bg-white" value={plugin.status} onChange={(e) => updatePluginRow("edit", index, "status", e.target.value)}>
+                                                <option value="ATIVO">Ativo</option>
+                                                <option value="INATIVO">Inativo</option>
+                                                <option value="SUSPENSO">Suspenso</option>
+                                            </select>
+                                            <Input placeholder="Mensal" type="number" className="h-9 text-sm" value={plugin.priceMonthly} onChange={(e) => updatePluginRow("edit", index, "priceMonthly", e.target.value)} />
+                                            <Input placeholder="Trim." type="number" className="h-9 text-sm" value={plugin.priceQuarterly} onChange={(e) => updatePluginRow("edit", index, "priceQuarterly", e.target.value)} />
+                                            <Input placeholder="Anual" type="number" className="h-9 text-sm" value={plugin.priceYearly} onChange={(e) => updatePluginRow("edit", index, "priceYearly", e.target.value)} />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
                     <SheetFooter className="px-6 py-4 border-t border-gray-100">

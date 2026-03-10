@@ -7,6 +7,7 @@ import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getContabilityById, updateContability, attachClientToContability, deleteContability, addContabilityContact, deleteContabilityContact } from "@/app/actions/contability"
 import { getClientSearchOptions } from "@/app/actions/clients"
+import { lookupCnpj } from "@/app/actions/cnpj"
 import { GlobalScreenLoader } from "@/app/components/global-screen-loader"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,6 +16,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { maskCPF, maskCNPJ, maskPhone, maskCEP, maskContactTime } from "@/app/utils/masks"
 import { toast } from "react-toastify"
 import { ArrowLeft, Mail, MessageCircle, Users, Check, Copy, Pencil, Save, X, Loader2, Phone, Plus, Search, Trash2, AlertTriangle, Clock } from "lucide-react"
+import { getEntitySecondaryName } from "@/app/utils/entity-names"
 
 const STATES = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"]
 
@@ -26,6 +28,8 @@ type SearchClient = ClientSearchResults["items"][number]
 
 const INITIAL_FORM = {
     name: "",
+    razaoSocial: "",
+    nomeFantasia: "",
     type: "PJ" as "PF" | "PJ",
     cnpj: "",
     cpf: "",
@@ -58,6 +62,7 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
     const [editing, setEditing] = useState(false)
     const [copied, setCopied] = useState<string | null>(null)
     const [cepLoading, setCepLoading] = useState(false)
+    const [cnpjLoading, setCnpjLoading] = useState(false)
     const [showLinkClientModal, setShowLinkClientModal] = useState(false)
     const [showDeleteModal, setShowDeleteModal] = useState(false)
     const [showContactModal, setShowContactModal] = useState(false)
@@ -163,7 +168,9 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
         if (!firm) return
         setEditForm({
             name: firm.name || "",
-            type: firm.type,
+            razaoSocial: firm.razaoSocial || "",
+            nomeFantasia: firm.nomeFantasia || firm.name || "",
+            type: firm.type as "PF" | "PJ",
             cnpj: firm.cnpj || "",
             cpf: firm.cpf || "",
             ie: firm.ie || "",
@@ -210,8 +217,13 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
     }
 
     const handleSaveEdit = () => {
+        if (editForm.type === "PF" && !editForm.name.trim()) return toast.error("Nome é obrigatório")
+        if (editForm.type === "PJ" && !editForm.razaoSocial.trim()) return toast.error("Razão social é obrigatória")
+
         updateMutation.mutate({
-            name: editForm.name || undefined,
+            name: editForm.type === "PJ" ? (editForm.nomeFantasia || editForm.razaoSocial || editForm.name) : editForm.name || undefined,
+            razaoSocial: editForm.type === "PJ" ? editForm.razaoSocial || undefined : null,
+            nomeFantasia: editForm.type === "PJ" ? editForm.nomeFantasia || undefined : null,
             type: editForm.type || undefined,
             cnpj: editForm.cnpj || undefined,
             cpf: editForm.cpf || undefined,
@@ -226,6 +238,36 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
             houseNumber: editForm.houseNumber || undefined,
             complement: editForm.complement || undefined,
         })
+    }
+
+    const applyCnpjDataToEditForm = async () => {
+        if (editForm.type !== "PJ") return
+
+        try {
+            setCnpjLoading(true)
+            const data = await lookupCnpj(editForm.cnpj)
+            setEditForm((current) => ({
+                ...current,
+                cnpj: maskCNPJ(data.cnpj || current.cnpj),
+                razaoSocial: data.razaoSocial || current.razaoSocial,
+                nomeFantasia: data.nomeFantasia || current.nomeFantasia,
+                name: data.nomeFantasia || data.razaoSocial || current.name,
+                ie: data.ie || current.ie,
+                phone: data.phone ? maskPhone(data.phone) : current.phone,
+                email: data.email || current.email,
+                address: data.address || current.address,
+                houseNumber: data.houseNumber || current.houseNumber,
+                neighborhood: data.neighborhood || current.neighborhood,
+                zipCode: data.zipCode ? maskCEP(data.zipCode) : current.zipCode,
+                city: data.city || current.city,
+                state: data.state || current.state,
+            }))
+            toast.success("Dados do CNPJ carregados com sucesso!")
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Não foi possível consultar o CNPJ")
+        } finally {
+            setCnpjLoading(false)
+        }
     }
 
     const availableClients = (clientSearchResults?.items || []).filter((client: SearchClient) => !firm?.clients.some((linkedClient: LinkedClient) => linkedClient.id === client.id))
@@ -247,6 +289,12 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
     }
 
     const firmName = firm.name || "Contabilidade"
+    const secondaryFirmName = getEntitySecondaryName({
+        type: firm.type as "PF" | "PJ",
+        name: firm.name,
+        razaoSocial: firm.razaoSocial,
+        nomeFantasia: firm.nomeFantasia,
+    })
     const doc = firm.type === "PF" ? (firm.cpf || "—") : (firm.cnpj || "—")
     const phone = firm.phone || "—"
     const email = firm.email || "—"
@@ -273,6 +321,9 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                                 <div className="flex items-center gap-2 mb-1.5">
                                     <h1 className="text-2xl font-bold text-slate-900">{firmName}</h1>
                                 </div>
+                                {secondaryFirmName && (
+                                    <p className="text-sm text-slate-500 mb-1.5">{secondaryFirmName}</p>
+                                )}
                                 <div className="flex items-center gap-2 flex-wrap">
                                     <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs font-medium">
                                         {firm.type === "PF" ? "Pessoa Física" : "Pessoa Jurídica"}
@@ -318,21 +369,43 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
 
                         {editing ? (
                             <div className="p-5 space-y-4">
-                                <div>
-                                    <label className="text-xs text-slate-600 mb-1.5 block font-medium">Nome</label>
-                                    <Input className="h-9 text-sm" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} placeholder="Nome da contabilidade" />
-                                </div>
+                                {editForm.type === "PF" ? (
+                                    <div>
+                                        <label className="text-xs text-slate-600 mb-1.5 block font-medium">Nome</label>
+                                        <Input className="h-9 text-sm" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} placeholder="Nome da contabilidade" />
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="text-xs text-slate-600 mb-1.5 block font-medium">Razão social</label>
+                                            <Input className="h-9 text-sm" value={editForm.razaoSocial} onChange={e => setEditForm({ ...editForm, razaoSocial: e.target.value, name: editForm.nomeFantasia || e.target.value })} placeholder="Razão social" />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-slate-600 mb-1.5 block font-medium">Nome fantasia</label>
+                                            <Input className="h-9 text-sm" value={editForm.nomeFantasia} onChange={e => setEditForm({ ...editForm, nomeFantasia: e.target.value, name: e.target.value || editForm.razaoSocial })} placeholder="Nome fantasia" />
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="text-xs text-slate-600 mb-1.5 block font-medium">Tipo</label>
-                                        <select className="w-full h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 bg-white" value={editForm.type} onChange={e => setEditForm({ ...editForm, type: e.target.value as "PF" | "PJ", cnpj: "", cpf: "", ie: e.target.value === "PF" ? "" : editForm.ie })}>
+                                        <select className="w-full h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 bg-white" value={editForm.type} onChange={e => setEditForm({ ...editForm, type: e.target.value as "PF" | "PJ", name: "", razaoSocial: "", nomeFantasia: "", cnpj: "", cpf: "", ie: "" })}>
                                             <option value="PJ">Pessoa Jurídica</option>
                                             <option value="PF">Pessoa Física</option>
                                         </select>
                                     </div>
                                     <div>
                                         <label className="text-xs text-slate-600 mb-1.5 block font-medium">{editForm.type === "PF" ? "CPF" : "CNPJ"}</label>
-                                        <Input className="h-9 text-sm" value={editForm.type === "PF" ? editForm.cpf : editForm.cnpj} onChange={e => editForm.type === "PF" ? setEditForm({ ...editForm, cpf: maskCPF(e.target.value) }) : setEditForm({ ...editForm, cnpj: maskCNPJ(e.target.value) })} placeholder={editForm.type === "PF" ? "000.000.000-00" : "00.000.000/0000-00"} />
+                                        {editForm.type === "PF" ? (
+                                            <Input className="h-9 text-sm" value={editForm.cpf} onChange={e => setEditForm({ ...editForm, cpf: maskCPF(e.target.value) })} placeholder="000.000.000-00" />
+                                        ) : (
+                                            <div className="flex gap-2">
+                                                <Input className="h-9 text-sm" value={editForm.cnpj} onChange={e => setEditForm({ ...editForm, cnpj: maskCNPJ(e.target.value) })} placeholder="00.000.000/0000-00" />
+                                                <Button type="button" variant="outline" className="h-9 px-3 shrink-0" onClick={applyCnpjDataToEditForm} disabled={editForm.cnpj.replace(/\D/g, "").length !== 14 || cnpjLoading}>
+                                                    {cnpjLoading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                                                </Button>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
@@ -352,7 +425,14 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                             </div>
                         ) : (
                             <div className="p-5 grid grid-cols-2 gap-6">
-                                <Prop label="Nome" value={firmName} />
+                                {firm.type === "PJ" ? (
+                                    <>
+                                        <Prop label="Razão Social" value={firm.razaoSocial || "—"} />
+                                        <Prop label="Nome Fantasia" value={firm.nomeFantasia || "—"} />
+                                    </>
+                                ) : (
+                                    <Prop label="Nome" value={firmName} />
+                                )}
                                 <Prop label={firm.type === "PF" ? "CPF" : "CNPJ"} value={doc} />
                                 <Prop label="IE" value={firm.ie || "—"} />
                                 <Prop label="Telefone" value={phone} />

@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation"
 import { use } from "react"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getClientById, updateClient, toggleClientSupport, addClientContact, deleteClientContact, addClientAttachment, deleteClientAttachment, cancelContract } from "@/app/actions/clients"
+import { getClientById, updateClient, toggleClientSupport, addClientContact, updateClientContact, deleteClientContact, addClientAttachment, deleteClientAttachment, cancelContract } from "@/app/actions/clients"
 import { getContabilityOptions } from "@/app/actions/contability"
 import { getProductOptions, createClientProductSerial, getClientProductSerials } from "@/app/actions/products"
+import { lookupCnpj } from "@/app/actions/cnpj"
 import { maskCPF, maskCNPJ, maskPhone, maskCEP, maskContactTime } from "@/app/utils/masks"
 import { CONTACT_ROLES } from "@/app/constants/options"
 import { Button } from "@/components/ui/button"
@@ -49,6 +50,7 @@ import { uploadFile } from "@/app/utils/upload"
 import { toast } from "react-toastify"
 import TicketCreateDrawer from "@/app/dashboard/_components/ticket-create-drawer"
 import LocalFilePreviewList from "@/app/dashboard/_components/local-file-preview-list"
+import { getEntitySecondaryName } from "@/app/utils/entity-names"
 
 // Tipo explícito para contato com bestContactTime
 interface ContactWithTime {
@@ -67,6 +69,8 @@ interface ContactWithTime {
 interface ClientData {
     id: string
     name: string
+    razaoSocial?: string | null
+    nomeFantasia?: string | null
     cnpj?: string
     cpf?: string
     ie?: string
@@ -98,6 +102,36 @@ interface ClientData {
     } | null
     contacts: ContactWithTime[]
     tickets: any[]
+    clientProducts?: Array<{
+        id: string
+        installationType: string | null
+        priceMonthly: number | null
+        priceQuarterly: number | null
+        priceYearly: number | null
+        notes: string | null
+        product: {
+            id: string
+            name: string
+            hasSerialControl: boolean
+        }
+        serials: Array<{
+            id: string
+            serial: string
+            expiresAt: string | null
+        }>
+        plugins: Array<{
+            id: string
+            priceMonthly: number | null
+            priceQuarterly: number | null
+            priceYearly: number | null
+            notes: string | null
+            productPlugin: {
+                id: string
+                name: string
+                status: string | null
+            }
+        }>
+    }>
     createdAt: string
     updatedAt: string
 }
@@ -265,6 +299,34 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             })
             toast.success("Contato adicionado!")
             setShowContactModal(false)
+            setEditingContactId(null)
+            setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const updateContactMut = useMutation({
+        mutationFn: ({ contactId, data }: { contactId: string; data: { name: string; phone?: string; email?: string; role?: string; bestContactTime?: string } }) =>
+            updateClientContact(contactId, data),
+        onSuccess: (_result, variables) => {
+            queryClient.setQueryData(["client", id], (old: any) => {
+                if (!old) return old
+
+                return {
+                    ...old,
+                    contacts: old.contacts.map((contact: any) => contact.id === variables.contactId ? {
+                        ...contact,
+                        name: variables.data.name,
+                        phone: variables.data.phone ?? null,
+                        email: variables.data.email ?? null,
+                        role: variables.data.role ?? null,
+                        bestContactTime: variables.data.bestContactTime ?? null,
+                    } : contact),
+                }
+            })
+            toast.success("Contato atualizado!")
+            setShowContactModal(false)
+            setEditingContactId(null)
             setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
         },
         onError: (err: Error) => toast.error(err.message),
@@ -285,6 +347,24 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
         },
         onError: (err: Error) => toast.error(err.message),
     })
+
+    const openCreateContactModal = () => {
+        setEditingContactId(null)
+        setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
+        setShowContactModal(true)
+    }
+
+    const openEditContactModal = (contact: ContactWithTime) => {
+        setEditingContactId(contact.id)
+        setContactForm({
+            name: contact.name || "",
+            phone: contact.phone ? maskPhone(contact.phone) : "",
+            email: contact.email || "",
+            role: contact.role || "",
+            bestContactTime: contact.bestContactTime || "",
+        })
+        setShowContactModal(true)
+    }
 
     const addAttachMut = useMutation({
         mutationFn: (data: { url: string; fileName: string; fileType: string; fileSize: number }) => addClientAttachment(id, data),
@@ -393,8 +473,10 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     const [editForm, setEditForm] = useState<Record<string, string>>({})
     const [showContactModal, setShowContactModal] = useState(false)
     const [contactForm, setContactForm] = useState({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
+    const [editingContactId, setEditingContactId] = useState<string | null>(null)
     const [attachUploading, setAttachUploading] = useState(false)
     const [pendingAttachFiles, setPendingAttachFiles] = useState<File[]>([])
+    const [cnpjLoading, setCnpjLoading] = useState(false)
 
     // Estados para produtos na edição
     const [productSearch, setProductSearch] = useState("")
@@ -443,8 +525,10 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
         if (!client) return
         setEditForm({
             name: client.name || "",
-            cnpj: client.cnpj || "",
-            cpf: client.cpf || "",
+            razaoSocial: client.razaoSocial || "",
+            nomeFantasia: client.nomeFantasia || "",
+            cnpj: client.cnpj ? maskCNPJ(client.cnpj) : "",
+            cpf: client.cpf ? maskCPF(client.cpf) : "",
             ie: client.ie || "",
             state: client.state || "",
             codigoCSC: client.codigoCSC || "",
@@ -464,8 +548,8 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             complement: client.complement || "",
             aditionalInfo: client.aditionalInfo || "",
             ownerName: client.ownerName || "",
-            ownerCpf: client.ownerCpf || "",
-            ownerPhone: client.ownerPhone || "",
+            ownerCpf: client.ownerCpf ? maskCPF(client.ownerCpf) : "",
+            ownerPhone: client.ownerPhone ? maskPhone(client.ownerPhone) : "",
             ownerEmail: client.ownerEmail || "",
         })
         setSelectedContabilityId(client.contability?.id || "")
@@ -490,7 +574,9 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     }
 
     const handleSaveEdit = async () => {
-        if (!editForm.name?.trim()) return toast.error("Nome é obrigatório")
+        if (!client) return
+        if (client.type === "PF" && !editForm.name?.trim()) return toast.error("Nome é obrigatório")
+        if (client.type === "PJ" && !editForm.razaoSocial?.trim()) return toast.error("Razão social é obrigatória")
 
         // Validar produtos que exigem serial
         for (const productId of selectedProductIds) {
@@ -515,11 +601,13 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
         } else {
             // Salvar dados do cliente normally
             const data: Record<string, unknown> = {}
-            const fields = ["name", "cnpj", "cpf", "ie", "state", "codigoCSC", "tokenCSC", "cnae", "businessSector", "contractType", "contractCancelReason", "contractCancelDate", "certificateType", "address", "houseNumber", "neighborhood", "city", "zipCode", "complement", "aditionalInfo", "ownerName", "ownerCpf", "ownerPhone", "ownerEmail"]
+            const fields = ["name", "razaoSocial", "nomeFantasia", "cnpj", "cpf", "ie", "state", "codigoCSC", "tokenCSC", "cnae", "businessSector", "contractType", "contractCancelReason", "contractCancelDate", "certificateType", "address", "houseNumber", "neighborhood", "city", "zipCode", "complement", "aditionalInfo", "ownerName", "ownerCpf", "ownerPhone", "ownerEmail"]
             for (const f of fields) {
                 data[f] = editForm[f] || null
             }
-            data.name = editForm.name
+            data.name = client.type === "PJ" ? (editForm.nomeFantasia || editForm.razaoSocial || editForm.name) : editForm.name
+            data.razaoSocial = client.type === "PJ" ? (editForm.razaoSocial || null) : null
+            data.nomeFantasia = client.type === "PJ" ? (editForm.nomeFantasia || null) : null
             data.address = editForm.address || ""
             data.city = editForm.city || ""
             data.houseNumber = editForm.houseNumber || ""
@@ -539,6 +627,39 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             }
 
             updateMutation.mutate(data)
+        }
+    }
+
+    const applyCnpjDataToEditForm = async () => {
+        if (!client) return
+        if (client.type !== "PJ") return
+
+        try {
+            setCnpjLoading(true)
+            const data = await lookupCnpj(editForm.cnpj || "")
+            setEditForm((current) => ({
+                ...current,
+                cnpj: maskCNPJ(data.cnpj || current.cnpj || ""),
+                razaoSocial: data.razaoSocial || current.razaoSocial || "",
+                nomeFantasia: data.nomeFantasia || current.nomeFantasia || "",
+                name: data.nomeFantasia || data.razaoSocial || current.name || "",
+                ie: data.ie || current.ie || "",
+                cnae: data.cnae || current.cnae || "",
+                businessSector: data.mainActivity || current.businessSector || "",
+                ownerPhone: current.ownerPhone || (data.phone ? maskPhone(data.phone) : ""),
+                ownerEmail: current.ownerEmail || data.email || "",
+                address: data.address || current.address || "",
+                houseNumber: data.houseNumber || current.houseNumber || "",
+                neighborhood: data.neighborhood || current.neighborhood || "",
+                zipCode: data.zipCode ? maskCEP(data.zipCode) : (current.zipCode || ""),
+                city: data.city || current.city || "",
+                state: data.state || current.state || "",
+            }))
+            toast.success("Dados do CNPJ carregados com sucesso!")
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Não foi possível consultar o CNPJ")
+        } finally {
+            setCnpjLoading(false)
         }
     }
 
@@ -612,12 +733,19 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     }
 
     const doc = client.cnpj || client.cpf || "—"
-    const phone = client.ownerPhone || "—"
+    const maskedDoc = client.cnpj ? maskCNPJ(client.cnpj) : client.cpf ? maskCPF(client.cpf) : "—"
+    const phone = client.ownerPhone ? maskPhone(client.ownerPhone) : "—"
     const email = client.ownerEmail || "—"
     const certExpired = client.certificateExpiresDate ? new Date(client.certificateExpiresDate) < new Date() : false
     const hasOwner = !!(client.ownerName || client.ownerCpf || client.ownerPhone || client.ownerEmail)
     const hasCert = !!(client.certificateType || client.certificateExpiresDate)
     const contabilityLabel = client.contability?.name || client.contability?.cnpj || client.contability?.cpf || "Não vinculada"
+    const secondaryClientName = getEntitySecondaryName({
+        type: client.type as "PF" | "PJ",
+        name: client.name,
+        razaoSocial: client.razaoSocial,
+        nomeFantasia: client.nomeFantasia,
+    })
 
     return (
         <div className="h-full overflow-y-auto bg-slate-50">
@@ -643,8 +771,10 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                             <div>
                                 <div className="flex items-center gap-2 mb-1.5">
                                     <h1 className="text-2xl font-bold text-slate-900">{client.name}</h1>
-                                   
                                 </div>
+                                {secondaryClientName && (
+                                    <p className="text-sm text-slate-500 mb-1.5">{secondaryClientName}</p>
+                                )}
                                 <div className="flex items-center gap-2 flex-wrap">
                                     <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs font-medium">
                                         {client.type === "PF" ? "Pessoa Física" : "Pessoa Jurídica"}
@@ -704,17 +834,48 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
                         {editing ? (
                             <div className="p-5 space-y-4">
+                                {client.type === "PF" ? (
+                                    <div>
+                                        <label className="text-xs text-slate-600 mb-1.5 block font-medium">Nome</label>
+                                        <Input className="h-9 text-sm" value={editForm.name || ""} onChange={e => setEditForm({ ...editForm, name: e.target.value })} placeholder="Nome completo" />
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="text-xs text-slate-600 mb-1.5 block font-medium">Razão social</label>
+                                            <Input className="h-9 text-sm" value={editForm.razaoSocial || ""} onChange={e => setEditForm({ ...editForm, razaoSocial: e.target.value, name: editForm.nomeFantasia || e.target.value })} placeholder="Razão social da empresa" />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-slate-600 mb-1.5 block font-medium">Nome fantasia</label>
+                                            <Input className="h-9 text-sm" value={editForm.nomeFantasia || ""} onChange={e => setEditForm({ ...editForm, nomeFantasia: e.target.value, name: e.target.value || editForm.razaoSocial || "" })} placeholder="Nome fantasia" />
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="text-xs text-slate-600 mb-1.5 block font-medium">
                                             {client.type === "PF" ? "CPF" : "CNPJ"}
                                         </label>
-                                        <Input
-                                            className="h-9 text-sm"
-                                            value={client.type === "PF" ? (editForm.cpf || "") : (editForm.cnpj || "")}
-                                            onChange={e => setEditForm({ ...editForm, [client.type === "PF" ? "cpf" : "cnpj"]: e.target.value })}
-                                            placeholder={client.type === "PF" ? "000.000.000-00" : "00.000.000/0000-00"}
-                                        />
+                                        {client.type === "PF" ? (
+                                            <Input
+                                                className="h-9 text-sm"
+                                                value={editForm.cpf || ""}
+                                                onChange={e => setEditForm({ ...editForm, cpf: maskCPF(e.target.value) })}
+                                                placeholder="000.000.000-00"
+                                            />
+                                        ) : (
+                                            <div className="flex gap-2">
+                                                <Input
+                                                    className="h-9 text-sm"
+                                                    value={editForm.cnpj || ""}
+                                                    onChange={e => setEditForm({ ...editForm, cnpj: maskCNPJ(e.target.value) })}
+                                                    placeholder="00.000.000/0000-00"
+                                                />
+                                                <Button type="button" variant="outline" className="h-9 px-3 shrink-0" onClick={applyCnpjDataToEditForm} disabled={(editForm.cnpj || "").replace(/\D/g, "").length !== 14 || cnpjLoading}>
+                                                    {cnpjLoading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                                                </Button>
+                                            </div>
+                                        )}
                                     </div>
                                     <div>
                                         <label className="text-xs text-slate-600 mb-1.5 block font-medium">IE</label>
@@ -884,9 +1045,21 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                             </div>
                         ) : (
                             <div className="divide-y divide-slate-100">
+                                {client.type === "PJ" && (
+                                    <>
+                                        <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
+                                            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">Razão Social</span>
+                                            <span className="text-sm text-slate-900">{client.razaoSocial || "—"}</span>
+                                        </div>
+                                        <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
+                                            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">Nome Fantasia</span>
+                                            <span className="text-sm text-slate-900">{client.nomeFantasia || "—"}</span>
+                                        </div>
+                                    </>
+                                )}
                                 <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
                                     <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">{client.type === "PF" ? "CPF" : "CNPJ"}</span>
-                                    <span className="text-sm text-slate-900">{doc}</span>
+                                    <span className="text-sm text-slate-900">{maskedDoc}</span>
                                 </div>
                                 {client.ie && (
                                     <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
@@ -958,9 +1131,8 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                         <span className="text-sm text-red-600">
                                             {(() => {
                                                 const date = new Date(client.contractCancelDate)
-                                                // Ajustar para garantir o dia correto no timezone local
                                                 const adjustedDate = new Date(date.getTime() + date.getTimezoneOffset() * 60000)
-                                                return adjustedDate.toLocaleDateString('pt-BR')
+                                                return adjustedDate.toLocaleDateString("pt-BR")
                                             })()}
                                         </span>
                                     </div>
@@ -1131,12 +1303,24 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                             <div className="divide-y divide-slate-100">
                                 <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
                                     <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">Contabilidade</span>
-                                    <span className="text-sm text-slate-900">{contabilityLabel}</span>
+                                    {client.contability?.id ? (
+                                        <Link href={`/dashboard/contabilidade/${client.contability.id}`} className="text-sm text-indigo-600 hover:text-indigo-700 hover:underline">
+                                            {contabilityLabel}
+                                        </Link>
+                                    ) : (
+                                        <span className="text-sm text-slate-900">{contabilityLabel}</span>
+                                    )}
                                 </div>
-                                {client.contability?.cnpj && (
+                                {(client.contability?.cnpj || client.contability?.cpf) && (
                                     <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
                                         <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">Documento</span>
-                                        <span className="text-sm text-slate-900">{client.contability.cnpj}</span>
+                                        <span className="text-sm text-slate-900">
+                                            {client.contability?.cnpj
+                                                ? maskCNPJ(client.contability.cnpj)
+                                                : client.contability?.cpf
+                                                    ? maskCPF(client.contability.cpf)
+                                                    : "—"}
+                                        </span>
                                     </div>
                                 )}
                             </div>
@@ -1191,7 +1375,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                 </div>
                                 <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
                                     <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">CEP</span>
-                                    <span className="text-sm text-slate-900">{client.zipCode}</span>
+                                    <span className="text-sm text-slate-900">{client.zipCode ? maskCEP(client.zipCode) : "—"}</span>
                                 </div>
                                 {client.complement && (
                                     <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
@@ -1244,7 +1428,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                     </div>
                                     <div>
                                         <label className="text-xs text-slate-600 mb-1.5 block font-medium">Telefone</label>
-                                        <Input className="h-9 text-sm" value={editForm.ownerPhone || ""} onChange={e => setEditForm({ ...editForm, ownerPhone: e.target.value })} />
+                                        <Input className="h-9 text-sm" placeholder="(00) 00000-0000" value={editForm.ownerPhone || ""} onChange={e => setEditForm({ ...editForm, ownerPhone: maskPhone(e.target.value) })} />
                                     </div>
                                     <div>
                                         <label className="text-xs text-slate-600 mb-1.5 block font-medium">Email</label>
@@ -1262,16 +1446,16 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                     {client.ownerCpf && (
                                         <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
                                             <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">CPF</span>
-                                            <span className="text-sm text-slate-900">{client.ownerCpf}</span>
+                                            <span className="text-sm text-slate-900">{maskCPF(client.ownerCpf)}</span>
                                         </div>
                                     )}
                                     {client.ownerPhone && (
                                         <div className="flex items-center py-3 px-5 hover:bg-slate-50/50 transition-colors">
                                             <span className="text-xs font-medium text-slate-500 uppercase tracking-wide w-40 shrink-0">Telefone</span>
                                             <div className="flex items-center gap-2">
-                                                <span className="text-sm text-slate-900">{client.ownerPhone}</span>
+                                                <span className="text-sm text-slate-900">{maskPhone(client.ownerPhone)}</span>
                                                 <button onClick={() => window.open(`https://wa.me/55${cleanPhone(client.ownerPhone!)}`, "_blank")} className="text-slate-400 hover:text-emerald-600 transition-colors cursor-pointer"><MessageCircle size={14} /></button>
-                                                <button onClick={() => handleCopy(client.ownerPhone!, "ownerPhone")} className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer">{copied === "ownerPhone" ? <Check size={14} className="text-emerald-500" /> : <Copy size={12} />}</button>
+                                                <button onClick={() => handleCopy(maskPhone(client.ownerPhone!), "ownerPhone")} className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer">{copied === "ownerPhone" ? <Check size={14} className="text-emerald-500" /> : <Copy size={12} />}</button>
                                             </div>
                                         </div>
                                     )}
@@ -1318,40 +1502,63 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                         </div>
                     )}
 
-                    {/* Seriais de Produtos */}
-                    {serials.length > 0 && (
+                    {/* Produtos Contratados */}
+                    {(client.clientProducts?.length || 0) > 0 && (
                         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
                             <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
                                 <h2 className="text-sm font-semibold text-slate-900">Produtos Contratados</h2>
-                                <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold">{serials.length}</span>
+                                <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold">{client.clientProducts?.length || 0}</span>
                             </div>
                             <div className="divide-y divide-slate-100">
-                                {serials.map((serial) => {
-                                    const isExpired = serial.expiresAt && new Date(serial.expiresAt) < new Date()
-                                    const isExpiring = serial.expiresAt && !isExpired && new Date(serial.expiresAt) < new Date(Date.now() + 45 * 24 * 60 * 60 * 1000)
+                                {client.clientProducts?.map((clientProduct) => {
+                                    const primarySerial = clientProduct.serials[0] || null
+                                    const isExpired = primarySerial?.expiresAt && new Date(primarySerial.expiresAt) < new Date()
+                                    const isExpiring = primarySerial?.expiresAt && !isExpired && new Date(primarySerial.expiresAt) < new Date(Date.now() + 45 * 24 * 60 * 60 * 1000)
 
                                     return (
-                                        <div key={serial.id} className="group/serial flex items-center justify-between py-3 px-5 hover:bg-slate-50/50 transition-colors">
+                                        <div key={clientProduct.id} className="group/serial flex items-center justify-between py-3 px-5 hover:bg-slate-50/50 transition-colors">
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-2 mb-1">
-                                                    <span className="text-sm font-medium text-slate-900">{serial.productName}</span>
+                                                    <span className="text-sm font-medium text-slate-900">{clientProduct.product.name}</span>
                                                     {isExpired && (
                                                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700">Expirado</span>
                                                     )}
                                                     {isExpiring && (
                                                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">Expirando</span>
                                                     )}
-                                                </div>
-                                                <div className="flex items-center gap-3 text-xs text-slate-600">
-                                                    <span className="font-mono">{serial.serial}</span>
-                                                    {serial.expiresAt && (
-                                                        <span>• Expira em {new Date(serial.expiresAt).toLocaleDateString('pt-BR')}</span>
+                                                    {clientProduct.installationType && (
+                                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700">
+                                                            {clientProduct.installationType}
+                                                        </span>
                                                     )}
                                                 </div>
+                                                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                                                    {primarySerial && (
+                                                        <>
+                                                            <span className="font-mono">{primarySerial.serial}</span>
+                                                            {primarySerial.expiresAt && (
+                                                                <span>• Expira em {new Date(primarySerial.expiresAt).toLocaleDateString('pt-BR')}</span>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                    {clientProduct.priceMonthly && <span>Mensal: {clientProduct.priceMonthly.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>}
+                                                    {clientProduct.priceQuarterly && <span>Trimestral: {clientProduct.priceQuarterly.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>}
+                                                    {clientProduct.priceYearly && <span>Anual: {clientProduct.priceYearly.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>}
+                                                </div>
+                                                {!!clientProduct.plugins.length && (
+                                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                                        {clientProduct.plugins.map((plugin) => (
+                                                            <span key={plugin.id} className="inline-flex items-center rounded bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">
+                                                                {plugin.productPlugin.name}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                               
                                             </div>
                                             <button
                                                 onClick={() => {
-                                                    if (confirm('Tem certeza que deseja excluir este serial?')) {
+                                                    if (primarySerial && confirm('Tem certeza que deseja excluir este serial?')) {
                                                         toast.info('Função de exclusão em desenvolvimento')
                                                     }
                                                 }}
@@ -1628,7 +1835,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                     <Users size={12} className="text-slate-600" />
                                     <p className="text-xs font-medium text-slate-600">Contatos ({client.contacts.length})</p>
                                 </div>
-                                <button onClick={() => setShowContactModal(true)} className="text-slate-400 hover:text-indigo-600 cursor-pointer" title="Adicionar contato">
+                                <button onClick={openCreateContactModal} className="text-slate-400 hover:text-indigo-600 cursor-pointer" title="Adicionar contato">
                                     <Plus size={12} />
                                 </button>
                             </div>
@@ -1645,15 +1852,16 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                                     <span className="text-xs font-semibold text-slate-900">{contact.name}</span>
                                                     <div className="flex items-center gap-1.5">
                                                         {contact.role && <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded capitalize">{contact.role}</span>}
+                                                        <button onClick={() => openEditContactModal(contact)} className="text-slate-300 hover:text-indigo-500 cursor-pointer" title="Editar contato"><Pencil size={10} /></button>
                                                         <button onClick={() => deleteContactMut.mutate(contact.id)} className="text-slate-300 hover:text-red-500 cursor-pointer" title="Remover contato"><Trash2 size={10} /></button>
                                                     </div>
                                                 </div>
                                                 {contact.phone && (
                                                     <div className="flex items-center gap-1.5 mb-0.5">
                                                         <Phone size={9} className="text-slate-300" />
-                                                        <span className="text-xs text-slate-600">{contact.phone}</span>
+                                                        <span className="text-xs text-slate-600">{maskPhone(contact.phone)}</span>
                                                         <button onClick={() => window.open(`https://wa.me/55${cleanPhone(contact.phone!)}`, "_blank")} className="text-slate-300 hover:text-emerald-500 cursor-pointer"><MessageCircle size={9} /></button>
-                                                        <button onClick={() => handleCopy(contact.phone!, `contact-${contact.id}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer">{copied === `contact-${contact.id}` ? <Check size={9} className="text-emerald-500" /> : <Copy size={9} />}</button>
+                                                        <button onClick={() => handleCopy(maskPhone(contact.phone!), `contact-${contact.id}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer">{copied === `contact-${contact.id}` ? <Check size={9} className="text-emerald-500" /> : <Copy size={9} />}</button>
                                                     </div>
                                                 )}
                                                 {contact.email && (
@@ -1685,8 +1893,8 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                 <div className="px-3 py-2">
                                     <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">{client.cnpj ? "CNPJ" : "CPF"}</p>
                                     <div className="flex items-center gap-1">
-                                        <span className="text-xs text-slate-900 font-mono">{doc}</span>
-                                        <button onClick={() => handleCopy(doc, "doc")} className="text-slate-300 hover:text-slate-500 cursor-pointer">{copied === "doc" ? <Check size={10} className="text-emerald-500" /> : <Copy size={10} />}</button>
+                                        <span className="text-xs text-slate-900 font-mono">{maskedDoc}</span>
+                                        <button onClick={() => handleCopy(maskedDoc, "doc")} className="text-slate-300 hover:text-slate-500 cursor-pointer">{copied === "doc" ? <Check size={10} className="text-emerald-500" /> : <Copy size={10} />}</button>
                                     </div>
                                 </div>
                                 {client.ie && (
@@ -1788,11 +1996,17 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             </Dialog>
 
             {/* Modal Adicionar Contato */}
-            <Dialog open={showContactModal} onOpenChange={(open) => { setShowContactModal(open); if (!open) setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" }) }}>
+            <Dialog open={showContactModal} onOpenChange={(open) => {
+                setShowContactModal(open)
+                if (!open) {
+                    setEditingContactId(null)
+                    setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
+                }
+            }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>Adicionar Contato</DialogTitle>
-                        <DialogDescription>Preencha os dados do novo contato.</DialogDescription>
+                        <DialogTitle>{editingContactId ? "Editar Contato" : "Adicionar Contato"}</DialogTitle>
+                        <DialogDescription>{editingContactId ? "Atualize os dados do contato." : "Preencha os dados do novo contato."}</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-3">
                         <Input placeholder="Nome *" value={contactForm.name} onChange={(e) => setContactForm(p => ({ ...p, name: e.target.value }))} />
@@ -1819,26 +2033,27 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                         </div>
                     </div>
                     <DialogFooter className="gap-2">
-                        <Button variant="outline" onClick={() => { setShowContactModal(false); setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" }) }}>Cancelar</Button>
-                        <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={!contactForm.name.trim() || addContactMut.isPending} onClick={() => {
-                            // DEBUG: Log antes de enviar
-                            console.log("[DEBUG] Modal enviando contato:", {
+                        <Button variant="outline" onClick={() => {
+                            setShowContactModal(false)
+                            setEditingContactId(null)
+                            setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
+                        }}>Cancelar</Button>
+                        <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={!contactForm.name.trim() || addContactMut.isPending || updateContactMut.isPending} onClick={() => {
+                            const payload = {
                                 name: contactForm.name,
-                                phone: contactForm.phone,
-                                email: contactForm.email,
-                                role: contactForm.role,
-                                bestContactTime: contactForm.bestContactTime,
-                                hasBestContactTime: !!contactForm.bestContactTime
-                            })
-                            
-                            addContactMut.mutate({ 
-                                name: contactForm.name, 
-                                phone: contactForm.phone || undefined, 
-                                email: contactForm.email || undefined, 
-                                role: contactForm.role || undefined, 
-                                bestContactTime: contactForm.bestContactTime || undefined 
-                            })
-                        }}>{addContactMut.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : null}Salvar</Button>
+                                phone: contactForm.phone || undefined,
+                                email: contactForm.email || undefined,
+                                role: contactForm.role || undefined,
+                                bestContactTime: contactForm.bestContactTime || undefined,
+                            }
+
+                            if (editingContactId) {
+                                updateContactMut.mutate({ contactId: editingContactId, data: payload })
+                                return
+                            }
+
+                            addContactMut.mutate(payload)
+                        }}>{(addContactMut.isPending || updateContactMut.isPending) ? <Loader2 size={14} className="animate-spin mr-2" /> : null}Salvar</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

@@ -4,6 +4,7 @@ import { prisma } from "@/app/utils/prisma"
 import { auth } from "@/app/utils/auth"
 import { headers } from "next/headers"
 import { revalidatePath } from "next/cache"
+import { getEntityDisplayName } from "@/app/utils/entity-names"
 
 const prismaAny = prisma as any
 
@@ -29,6 +30,8 @@ export async function getContabilityById(id: string) {
                 select: {
                     id: true,
                     name: true,
+                    razaoSocial: true,
+                    nomeFantasia: true,
                     city: true,
                     type: true,
                     ownerPhone: true,
@@ -47,10 +50,24 @@ export async function getContabilityById(id: string) {
     }
 
     const defaultContact = contability.contacts.find((contact: any) => contact.isDefault) || contability.contacts[0] || null
+    const contabilityType = contability.type === "PESSOA_FISICA" ? "PF" : "PJ"
+    const normalizedFantasyName = contabilityType === "PJ"
+        ? (contability.nomeFantasia || contability.name || null)
+        : null
+    const normalizedLegalName = contabilityType === "PJ"
+        ? (contability.razaoSocial || null)
+        : null
 
     return {
         id: contability.id,
-        name: contability.name,
+        name: getEntityDisplayName({
+            type: contabilityType,
+            name: contability.name,
+            razaoSocial: normalizedLegalName,
+            nomeFantasia: normalizedFantasyName,
+        }),
+        razaoSocial: normalizedLegalName,
+        nomeFantasia: normalizedFantasyName,
         phone: defaultContact?.phone || contability.phone,
         email: defaultContact?.email || contability.email,
         address: contability.address,
@@ -63,7 +80,7 @@ export async function getContabilityById(id: string) {
         cnpj: contability.cnpj,
         cpf: contability.cpf,
         ie: contability.ie,
-        type: contability.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
+        type: contabilityType,
         ticketCount: contability._count.ticketsRequested,
         createdAt: contability.createdAt.toISOString(),
         updatedAt: contability.updatedAt.toISOString(),
@@ -80,7 +97,12 @@ export async function getContabilityById(id: string) {
         })),
         clients: contability.clients.map((client: any) => ({
             id: client.id,
-            name: client.name,
+            name: getEntityDisplayName({
+                type: client.type === "PESSOA_FISICA" ? "PF" : "PJ",
+                name: client.name,
+                razaoSocial: client.razaoSocial,
+                nomeFantasia: client.nomeFantasia,
+            }),
             city: client.city,
             type: client.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
             phone: client.ownerPhone,
@@ -109,7 +131,7 @@ export async function getContabilities() {
                 ],
             },
             clients: {
-                select: { id: true, name: true }
+                select: { id: true, name: true, razaoSocial: true, nomeFantasia: true, type: true }
             },
             _count: { select: { ticketsRequested: true, contacts: true } },
         },
@@ -117,12 +139,31 @@ export async function getContabilities() {
     return contabilities.map((c: any) => {
         const defaultPhone = c.contacts.find((contact: any) => contact.isDefault)?.phone || c.contacts[0]?.phone || c.phone
         const defaultEmail = c.contacts.find((contact: any) => contact.isDefault)?.email || c.contacts[0]?.email || c.email
+        const contabilityType = c.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const
+        const normalizedFantasyName = contabilityType === "PJ"
+            ? (c.nomeFantasia || c.name || null)
+            : null
+        const normalizedLegalName = contabilityType === "PJ"
+            ? (c.razaoSocial || null)
+            : null
 
         return {
             id: c.id,
-            name: c.name,
+            name: getEntityDisplayName({
+                type: contabilityType,
+                name: c.name,
+                razaoSocial: normalizedLegalName,
+                nomeFantasia: normalizedFantasyName,
+            }),
+            razaoSocial: normalizedLegalName,
+            nomeFantasia: normalizedFantasyName,
             clientCount: c.clients.length,
-            clientNames: c.clients.map((cl: any) => cl.name).join(", "),
+            clientNames: c.clients.map((cl: any) => getEntityDisplayName({
+                type: cl.type === "PESSOA_FISICA" ? "PF" : "PJ",
+                name: cl.name,
+                razaoSocial: cl.razaoSocial,
+                nomeFantasia: cl.nomeFantasia,
+            })).join(", "),
             phone: defaultPhone,
             email: defaultEmail,
             address: c.address,
@@ -135,7 +176,7 @@ export async function getContabilities() {
             cnpj: c.cnpj,
             cpf: c.cpf,
             ie: c.ie,
-            type: c.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
+            type: contabilityType,
             ticketCount: c._count.ticketsRequested,
             contactCount: c._count.contacts,
             createdAt: c.createdAt.toISOString(),
@@ -146,20 +187,46 @@ export async function getContabilities() {
 export async function getContabilityOptions() {
     await getSession()
     const contabilities = await prisma.contability.findMany({
-        orderBy: { name: "asc" },
+        orderBy: [{ nomeFantasia: "asc" }, { razaoSocial: "asc" }, { name: "asc" }],
         select: {
             id: true,
             name: true,
+            razaoSocial: true,
+            nomeFantasia: true,
             cnpj: true,
             cpf: true,
+            type: true,
         },
     })
 
-    return contabilities
+    return contabilities.map((item) => {
+        const contabilityType = item.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const
+        const normalizedFantasyName = contabilityType === "PJ"
+            ? (item.nomeFantasia || item.name || null)
+            : null
+        const normalizedLegalName = contabilityType === "PJ"
+            ? (item.razaoSocial || null)
+            : null
+
+        return {
+            ...item,
+            razaoSocial: normalizedLegalName,
+            nomeFantasia: normalizedFantasyName,
+            type: contabilityType,
+            name: getEntityDisplayName({
+                type: contabilityType,
+                name: item.name,
+                razaoSocial: normalizedLegalName,
+                nomeFantasia: normalizedFantasyName,
+            }),
+        }
+    })
 }
 
 export async function createContability(data: {
     name?: string
+    razaoSocial?: string
+    nomeFantasia?: string
     phone?: string
     email?: string
     address?: string
@@ -175,9 +242,16 @@ export async function createContability(data: {
     type?: "PF" | "PJ"
 }) {
     await getSession()
+    const isPJ = data.type !== "PF"
+    const normalizedName = isPJ
+        ? (data.nomeFantasia?.trim() || data.razaoSocial?.trim() || data.name?.trim() || null)
+        : (data.name?.trim() || null)
+
     const contability = await prisma.contability.create({
         data: {
-            name: data.name,
+            name: normalizedName,
+            razaoSocial: isPJ ? (data.razaoSocial?.trim() || null) : null,
+            nomeFantasia: isPJ ? (data.nomeFantasia?.trim() || null) : null,
             phone: data.phone || null,
             email: data.email || null,
             address: data.address || null,
@@ -187,13 +261,13 @@ export async function createContability(data: {
             zipCode: data.zipCode || null,
             complement: data.complement || null,
             state: data.state || null,
-            cnpj: data.cnpj || null,
-            cpf: data.cpf || null,
-            ie: data.ie || null,
+            cnpj: isPJ ? (data.cnpj || null) : null,
+            cpf: isPJ ? null : (data.cpf || null),
+            ie: isPJ ? (data.ie || null) : null,
             type: data.type === "PF" ? "PESSOA_FISICA" : "PESSOA_JURIDICA",
             contacts: {
                 create: data.phone || data.email ? {
-                    name: data.name?.trim() || "Contato principal",
+                    name: normalizedName || "Contato principal",
                     phone: data.phone || null,
                     email: data.email || null,
                     isDefault: true,
@@ -210,6 +284,30 @@ export async function updateContability(id: string, data: Record<string, unknown
     await getSession()
     if (data.type === "PF") data.type = "PESSOA_FISICA"
     if (data.type === "PJ") data.type = "PESSOA_JURIDICA"
+
+    const isPJ = data.type === "PESSOA_JURIDICA"
+    const isPF = data.type === "PESSOA_FISICA"
+
+    if (isPJ) {
+        const nomeFantasia = typeof data.nomeFantasia === "string" ? data.nomeFantasia.trim() : ""
+        const razaoSocial = typeof data.razaoSocial === "string" ? data.razaoSocial.trim() : ""
+        const currentName = typeof data.name === "string" ? data.name.trim() : ""
+
+        data.name = nomeFantasia || razaoSocial || currentName
+        data.razaoSocial = razaoSocial || null
+        data.nomeFantasia = nomeFantasia || null
+        data.cpf = null
+    }
+
+    if (isPF) {
+        const currentName = typeof data.name === "string" ? data.name.trim() : ""
+        data.name = currentName
+        data.razaoSocial = null
+        data.nomeFantasia = null
+        data.cnpj = null
+        data.ie = null
+    }
+
     await prisma.contability.update({ where: { id }, data })
     revalidatePath("/dashboard/contabilidade")
     revalidatePath(`/dashboard/contabilidade/${id}`)

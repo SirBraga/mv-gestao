@@ -4,10 +4,14 @@ import { useState } from "react"
 import Link from "next/link"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Copy, Check, MessageCircle, Building2, User } from "lucide-react"
+import { getEntitySecondaryName } from "@/app/utils/entity-names"
+import { maskCNPJ, maskCPF, maskPhone } from "@/app/utils/masks"
 
 export interface ClientData {
   id: string
   name: string
+  razaoSocial?: string | null
+  nomeFantasia?: string | null
   cnpj: string | null
   cpf: string | null
   phone: string | null
@@ -32,6 +36,14 @@ function cleanPhone(phone: string) { return phone.replace(/\D/g, "") }
 
 export default function ClientCard({ client }: { client: ClientData }) {
   const [copied, setCopied] = useState<string | null>(null)
+  const secondaryName = getEntitySecondaryName({
+    type: client.type,
+    name: client.name,
+    razaoSocial: client.razaoSocial,
+    nomeFantasia: client.nomeFantasia,
+  })
+  const maskedDocument = client.cnpj ? maskCNPJ(client.cnpj) : client.cpf ? maskCPF(client.cpf) : "—"
+  const maskedPhone = client.phone ? maskPhone(client.phone) : null
 
   const handleCopy = (e: React.MouseEvent, text: string, label: string) => {
     e.preventDefault()
@@ -58,19 +70,21 @@ export default function ClientCard({ client }: { client: ClientData }) {
         </Avatar>
         <div className="min-w-0">
           <p className="text-sm font-medium text-slate-900 truncate group-hover:text-indigo-600 transition-colors">{client.name}</p>
-          <p className="text-xs text-slate-500 truncate mt-0.5">{client.cnpj || client.cpf || "—"}</p>
+          <p className="text-xs text-slate-500 truncate mt-0.5">
+            {secondaryName || maskedDocument}
+          </p>
         </div>
       </div>
 
       {/* Phone + copy */}
       <div className="flex items-center gap-2 min-w-0">
-        {client.phone ? (
+        {maskedPhone ? (
           <>
-            <span className="text-sm text-slate-600 truncate">{client.phone}</span>
+            <span className="text-sm text-slate-600 truncate">{maskedPhone}</span>
             <button onClick={handleWhatsApp} className="text-slate-300 hover:text-emerald-500 cursor-pointer shrink-0 transition-colors" title="WhatsApp">
               <MessageCircle size={14} />
             </button>
-            <button onClick={(e) => handleCopy(e, client.phone!, "phone")} className="text-slate-300 hover:text-slate-600 cursor-pointer shrink-0 transition-colors" title="Copiar telefone">
+            <button onClick={(e) => handleCopy(e, maskedPhone, "phone")} className="text-slate-300 hover:text-slate-600 cursor-pointer shrink-0 transition-colors" title="Copiar telefone">
               {copied === "phone" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
             </button>
           </>

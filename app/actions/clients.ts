@@ -5,6 +5,7 @@ import { auth } from "@/app/utils/auth"
 import { headers } from "next/headers"
 import { cache } from "react"
 import { revalidatePath } from "next/cache"
+import { getEntityDisplayName } from "@/app/utils/entity-names"
 
 const getSession = cache(async () => {
     const session = await auth.api.getSession({ headers: await headers() })
@@ -30,6 +31,8 @@ export async function getClients() {
         select: {
             id: true,
             name: true,
+            razaoSocial: true,
+            nomeFantasia: true,
             cnpj: true,
             cpf: true,
             type: true,
@@ -65,7 +68,14 @@ export async function getClients() {
     })
     return clients.map(c => ({
         id: c.id,
-        name: c.name,
+        name: getEntityDisplayName({
+            type: c.type === "PESSOA_FISICA" ? "PF" : "PJ",
+            name: c.name,
+            razaoSocial: c.razaoSocial,
+            nomeFantasia: c.nomeFantasia,
+        }),
+        razaoSocial: c.razaoSocial,
+        nomeFantasia: c.nomeFantasia,
         cnpj: c.cnpj,
         cpf: c.cpf,
         type: c.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
@@ -111,19 +121,31 @@ export async function getClientSearchOptions(params?: {
 
     if (!query) {
         const items = await prisma.clients.findMany({
-            orderBy: { name: "asc" },
+            orderBy: [{ nomeFantasia: "asc" }, { razaoSocial: "asc" }, { name: "asc" }],
             skip: offset,
             take: limit,
             select: {
                 id: true,
                 name: true,
+                razaoSocial: true,
+                nomeFantasia: true,
                 cnpj: true,
                 cpf: true,
+                type: true,
             },
         })
 
         return {
-            items,
+            items: items.map((item) => ({
+                ...item,
+                type: item.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
+                name: getEntityDisplayName({
+                    type: item.type === "PESSOA_FISICA" ? "PF" : "PJ",
+                    name: item.name,
+                    razaoSocial: item.razaoSocial,
+                    nomeFantasia: item.nomeFantasia,
+                }),
+            })),
             nextOffset: items.length === limit ? offset + items.length : null,
             hasMore: items.length === limit,
         }
@@ -133,21 +155,36 @@ export async function getClientSearchOptions(params?: {
     const digitsQuery = normalizeDigits(query)
 
     const clients = await prisma.clients.findMany({
-        orderBy: { name: "asc" },
+        orderBy: [{ nomeFantasia: "asc" }, { razaoSocial: "asc" }, { name: "asc" }],
         select: {
             id: true,
             name: true,
+            razaoSocial: true,
+            nomeFantasia: true,
             cnpj: true,
             cpf: true,
+            type: true,
         },
     })
 
     const filtered = clients.filter((client) => {
-        const normalizedName = normalizeText(client.name)
+        const type = client.type === "PESSOA_FISICA" ? "PF" : "PJ"
+        const displayName = getEntityDisplayName({
+            type,
+            name: client.name,
+            razaoSocial: client.razaoSocial,
+            nomeFantasia: client.nomeFantasia,
+        })
+        const normalizedName = normalizeText(displayName)
+        const normalizedLegalName = normalizeText(client.razaoSocial || "")
+        const normalizedFantasyName = normalizeText(client.nomeFantasia || "")
         const normalizedCnpj = normalizeDigits(client.cnpj || "")
         const normalizedCpf = normalizeDigits(client.cpf || "")
 
-        const matchesName = normalizedName.includes(normalizedQuery)
+        const matchesName =
+            normalizedName.includes(normalizedQuery)
+            || normalizedLegalName.includes(normalizedQuery)
+            || normalizedFantasyName.includes(normalizedQuery)
         const matchesDocument = digitsQuery
             ? normalizedCnpj.includes(digitsQuery) || normalizedCpf.includes(digitsQuery)
             : false
@@ -158,7 +195,16 @@ export async function getClientSearchOptions(params?: {
     const items = filtered.slice(offset, offset + limit)
 
     return {
-        items,
+        items: items.map((item) => ({
+            ...item,
+            type: item.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
+            name: getEntityDisplayName({
+                type: item.type === "PESSOA_FISICA" ? "PF" : "PJ",
+                name: item.name,
+                razaoSocial: item.razaoSocial,
+                nomeFantasia: item.nomeFantasia,
+            }),
+        })),
         nextOffset: offset + limit < filtered.length ? offset + limit : null,
         hasMore: offset + limit < filtered.length,
     }
@@ -171,6 +217,8 @@ export async function getClientById(id: string) {
         select: {
             id: true,
             name: true,
+            razaoSocial: true,
+            nomeFantasia: true,
             cnpj: true,
             cpf: true,
             ie: true,
@@ -205,6 +253,8 @@ export async function getClientById(id: string) {
                 select: {
                     id: true,
                     name: true,
+                    razaoSocial: true,
+                    nomeFantasia: true,
                     cnpj: true,
                     cpf: true,
                 },
@@ -229,13 +279,69 @@ export async function getClientById(id: string) {
                     name: true,
                 },
             },
+            clientProducts: {
+                orderBy: {
+                    createdAt: "asc",
+                },
+                select: {
+                    id: true,
+                    installationType: true,
+                    priceMonthly: true,
+                    priceQuarterly: true,
+                    priceYearly: true,
+                    notes: true,
+                    product: {
+                        select: {
+                            id: true,
+                            name: true,
+                            hasSerialControl: true,
+                        },
+                    },
+                    serials: {
+                        select: {
+                            id: true,
+                            serial: true,
+                            expiresAt: true,
+                        },
+                        orderBy: {
+                            createdAt: "asc",
+                        },
+                    },
+                    plugins: {
+                        select: {
+                            id: true,
+                            priceMonthly: true,
+                            priceQuarterly: true,
+                            priceYearly: true,
+                            notes: true,
+                            productPlugin: {
+                                select: {
+                                    id: true,
+                                    name: true,
+                                    status: true,
+                                },
+                            },
+                        },
+                        orderBy: {
+                            createdAt: "asc",
+                        },
+                    },
+                },
+            },
         },
     })
     if (!client) throw new Error("Cliente não encontrado")
     
     return {
         id: client.id,
-        name: client.name,
+        name: getEntityDisplayName({
+            type: client.type === "PESSOA_FISICA" ? "PF" : "PJ",
+            name: client.name,
+            razaoSocial: client.razaoSocial,
+            nomeFantasia: client.nomeFantasia,
+        }),
+        razaoSocial: client.razaoSocial,
+        nomeFantasia: client.nomeFantasia,
         cnpj: client.cnpj,
         cpf: client.cpf,
         ie: client.ie,
@@ -268,7 +374,12 @@ export async function getClientById(id: string) {
         createdAt: client.createdAt.toISOString(),
         contability: client.contability ? {
             id: client.contability.id,
-            name: client.contability.name,
+            name: getEntityDisplayName({
+                type: client.contability.cnpj ? "PJ" : "PF",
+                name: client.contability.name,
+                razaoSocial: client.contability.razaoSocial,
+                nomeFantasia: client.contability.nomeFantasia,
+            }),
             cnpj: client.contability.cnpj,
             cpf: client.contability.cpf,
         } : null,
@@ -295,12 +406,36 @@ export async function getClientById(id: string) {
             id: p.id,
             name: p.name,
         })),
+        clientProducts: client.clientProducts.map((clientProduct) => ({
+            id: clientProduct.id,
+            installationType: clientProduct.installationType,
+            priceMonthly: clientProduct.priceMonthly,
+            priceQuarterly: clientProduct.priceQuarterly,
+            priceYearly: clientProduct.priceYearly,
+            notes: clientProduct.notes,
+            product: clientProduct.product,
+            serials: clientProduct.serials.map((serial) => ({
+                id: serial.id,
+                serial: serial.serial,
+                expiresAt: serial.expiresAt?.toISOString() || null,
+            })),
+            plugins: clientProduct.plugins.map((plugin) => ({
+                id: plugin.id,
+                priceMonthly: plugin.priceMonthly,
+                priceQuarterly: plugin.priceQuarterly,
+                priceYearly: plugin.priceYearly,
+                notes: plugin.notes,
+                productPlugin: plugin.productPlugin,
+            })),
+        })),
         attachments: client.attachments,
     }
 }
 
 export async function createClient(data: {
     name: string
+    razaoSocial?: string
+    nomeFantasia?: string
     cnpj?: string
     cpf?: string
     ie?: string
@@ -331,17 +466,48 @@ export async function createClient(data: {
 }) {
     await getSession()
     const id = crypto.randomUUID()
+    const isPJ = data.type === "PJ"
+    const normalizedCnpj = isPJ ? (data.cnpj || "").replace(/\D/g, "") : ""
+    const normalizedCpf = !isPJ ? (data.cpf || "").replace(/\D/g, "") : ""
+    const normalizedName = isPJ
+        ? (data.nomeFantasia?.trim() || data.razaoSocial?.trim() || data.name.trim())
+        : data.name.trim()
+
+    if (isPJ && normalizedCnpj) {
+        const existingClient = await prisma.clients.findFirst({
+            where: { cnpj: normalizedCnpj },
+            select: { id: true, name: true },
+        })
+
+        if (existingClient) {
+            throw new Error(`Já existe um cliente cadastrado com este CNPJ: ${existingClient.name}`)
+        }
+    }
+
+    if (!isPJ && normalizedCpf) {
+        const existingClient = await prisma.clients.findFirst({
+            where: { cpf: normalizedCpf },
+            select: { id: true, name: true },
+        })
+
+        if (existingClient) {
+            throw new Error(`Já existe um cliente cadastrado com este CPF: ${existingClient.name}`)
+        }
+    }
+
     await prisma.clients.create({
         data: {
             id,
-            name: data.name,
-            cnpj: data.cnpj || null,
-            cpf: data.cpf || null,
-            ie: data.ie || null,
+            name: normalizedName,
+            razaoSocial: isPJ ? (data.razaoSocial?.trim() || null) : null,
+            nomeFantasia: isPJ ? (data.nomeFantasia?.trim() || null) : null,
+            cnpj: isPJ ? (normalizedCnpj || null) : null,
+            cpf: isPJ ? null : (normalizedCpf || null),
+            ie: isPJ ? (data.ie || null) : null,
             state: data.state || null,
-            codigoCSC: data.codigoCSC || null,
-            tokenCSC: data.tokenCSC || null,
-            cnae: data.cnae || null,
+            codigoCSC: isPJ ? (data.codigoCSC || null) : null,
+            tokenCSC: isPJ ? (data.tokenCSC || null) : null,
+            cnae: isPJ ? (data.cnae || null) : null,
             type: data.type === "PF" ? "PESSOA_FISICA" : "PESSOA_JURIDICA",
             address: data.address,
             city: data.city,
@@ -369,6 +535,32 @@ export async function updateClient(id: string, data: Record<string, unknown>) {
 
     if (data.type === "PF") data.type = "PESSOA_FISICA"
     if (data.type === "PJ") data.type = "PESSOA_JURIDICA"
+
+    const isPJ = data.type === "PESSOA_JURIDICA"
+    const isPF = data.type === "PESSOA_FISICA"
+
+    if (isPJ) {
+        const nomeFantasia = typeof data.nomeFantasia === "string" ? data.nomeFantasia.trim() : ""
+        const razaoSocial = typeof data.razaoSocial === "string" ? data.razaoSocial.trim() : ""
+        const currentName = typeof data.name === "string" ? data.name.trim() : ""
+
+        data.name = nomeFantasia || razaoSocial || currentName
+        data.razaoSocial = razaoSocial || null
+        data.nomeFantasia = nomeFantasia || null
+        data.cpf = null
+    }
+
+    if (isPF) {
+        const currentName = typeof data.name === "string" ? data.name.trim() : ""
+        data.name = currentName
+        data.razaoSocial = null
+        data.nomeFantasia = null
+        data.cnpj = null
+        data.ie = null
+        data.codigoCSC = null
+        data.tokenCSC = null
+        data.cnae = null
+    }
 
     if ("contabilityId" in data) {
         const contabilityId = typeof data.contabilityId === "string" ? data.contabilityId.trim() : ""
@@ -417,6 +609,29 @@ export async function addClientContact(clientId: string, data: {
 export async function deleteClientContact(contactId: string) {
     await getSession()
     await prisma.clientContact.delete({ where: { id: contactId } })
+    return { success: true }
+}
+
+export async function updateClientContact(contactId: string, data: {
+    name: string
+    phone?: string
+    email?: string
+    role?: string
+    bestContactTime?: string
+}) {
+    await getSession()
+
+    await prisma.clientContact.update({
+        where: { id: contactId },
+        data: {
+            name: data.name,
+            phone: data.phone || null,
+            email: data.email || null,
+            role: data.role || null,
+            bestContactTime: data.bestContactTime || null,
+        },
+    })
+
     return { success: true }
 }
 

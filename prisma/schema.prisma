@@ -95,6 +95,8 @@ model Verification {
 model Clients {
   id String @id 
   name String
+  razaoSocial String?
+  nomeFantasia String?
   cnpj String?
   cpf String?
   ie String?
@@ -115,6 +117,7 @@ model Clients {
   contability Contability? @relation(fields: [contabilityId], references: [id])
   tickets Tickets[]
   products Products[]
+  clientProducts ClientProduct[]
   contacts ClientContact[]
   attachments Attachment[]
   clientProductSerials ClientProductSerial[]
@@ -249,6 +252,8 @@ model TicketSchedule {
 model Contability {
   id String @id @default(cuid())
   name String?
+  razaoSocial String?
+  nomeFantasia String?
   phone String?
   email String?
   address String?
@@ -306,10 +311,71 @@ model Products {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  productPlugins ProductPlugin[]
+  clientProducts ClientProduct[]
   clientProductSerials ClientProductSerial[]
   knowledgeArticles KnowledgeBaseArticleProduct[]
 
   @@map("products")
+}
+
+model ProductPlugin {
+  id String @id @default(cuid())
+  productId String
+  product Products @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name String
+  description String?
+  status String?
+  priceMonthly Float?
+  priceQuarterly Float?
+  priceYearly Float?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clientProductPlugins ClientProductPlugin[]
+
+  @@unique([productId, name])
+  @@map("product_plugins")
+}
+
+model ClientProduct {
+  id String @id @default(cuid())
+  clientId String
+  client Clients @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  productId String
+  product Products @relation(fields: [productId], references: [id], onDelete: Cascade)
+  installationType InstallationType?
+  priceMonthly Float?
+  priceQuarterly Float?
+  priceYearly Float?
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  serials ClientProductSerial[]
+  plugins ClientProductPlugin[]
+
+  @@unique([clientId, productId])
+  @@index([productId])
+  @@map("client_products")
+}
+
+model ClientProductPlugin {
+  id String @id @default(cuid())
+  clientProductId String
+  clientProduct ClientProduct @relation(fields: [clientProductId], references: [id], onDelete: Cascade)
+  productPluginId String
+  productPlugin ProductPlugin @relation(fields: [productPluginId], references: [id], onDelete: Cascade)
+  priceMonthly Float?
+  priceQuarterly Float?
+  priceYearly Float?
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clientProductId, productPluginId])
+  @@index([productPluginId])
+  @@map("client_product_plugins")
 }
 
 model KnowledgeBaseArticle {
@@ -357,11 +423,14 @@ model ClientProductSerial {
   client Clients @relation(fields: [clientId], references: [id], onDelete: Cascade)
   productId String
   product Products @relation(fields: [productId], references: [id])
+  clientProductId String?
+  clientProduct ClientProduct? @relation(fields: [clientProductId], references: [id], onDelete: SetNull)
   serial String  // Número do serial
   expiresAt DateTime?  // Data de expiração do serial
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([clientProductId])
   @@unique([clientId, productId, serial])  // Um serial não pode se repetir para o mesmo cliente/produto
   @@map("client_product_serials")
 }
@@ -412,6 +481,12 @@ enum ContractType {
   ANUAL
   AVULSO
   CANCELADO
+}
+
+enum InstallationType {
+  LOCAL
+  SERVIDOR
+  ONLINE
 }
 
 enum Ticket_Schedule_Type {

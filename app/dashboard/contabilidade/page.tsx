@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, type Dispatch, type SetStateAction } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getContabilities, createContability, updateContability, deleteContability, addContabilityContact } from "@/app/actions/contability"
+import { lookupCnpj } from "@/app/actions/cnpj"
 import AccountingCard, { type AccountingData } from "../_components/accountingCard"
 import { GlobalScreenLoader } from "@/app/components/global-screen-loader"
 import { Input } from "@/components/ui/input"
@@ -32,6 +33,13 @@ const COLUMNS: { key: SortKey; label: string }[] = [
     { key: "type", label: "Tipo" },
 ]
 
+function getNormalizedContabilityType(item: Pick<AccountingData, "type" | "cnpj" | "cpf">): "PF" | "PJ" {
+    if (item.type === "PF" || item.type === "PJ") return item.type
+    if (item.cnpj) return "PJ"
+    if (item.cpf) return "PF"
+    return "PJ"
+}
+
 function compareContabilities(a: AccountingData, b: AccountingData, key: SortKey, dir: SortDir): number {
     let cmp = 0
     switch (key) {
@@ -39,13 +47,13 @@ function compareContabilities(a: AccountingData, b: AccountingData, key: SortKey
         case "clientCount": cmp = a.clientCount - b.clientCount; break
         case "phone": cmp = (a.phone || "").localeCompare(b.phone || ""); break
         case "city": cmp = (a.city || "").localeCompare(b.city || "", "pt-BR"); break
-        case "type": cmp = a.type.localeCompare(b.type); break
+        case "type": cmp = getNormalizedContabilityType(a).localeCompare(getNormalizedContabilityType(b)); break
     }
     return dir === "asc" ? cmp : -cmp
 }
 
 const INITIAL_FORM = {
-    name: "", type: "PJ" as "PF" | "PJ", cnpj: "", cpf: "",
+    name: "", razaoSocial: "", nomeFantasia: "", type: "PJ" as "PF" | "PJ", cnpj: "", cpf: "",
     phone: "", email: "", city: "", state: "",
     address: "", houseNumber: "", neighborhood: "", zipCode: "", complement: "", ie: "",
 }
@@ -69,6 +77,8 @@ export default function ContabilidadePage() {
     const [expandedContacts, setExpandedContacts] = useState<Record<string, boolean>>({})
     const [cepLoading, setCepLoading] = useState(false)
     const [editCepLoading, setEditCepLoading] = useState(false)
+    const [cnpjLoading, setCnpjLoading] = useState(false)
+    const [editCnpjLoading, setEditCnpjLoading] = useState(false)
     const [currentPage, setCurrentPage] = useState(1)
     const [pageSize, setPageSize] = useState(15)
 
@@ -172,10 +182,19 @@ export default function ContabilidadePage() {
     }
 
     const handleSubmit = async () => {
-        if (!form.name?.trim()) return toast.error("Nome é obrigatório")
+        if (form.type === "PF" && !form.name?.trim()) return toast.error("Nome é obrigatório")
+        if (form.type === "PJ" && !form.razaoSocial?.trim()) return toast.error("Razão social é obrigatória")
 
         const contactsToCreate = [...extraContacts]
-        const created = await createMutation.mutateAsync(form)
+        const created = await createMutation.mutateAsync({
+            ...form,
+            name: form.type === "PJ" ? (form.nomeFantasia || form.razaoSocial || form.name) : form.name,
+            razaoSocial: form.type === "PJ" ? form.razaoSocial || undefined : undefined,
+            nomeFantasia: form.type === "PJ" ? form.nomeFantasia || undefined : undefined,
+            cnpj: form.type === "PJ" ? form.cnpj || undefined : undefined,
+            cpf: form.type === "PF" ? form.cpf || undefined : undefined,
+            ie: form.type === "PJ" ? form.ie || undefined : undefined,
+        })
 
         if (contactsToCreate.length > 0) {
             await Promise.all(
@@ -202,7 +221,9 @@ export default function ContabilidadePage() {
         updateMutation.mutate({
             id: selectedItem.id,
             data: {
-                name: editForm.name || undefined,
+                name: editForm.type === "PJ" ? (editForm.nomeFantasia || editForm.razaoSocial || editForm.name) : editForm.name || undefined,
+                razaoSocial: editForm.type === "PJ" ? editForm.razaoSocial || undefined : null,
+                nomeFantasia: editForm.type === "PJ" ? editForm.nomeFantasia || undefined : null,
                 type: editForm.type || undefined,
                 cnpj: editForm.cnpj || undefined,
                 cpf: editForm.cpf || undefined,
@@ -224,6 +245,8 @@ export default function ContabilidadePage() {
         setSelectedItem(item)
         setEditForm({
             name: item.name || "",
+            razaoSocial: item.razaoSocial || "",
+            nomeFantasia: item.nomeFantasia || item.name || "",
             type: item.type,
             cnpj: item.cnpj || "",
             cpf: item.cpf || "",
@@ -239,6 +262,66 @@ export default function ContabilidadePage() {
             ie: item.ie || "",
         })
         setEditDrawerOpen(true)
+    }
+
+    const applyCnpjDataToCreateForm = async () => {
+        if (form.type !== "PJ") return
+
+        try {
+            setCnpjLoading(true)
+            const data = await lookupCnpj(form.cnpj)
+            setForm((current) => ({
+                ...current,
+                cnpj: maskCNPJ(data.cnpj || current.cnpj),
+                razaoSocial: data.razaoSocial || current.razaoSocial,
+                nomeFantasia: data.nomeFantasia || current.nomeFantasia,
+                name: data.nomeFantasia || data.razaoSocial || current.name,
+                ie: data.ie || current.ie,
+                phone: data.phone ? maskPhone(data.phone) : current.phone,
+                email: data.email || current.email,
+                address: data.address || current.address,
+                houseNumber: data.houseNumber || current.houseNumber,
+                neighborhood: data.neighborhood || current.neighborhood,
+                zipCode: data.zipCode ? maskCEP(data.zipCode) : current.zipCode,
+                city: data.city || current.city,
+                state: data.state || current.state,
+            }))
+            toast.success("Dados do CNPJ carregados com sucesso!")
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Não foi possível consultar o CNPJ")
+        } finally {
+            setCnpjLoading(false)
+        }
+    }
+
+    const applyCnpjDataToEditForm = async () => {
+        if (editForm.type !== "PJ") return
+
+        try {
+            setEditCnpjLoading(true)
+            const data = await lookupCnpj(editForm.cnpj)
+            setEditForm((current) => ({
+                ...current,
+                cnpj: maskCNPJ(data.cnpj || current.cnpj),
+                razaoSocial: data.razaoSocial || current.razaoSocial,
+                nomeFantasia: data.nomeFantasia || current.nomeFantasia,
+                name: data.nomeFantasia || data.razaoSocial || current.name,
+                ie: data.ie || current.ie,
+                phone: data.phone ? maskPhone(data.phone) : current.phone,
+                email: data.email || current.email,
+                address: data.address || current.address,
+                houseNumber: data.houseNumber || current.houseNumber,
+                neighborhood: data.neighborhood || current.neighborhood,
+                zipCode: data.zipCode ? maskCEP(data.zipCode) : current.zipCode,
+                city: data.city || current.city,
+                state: data.state || current.state,
+            }))
+            toast.success("Dados do CNPJ carregados com sucesso!")
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Não foi possível consultar o CNPJ")
+        } finally {
+            setEditCnpjLoading(false)
+        }
     }
 
     const handleDelete = (item: AccountingData) => {
@@ -267,8 +350,10 @@ export default function ContabilidadePage() {
 
         return allContabilities
             .filter((item) => {
-                const matchesFilter = filterTypeMap[activeFilter].includes(item.type)
+                const normalizedType = getNormalizedContabilityType(item)
+                const matchesFilter = filterTypeMap[activeFilter].includes(normalizedType)
                 const matchesSearch = searchQuery === "" ||
+                    (item.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
                     (item.clientNames || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
                     (item.cnpj || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
                     (item.city || "").toLowerCase().includes(searchQuery.toLowerCase())
@@ -279,8 +364,8 @@ export default function ContabilidadePage() {
 
     const counts: Record<FilterType, number> = {
         all: allContabilities.length,
-        pj: allContabilities.filter((c) => c.type === "PJ").length,
-        pf: allContabilities.filter((c) => c.type === "PF").length,
+        pj: allContabilities.filter((c) => getNormalizedContabilityType(c) === "PJ").length,
+        pf: allContabilities.filter((c) => getNormalizedContabilityType(c) === "PF").length,
     }
 
     useEffect(() => {
@@ -457,29 +542,45 @@ export default function ContabilidadePage() {
                         <SheetDescription className="text-xs">Preencha os dados para cadastrar um novo escritório contábil.</SheetDescription>
                     </SheetHeader>
                     <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-                        <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome da Contabilidade</label>
-                            <input 
-                                type="text" 
-                                className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" 
-                                value={form.name} 
-                                onChange={e => setForm({...form, name: e.target.value})}
-                                placeholder="Nome da contabilidade..."
-                            />
-                        </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo</label>
-                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.type} onChange={e => setForm({...form, type: e.target.value as "PF"|"PJ", cnpj: "", cpf: "", ie: e.target.value === "PF" ? "" : form.ie})}>
+                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.type} onChange={e => setForm({...form, type: e.target.value as "PF"|"PJ", name: "", razaoSocial: "", nomeFantasia: "", cnpj: "", cpf: "", ie: ""})}>
                                     <option value="PJ">Pessoa Jurídica</option>
                                     <option value="PF">Pessoa Física</option>
                                 </select>
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">{form.type === "PJ" ? "CNPJ" : "CPF"}</label>
-                                <Input placeholder={form.type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"} className="h-10 rounded-lg text-sm" value={form.type === "PJ" ? form.cnpj : form.cpf} onChange={e => form.type === "PJ" ? setForm({...form, cnpj: maskCNPJ(e.target.value)}) : setForm({...form, cpf: maskCPF(e.target.value)})} />
+                                {form.type === "PF" ? (
+                                    <Input placeholder="000.000.000-00" className="h-10 rounded-lg text-sm" value={form.cpf} onChange={e => setForm({...form, cpf: maskCPF(e.target.value)})} />
+                                ) : (
+                                    <div className="flex gap-2">
+                                        <Input placeholder="00.000.000/0001-00" className="h-10 rounded-lg text-sm" value={form.cnpj} onChange={e => setForm({...form, cnpj: maskCNPJ(e.target.value)})} />
+                                        <Button type="button" variant="outline" className="h-10 px-3" onClick={applyCnpjDataToCreateForm} disabled={form.cnpj.replace(/\D/g, "").length !== 14 || cnpjLoading}>
+                                            {cnpjLoading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                                        </Button>
+                                    </div>
+                                )}
                             </div>
                         </div>
+                        {form.type === "PF" ? (
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome</label>
+                                <Input placeholder="Nome completo" className="h-10 rounded-lg text-sm" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+                            </div>
+                        ) : (
+                            <>
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Razão social</label>
+                                    <Input placeholder="Razão social do escritório" className="h-10 rounded-lg text-sm" value={form.razaoSocial} onChange={e => setForm({...form, razaoSocial: e.target.value, name: form.nomeFantasia || e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome fantasia</label>
+                                    <Input placeholder="Nome fantasia" className="h-10 rounded-lg text-sm" value={form.nomeFantasia} onChange={e => setForm({...form, nomeFantasia: e.target.value, name: e.target.value || form.razaoSocial})} />
+                                </div>
+                            </>
+                        )}
                         {form.type === "PJ" && (
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Inscrição Estadual</label>
@@ -685,23 +786,45 @@ export default function ContabilidadePage() {
                             <p className="text-xs text-gray-400 mb-1">Cliente</p>
                             <p className="text-sm font-medium text-gray-900">{selectedItem?.name || selectedItem?.clientNames}</p>
                         </div>
-                        <div>
-                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome da Contabilidade</label>
-                            <Input placeholder="Nome da contabilidade..." className="h-10 rounded-lg text-sm" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} />
-                        </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo</label>
-                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={editForm.type} onChange={e => setEditForm({...editForm, type: e.target.value as "PF"|"PJ", cnpj: "", cpf: "", ie: e.target.value === "PF" ? "" : editForm.ie})}>
+                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={editForm.type} onChange={e => setEditForm({...editForm, type: e.target.value as "PF"|"PJ", name: "", razaoSocial: "", nomeFantasia: "", cnpj: "", cpf: "", ie: ""})}>
                                     <option value="PJ">Pessoa Jurídica</option>
                                     <option value="PF">Pessoa Física</option>
                                 </select>
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">{editForm.type === "PJ" ? "CNPJ" : "CPF"}</label>
-                                <Input placeholder={editForm.type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"} className="h-10 rounded-lg text-sm" value={editForm.type === "PJ" ? editForm.cnpj : editForm.cpf} onChange={e => editForm.type === "PJ" ? setEditForm({...editForm, cnpj: maskCNPJ(e.target.value)}) : setEditForm({...editForm, cpf: maskCPF(e.target.value)})} />
+                                {editForm.type === "PF" ? (
+                                    <Input placeholder="000.000.000-00" className="h-10 rounded-lg text-sm" value={editForm.cpf} onChange={e => setEditForm({...editForm, cpf: maskCPF(e.target.value)})} />
+                                ) : (
+                                    <div className="flex gap-2">
+                                        <Input placeholder="00.000.000/0001-00" className="h-10 rounded-lg text-sm" value={editForm.cnpj} onChange={e => setEditForm({...editForm, cnpj: maskCNPJ(e.target.value)})} />
+                                        <Button type="button" variant="outline" className="h-10 px-3" onClick={applyCnpjDataToEditForm} disabled={editForm.cnpj.replace(/\D/g, "").length !== 14 || editCnpjLoading}>
+                                            {editCnpjLoading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                                        </Button>
+                                    </div>
+                                )}
                             </div>
                         </div>
+                        {editForm.type === "PF" ? (
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome</label>
+                                <Input placeholder="Nome completo" className="h-10 rounded-lg text-sm" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} />
+                            </div>
+                        ) : (
+                            <>
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Razão social</label>
+                                    <Input placeholder="Razão social do escritório" className="h-10 rounded-lg text-sm" value={editForm.razaoSocial} onChange={e => setEditForm({...editForm, razaoSocial: e.target.value, name: editForm.nomeFantasia || e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome fantasia</label>
+                                    <Input placeholder="Nome fantasia" className="h-10 rounded-lg text-sm" value={editForm.nomeFantasia} onChange={e => setEditForm({...editForm, nomeFantasia: e.target.value, name: e.target.value || editForm.razaoSocial})} />
+                                </div>
+                            </>
+                        )}
                         {editForm.type === "PJ" && (
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Inscrição Estadual</label>

@@ -1,0 +1,21 @@
+[
+  {
+    "contabilityName": "Visão Contabilidade",
+    "clientKeys": [
+      "46347215000184",
+      "21674241000196",
+      "26649165000182",
+      "07812073000127",
+      "08649065000174",
+      "21222588000106"
+    ],
+    "totalClients": 6
+  },
+  {
+    "contabilityName": "Exatus",
+    "clientKeys": [
+      "11573377000156"
+    ],
+    "totalClients": 1
+  }
+]

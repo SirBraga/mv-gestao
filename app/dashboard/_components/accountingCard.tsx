@@ -6,6 +6,8 @@ import Link from "next/link"
 export interface AccountingData {
   id: string
   name?: string
+  razaoSocial?: string | null
+  nomeFantasia?: string | null
   clientCount: number
   clientNames: string
   cnpj: string
