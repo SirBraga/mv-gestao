@@ -1,19 +1,21 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useState, useMemo, type Dispatch, type SetStateAction } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getContabilities, createContability, updateContability, deleteContability } from "@/app/actions/contability"
-import { getClients } from "@/app/actions/clients"
 import AccountingCard, { type AccountingData } from "../_components/accountingCard"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
-import { Search, Calculator, Plus, Loader2, ChevronUp, ChevronDown, Printer, FileDown, ArrowUp, ArrowDown, Building2, User, Star } from "lucide-react"
+import { Search, Calculator, Plus, Loader2, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Building2, User, Star } from "lucide-react"
 import { toast } from "react-toastify"
+import { maskCPF, maskCNPJ, maskPhone, maskCEP } from "@/app/utils/masks"
 
 type FilterType = "all" | "pj" | "pf"
 type SortKey = "clientName" | "clientCount" | "phone" | "city" | "type"
 type SortDir = "asc" | "desc"
+
+const STATES = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"]
 
 const FILTERS = [
     { key: "all" as FilterType, label: "Todos", icon: Calculator },
@@ -60,6 +62,8 @@ export default function ContabilidadePage() {
     const [selectedItem, setSelectedItem] = useState<AccountingData | null>(null)
     const [form, setForm] = useState(INITIAL_FORM)
     const [editForm, setEditForm] = useState(INITIAL_FORM)
+    const [cepLoading, setCepLoading] = useState(false)
+    const [editCepLoading, setEditCepLoading] = useState(false)
     const [currentPage, setCurrentPage] = useState(1)
     const [pageSize, setPageSize] = useState(15)
 
@@ -68,10 +72,33 @@ export default function ContabilidadePage() {
         queryFn: () => getContabilities(),
     })
 
-    const { data: clientsList = [] } = useQuery({
-        queryKey: ["clients-simple"],
-        queryFn: () => getClients(),
-    })
+    const fetchViaCEP = async (
+        cep: string,
+        setTarget: Dispatch<SetStateAction<typeof INITIAL_FORM>>,
+        setLoading: Dispatch<SetStateAction<boolean>>
+    ) => {
+        if (cep.replace(/\D/g, "").length !== 8) return
+        setLoading(true)
+        try {
+            const res = await fetch(`https://viacep.com.br/ws/${cep.replace(/\D/g, "")}/json/`)
+            const data = await res.json()
+            if (!data.erro) {
+                setTarget((current) => ({
+                    ...current,
+                    address: data.logradouro || current.address,
+                    neighborhood: data.bairro || current.neighborhood,
+                    city: data.localidade || current.city,
+                    state: data.uf || current.state,
+                }))
+                return
+            }
+            toast.error("CEP não encontrado")
+        } catch {
+            toast.error("Não foi possível buscar o CEP informado")
+        } finally {
+            setLoading(false)
+        }
+    }
 
     const createMutation = useMutation({
         mutationFn: createContability,
@@ -115,6 +142,11 @@ export default function ContabilidadePage() {
         updateMutation.mutate({
             id: selectedItem.id,
             data: {
+                name: editForm.name || undefined,
+                type: editForm.type || undefined,
+                cnpj: editForm.cnpj || undefined,
+                cpf: editForm.cpf || undefined,
+                ie: editForm.ie || undefined,
                 phone: editForm.phone || undefined,
                 email: editForm.email || undefined,
                 city: editForm.city || undefined,
@@ -123,6 +155,7 @@ export default function ContabilidadePage() {
                 houseNumber: editForm.houseNumber || undefined,
                 neighborhood: editForm.neighborhood || undefined,
                 zipCode: editForm.zipCode || undefined,
+                complement: editForm.complement || undefined,
             },
         })
     }
@@ -138,12 +171,12 @@ export default function ContabilidadePage() {
             email: item.email || "",
             city: item.city || "",
             state: item.state || "",
-            address: "",
-            houseNumber: "",
-            neighborhood: "",
-            zipCode: "",
-            complement: "",
-            ie: "",
+            address: item.address || "",
+            houseNumber: item.houseNumber || "",
+            neighborhood: item.neighborhood || "",
+            zipCode: item.zipCode || "",
+            complement: item.complement || "",
+            ie: item.ie || "",
         })
         setEditDrawerOpen(true)
     }
@@ -287,13 +320,6 @@ export default function ContabilidadePage() {
                     </div>
 
                     <div className="flex items-center gap-3">
-                        <Button variant="outline" size="sm" className="text-slate-600 border-slate-200 hover:bg-slate-50 h-10 px-3 rounded-xl">
-                            <Printer size={16} />
-                        </Button>
-                        <Button variant="outline" size="sm" className="text-slate-600 border-slate-200 hover:bg-slate-50 gap-2 h-10 px-4 rounded-xl">
-                            <FileDown size={16} />
-                            <span className="text-sm">Exportar</span>
-                        </Button>
                         <button onClick={() => setDrawerOpen(true)} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer shadow-sm shadow-indigo-600/25">
                             <Plus size={16} /> Novo Escritório
                         </button>
@@ -385,40 +411,58 @@ export default function ContabilidadePage() {
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo</label>
-                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.type} onChange={e => setForm({...form, type: e.target.value as "PF"|"PJ"})}>
+                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.type} onChange={e => setForm({...form, type: e.target.value as "PF"|"PJ", cnpj: "", cpf: "", ie: e.target.value === "PF" ? "" : form.ie})}>
                                     <option value="PJ">Pessoa Jurídica</option>
                                     <option value="PF">Pessoa Física</option>
                                 </select>
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">{form.type === "PJ" ? "CNPJ" : "CPF"}</label>
-                                <Input placeholder={form.type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"} className="h-10 rounded-lg text-sm" value={form.type === "PJ" ? form.cnpj : form.cpf} onChange={e => form.type === "PJ" ? setForm({...form, cnpj: e.target.value}) : setForm({...form, cpf: e.target.value})} />
+                                <Input placeholder={form.type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"} className="h-10 rounded-lg text-sm" value={form.type === "PJ" ? form.cnpj : form.cpf} onChange={e => form.type === "PJ" ? setForm({...form, cnpj: maskCNPJ(e.target.value)}) : setForm({...form, cpf: maskCPF(e.target.value)})} />
                             </div>
                         </div>
+                        {form.type === "PJ" && (
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Inscrição Estadual</label>
+                                <Input placeholder="Inscrição estadual" className="h-10 rounded-lg text-sm" value={form.ie} onChange={e => setForm({...form, ie: e.target.value})} />
+                            </div>
+                        )}
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Telefone</label>
-                                <Input placeholder="(00) 0000-0000" className="h-10 rounded-lg text-sm" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} />
+                                <Input placeholder="(00) 00000-0000" className="h-10 rounded-lg text-sm" value={form.phone} onChange={e => setForm({...form, phone: maskPhone(e.target.value)})} />
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Email</label>
                                 <Input placeholder="contato@escritorio.com" className="h-10 rounded-lg text-sm" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
                             </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Endereço</label>
+                            <Input placeholder="Rua..." className="h-10 rounded-lg text-sm" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
                             <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Cidade</label>
-                                <Input placeholder="São Paulo" className="h-10 rounded-lg text-sm" value={form.city} onChange={e => setForm({...form, city: e.target.value})} />
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">CEP</label>
+                                <div className="relative flex items-center">
+                                    <Input placeholder="00000-000" className="h-10 rounded-lg text-sm pr-8" value={form.zipCode} onChange={e => setForm({...form, zipCode: maskCEP(e.target.value)})} />
+                                    <button
+                                        type="button"
+                                        title="Buscar endereço pelo CEP"
+                                        disabled={form.zipCode.replace(/\D/g, "").length !== 8 || cepLoading}
+                                        onClick={() => fetchViaCEP(form.zipCode, setForm, setCepLoading)}
+                                        className="absolute right-2 text-gray-400 hover:text-blue-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                                    >
+                                        {cepLoading ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
+                                    </button>
+                                </div>
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Estado</label>
-                                <Input placeholder="SP" className="h-10 rounded-lg text-sm" value={form.state} onChange={e => setForm({...form, state: e.target.value})} />
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Endereço</label>
-                                <Input placeholder="Rua..." className="h-10 rounded-lg text-sm" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
+                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.state} onChange={e => setForm({...form, state: e.target.value})}>
+                                    <option value="">UF</option>
+                                    {STATES.map((state) => <option key={state} value={state}>{state}</option>)}
+                                </select>
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Número</label>
@@ -427,13 +471,17 @@ export default function ContabilidadePage() {
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Cidade</label>
+                                <Input placeholder="São Paulo" className="h-10 rounded-lg text-sm" value={form.city} onChange={e => setForm({...form, city: e.target.value})} />
+                            </div>
+                            <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Bairro</label>
                                 <Input placeholder="Centro" className="h-10 rounded-lg text-sm" value={form.neighborhood} onChange={e => setForm({...form, neighborhood: e.target.value})} />
                             </div>
-                            <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">CEP</label>
-                                <Input placeholder="00000-000" className="h-10 rounded-lg text-sm" value={form.zipCode} onChange={e => setForm({...form, zipCode: e.target.value})} />
-                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Complemento</label>
+                            <Input placeholder="Sala, conjunto, bloco..." className="h-10 rounded-lg text-sm" value={form.complement} onChange={e => setForm({...form, complement: e.target.value})} />
                         </div>
                     </div>
                     <SheetFooter className="px-6 py-4 border-t border-gray-100">
@@ -460,30 +508,65 @@ export default function ContabilidadePage() {
                             <p className="text-xs text-gray-400 mb-1">Cliente</p>
                             <p className="text-sm font-medium text-gray-900">{selectedItem?.name || selectedItem?.clientNames}</p>
                         </div>
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Nome da Contabilidade</label>
+                            <Input placeholder="Nome da contabilidade..." className="h-10 rounded-lg text-sm" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo</label>
+                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={editForm.type} onChange={e => setEditForm({...editForm, type: e.target.value as "PF"|"PJ", cnpj: "", cpf: "", ie: e.target.value === "PF" ? "" : editForm.ie})}>
+                                    <option value="PJ">Pessoa Jurídica</option>
+                                    <option value="PF">Pessoa Física</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">{editForm.type === "PJ" ? "CNPJ" : "CPF"}</label>
+                                <Input placeholder={editForm.type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"} className="h-10 rounded-lg text-sm" value={editForm.type === "PJ" ? editForm.cnpj : editForm.cpf} onChange={e => editForm.type === "PJ" ? setEditForm({...editForm, cnpj: maskCNPJ(e.target.value)}) : setEditForm({...editForm, cpf: maskCPF(e.target.value)})} />
+                            </div>
+                        </div>
+                        {editForm.type === "PJ" && (
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Inscrição Estadual</label>
+                                <Input placeholder="Inscrição estadual" className="h-10 rounded-lg text-sm" value={editForm.ie} onChange={e => setEditForm({...editForm, ie: e.target.value})} />
+                            </div>
+                        )}
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Telefone</label>
-                                <Input placeholder="(00) 0000-0000" className="h-10 rounded-lg text-sm" value={editForm.phone} onChange={e => setEditForm({...editForm, phone: e.target.value})} />
+                                <Input placeholder="(00) 00000-0000" className="h-10 rounded-lg text-sm" value={editForm.phone} onChange={e => setEditForm({...editForm, phone: maskPhone(e.target.value)})} />
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Email</label>
                                 <Input placeholder="contato@escritorio.com" className="h-10 rounded-lg text-sm" value={editForm.email} onChange={e => setEditForm({...editForm, email: e.target.value})} />
                             </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Endereço</label>
+                            <Input placeholder="Rua..." className="h-10 rounded-lg text-sm" value={editForm.address} onChange={e => setEditForm({...editForm, address: e.target.value})} />
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
                             <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Cidade</label>
-                                <Input placeholder="São Paulo" className="h-10 rounded-lg text-sm" value={editForm.city} onChange={e => setEditForm({...editForm, city: e.target.value})} />
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">CEP</label>
+                                <div className="relative flex items-center">
+                                    <Input placeholder="00000-000" className="h-10 rounded-lg text-sm pr-8" value={editForm.zipCode} onChange={e => setEditForm({...editForm, zipCode: maskCEP(e.target.value)})} />
+                                    <button
+                                        type="button"
+                                        title="Buscar endereço pelo CEP"
+                                        disabled={editForm.zipCode.replace(/\D/g, "").length !== 8 || editCepLoading}
+                                        onClick={() => fetchViaCEP(editForm.zipCode, setEditForm, setEditCepLoading)}
+                                        className="absolute right-2 text-gray-400 hover:text-blue-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                                    >
+                                        {editCepLoading ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
+                                    </button>
+                                </div>
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Estado</label>
-                                <Input placeholder="SP" className="h-10 rounded-lg text-sm" value={editForm.state} onChange={e => setEditForm({...editForm, state: e.target.value})} />
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Endereço</label>
-                                <Input placeholder="Rua..." className="h-10 rounded-lg text-sm" value={editForm.address} onChange={e => setEditForm({...editForm, address: e.target.value})} />
+                                <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={editForm.state} onChange={e => setEditForm({...editForm, state: e.target.value})}>
+                                    <option value="">UF</option>
+                                    {STATES.map((state) => <option key={state} value={state}>{state}</option>)}
+                                </select>
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Número</label>
@@ -492,13 +575,17 @@ export default function ContabilidadePage() {
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">Cidade</label>
+                                <Input placeholder="São Paulo" className="h-10 rounded-lg text-sm" value={editForm.city} onChange={e => setEditForm({...editForm, city: e.target.value})} />
+                            </div>
+                            <div>
                                 <label className="text-xs font-medium text-gray-500 mb-1.5 block">Bairro</label>
                                 <Input placeholder="Centro" className="h-10 rounded-lg text-sm" value={editForm.neighborhood} onChange={e => setEditForm({...editForm, neighborhood: e.target.value})} />
                             </div>
-                            <div>
-                                <label className="text-xs font-medium text-gray-500 mb-1.5 block">CEP</label>
-                                <Input placeholder="00000-000" className="h-10 rounded-lg text-sm" value={editForm.zipCode} onChange={e => setEditForm({...editForm, zipCode: e.target.value})} />
-                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1.5 block">Complemento</label>
+                            <Input placeholder="Sala, conjunto, bloco..." className="h-10 rounded-lg text-sm" value={editForm.complement} onChange={e => setEditForm({...editForm, complement: e.target.value})} />
                         </div>
                     </div>
                     <SheetFooter className="px-6 py-4 border-t border-gray-100">

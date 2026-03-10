@@ -6,7 +6,7 @@ import { getProducts, createProduct, updateProduct, deleteProduct } from "@/app/
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
-import { Search, Package, Plus, Loader2, Pencil, Trash2, MoreHorizontal, Key, ChevronUp, ChevronDown, Printer, FileDown, ArrowUp, ArrowDown, CheckCircle, XCircle, PauseCircle, Star } from "lucide-react"
+import { Search, Package, Plus, Loader2, Pencil, Trash2, MoreHorizontal, Key, ChevronUp, ChevronDown, ArrowUp, ArrowDown, CheckCircle, XCircle, PauseCircle, Star } from "lucide-react"
 import { toast } from "react-toastify"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 
@@ -318,13 +318,6 @@ export default function ProdutosPage() {
                     </div>
 
                     <div className="flex items-center gap-3">
-                        <Button variant="outline" size="sm" className="text-slate-600 border-slate-200 hover:bg-slate-50 h-10 px-3 rounded-xl">
-                            <Printer size={16} />
-                        </Button>
-                        <Button variant="outline" size="sm" className="text-slate-600 border-slate-200 hover:bg-slate-50 gap-2 h-10 px-4 rounded-xl">
-                            <FileDown size={16} />
-                            <span className="text-sm">Exportar</span>
-                        </Button>
                         <button onClick={() => setDrawerOpen(true)} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer shadow-sm shadow-indigo-600/25">
                             <Plus size={16} /> Novo Produto
                         </button>

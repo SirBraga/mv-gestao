@@ -11,6 +11,65 @@ async function getSession() {
     return session
 }
 
+export async function getContabilityById(id: string) {
+    await getSession()
+
+    const contability = await prisma.contability.findUnique({
+        where: { id },
+        include: {
+            clients: {
+                select: {
+                    id: true,
+                    name: true,
+                    city: true,
+                    type: true,
+                    ownerPhone: true,
+                    ownerEmail: true,
+                    supportReleased: true,
+                    createdAt: true,
+                },
+                orderBy: { name: "asc" },
+            },
+            _count: { select: { ticketsRequested: true } },
+        },
+    })
+
+    if (!contability) {
+        return null
+    }
+
+    return {
+        id: contability.id,
+        name: contability.name,
+        phone: contability.phone,
+        email: contability.email,
+        address: contability.address,
+        city: contability.city,
+        houseNumber: contability.houseNumber,
+        neighborhood: contability.neighborhood,
+        zipCode: contability.zipCode,
+        complement: contability.complement,
+        state: contability.state,
+        cnpj: contability.cnpj,
+        cpf: contability.cpf,
+        ie: contability.ie,
+        type: contability.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
+        ticketCount: contability._count.ticketsRequested,
+        createdAt: contability.createdAt.toISOString(),
+        updatedAt: contability.updatedAt.toISOString(),
+        clients: contability.clients.map((client) => ({
+            id: client.id,
+            name: client.name,
+            city: client.city,
+            type: client.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
+            phone: client.ownerPhone,
+            email: client.ownerEmail,
+            supportReleased: client.supportReleased ?? false,
+            createdAt: client.createdAt.toISOString(),
+        })),
+    }
+}
+
 export async function getContabilities() {
     await getSession()
     const contabilities = await prisma.contability.findMany({
@@ -96,6 +155,7 @@ export async function createContability(data: {
         },
     })
     revalidatePath("/dashboard/contabilidade")
+    revalidatePath(`/dashboard/contabilidade/${contability.id}`)
     return { success: true, id: contability.id }
 }
 
@@ -105,12 +165,61 @@ export async function updateContability(id: string, data: Record<string, unknown
     if (data.type === "PJ") data.type = "PESSOA_JURIDICA"
     await prisma.contability.update({ where: { id }, data })
     revalidatePath("/dashboard/contabilidade")
+    revalidatePath(`/dashboard/contabilidade/${id}`)
+    return { success: true }
+}
+
+export async function attachClientToContability(contabilityId: string, clientId: string) {
+    await getSession()
+
+    const client = await prisma.clients.findUnique({
+        where: { id: clientId },
+        select: { id: true, contabilityId: true },
+    })
+
+    if (!client) {
+        throw new Error("Cliente não encontrado")
+    }
+
+    await prisma.clients.update({
+        where: { id: clientId },
+        data: { contabilityId },
+    })
+
+    revalidatePath("/dashboard/clientes")
+    revalidatePath(`/dashboard/clientes/${clientId}`)
+    revalidatePath("/dashboard/contabilidade")
+    revalidatePath(`/dashboard/contabilidade/${contabilityId}`)
+
+    if (client.contabilityId && client.contabilityId !== contabilityId) {
+        revalidatePath(`/dashboard/contabilidade/${client.contabilityId}`)
+    }
+
     return { success: true }
 }
 
 export async function deleteContability(id: string) {
     await getSession()
-    await prisma.contability.delete({ where: { id } })
+
+    const linkedClients = await prisma.clients.findMany({
+        where: { contabilityId: id },
+        select: { id: true },
+    })
+
+    await prisma.$transaction(async (tx) => {
+        await tx.clients.updateMany({
+            where: { contabilityId: id },
+            data: { contabilityId: null },
+        })
+
+        await tx.contability.delete({ where: { id } })
+    })
+
     revalidatePath("/dashboard/contabilidade")
+
+    for (const client of linkedClients) {
+        revalidatePath(`/dashboard/clientes/${client.id}`)
+    }
+
     return { success: true }
 }

@@ -61,9 +61,9 @@ const navItems = [
   { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
   { label: "Clientes", path: "/dashboard/clientes", icon: Users },
   { label: "Tickets", path: "/dashboard/tickets", icon: Ticket },
-  { label: "Base de Conhecimento", path: "/dashboard/base-conhecimento", icon: BookOpen },
   { label: "Contabilidade", path: "/dashboard/contabilidade", icon: Calculator },
   { label: "Produtos", path: "/dashboard/produtos", icon: Package },
+  { label: "Base de Conhecimento", path: "/dashboard/base-conhecimento", icon: BookOpen },
   { label: "Funcionários", path: "/dashboard/funcionarios", icon: UsersRound },
   { label: "Chat", path: "/dashboard/chat", icon: MessageCircle },
 ]
