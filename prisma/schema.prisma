@@ -249,25 +249,43 @@ model TicketSchedule {
 model Contability {
   id String @id @default(cuid())
   name String?
-  phone String
-  email String
-  address String
-  city String
-  houseNumber String
-  neighborhood String
-  zipCode String
-  complement String
-  state String
-  cnpj String
-  cpf String
-  ie String
+  phone String?
+  email String?
+  address String?
+  city String?
+  houseNumber String?
+  neighborhood String?
+  zipCode String?
+  complement String?
+  state String?
+  cnpj String?
+  cpf String?
+  ie String?
   type CType? @default(PESSOA_JURIDICA)
   clients Clients[]
+  contacts ContabilityContact[]
   ticketsRequested Tickets[] @relation("RequestedByContability")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("contability")
+}
+
+model ContabilityContact {
+  id              String   @id @default(cuid())
+  contabilityId   String
+  contability     Contability @relation(fields: [contabilityId], references: [id], onDelete: Cascade)
+  name            String
+  phone           String?
+  email           String?
+  role            String?
+  bestContactTime String?
+  isDefault       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([contabilityId])
+  @@map("contability_contact")
 }
 
 

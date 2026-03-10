@@ -5,6 +5,8 @@ import { auth } from "@/app/utils/auth"
 import { headers } from "next/headers"
 import { revalidatePath } from "next/cache"
 
+const prismaAny = prisma as any
+
 async function getSession() {
     const session = await auth.api.getSession({ headers: await headers() })
     if (!session) throw new Error("Não autenticado")
@@ -14,9 +16,15 @@ async function getSession() {
 export async function getContabilityById(id: string) {
     await getSession()
 
-    const contability = await prisma.contability.findUnique({
+    const contability: any = await prismaAny.contability.findUnique({
         where: { id },
         include: {
+            contacts: {
+                orderBy: [
+                    { isDefault: "desc" },
+                    { createdAt: "asc" },
+                ],
+            },
             clients: {
                 select: {
                     id: true,
@@ -38,11 +46,13 @@ export async function getContabilityById(id: string) {
         return null
     }
 
+    const defaultContact = contability.contacts.find((contact: any) => contact.isDefault) || contability.contacts[0] || null
+
     return {
         id: contability.id,
         name: contability.name,
-        phone: contability.phone,
-        email: contability.email,
+        phone: defaultContact?.phone || contability.phone,
+        email: defaultContact?.email || contability.email,
         address: contability.address,
         city: contability.city,
         houseNumber: contability.houseNumber,
@@ -57,7 +67,18 @@ export async function getContabilityById(id: string) {
         ticketCount: contability._count.ticketsRequested,
         createdAt: contability.createdAt.toISOString(),
         updatedAt: contability.updatedAt.toISOString(),
-        clients: contability.clients.map((client) => ({
+        contacts: contability.contacts.map((contact: any) => ({
+            id: contact.id,
+            name: contact.name,
+            phone: contact.phone,
+            email: contact.email,
+            role: contact.role,
+            bestContactTime: contact.bestContactTime,
+            isDefault: contact.isDefault,
+            createdAt: contact.createdAt.toISOString(),
+            updatedAt: contact.updatedAt.toISOString(),
+        })),
+        clients: contability.clients.map((client: any) => ({
             id: client.id,
             name: client.name,
             city: client.city,
@@ -72,36 +93,54 @@ export async function getContabilityById(id: string) {
 
 export async function getContabilities() {
     await getSession()
-    const contabilities = await prisma.contability.findMany({
+    const contabilities: any[] = await prismaAny.contability.findMany({
         orderBy: { createdAt: "desc" },
         include: {
+            contacts: {
+                select: {
+                    phone: true,
+                    email: true,
+                    isDefault: true,
+                    createdAt: true,
+                },
+                orderBy: [
+                    { isDefault: "desc" },
+                    { createdAt: "asc" },
+                ],
+            },
             clients: {
                 select: { id: true, name: true }
             },
-            _count: { select: { ticketsRequested: true } },
+            _count: { select: { ticketsRequested: true, contacts: true } },
         },
     })
-    return contabilities.map(c => ({
-        id: c.id,
-        name: c.name,
-        clientCount: c.clients.length,
-        clientNames: c.clients.map(cl => cl.name).join(", "),
-        phone: c.phone,
-        email: c.email,
-        address: c.address,
-        city: c.city,
-        houseNumber: c.houseNumber,
-        neighborhood: c.neighborhood,
-        zipCode: c.zipCode,
-        complement: c.complement,
-        state: c.state,
-        cnpj: c.cnpj,
-        cpf: c.cpf,
-        ie: c.ie,
-        type: c.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
-        ticketCount: c._count.ticketsRequested,
-        createdAt: c.createdAt.toISOString(),
-    }))
+    return contabilities.map((c: any) => {
+        const defaultPhone = c.contacts.find((contact: any) => contact.isDefault)?.phone || c.contacts[0]?.phone || c.phone
+        const defaultEmail = c.contacts.find((contact: any) => contact.isDefault)?.email || c.contacts[0]?.email || c.email
+
+        return {
+            id: c.id,
+            name: c.name,
+            clientCount: c.clients.length,
+            clientNames: c.clients.map((cl: any) => cl.name).join(", "),
+            phone: defaultPhone,
+            email: defaultEmail,
+            address: c.address,
+            city: c.city,
+            houseNumber: c.houseNumber,
+            neighborhood: c.neighborhood,
+            zipCode: c.zipCode,
+            complement: c.complement,
+            state: c.state,
+            cnpj: c.cnpj,
+            cpf: c.cpf,
+            ie: c.ie,
+            type: c.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
+            ticketCount: c._count.ticketsRequested,
+            contactCount: c._count.contacts,
+            createdAt: c.createdAt.toISOString(),
+        }
+    })
 }
 
 export async function getContabilityOptions() {
@@ -121,37 +160,45 @@ export async function getContabilityOptions() {
 
 export async function createContability(data: {
     name?: string
-    phone: string
-    email: string
-    address: string
-    city: string
-    houseNumber: string
-    neighborhood: string
-    zipCode: string
-    complement: string
-    state: string
-    cnpj: string
-    cpf: string
-    ie: string
+    phone?: string
+    email?: string
+    address?: string
+    city?: string
+    houseNumber?: string
+    neighborhood?: string
+    zipCode?: string
+    complement?: string
+    state?: string
+    cnpj?: string
+    cpf?: string
+    ie?: string
     type?: "PF" | "PJ"
 }) {
     await getSession()
     const contability = await prisma.contability.create({
         data: {
             name: data.name,
-            phone: data.phone,
-            email: data.email,
-            address: data.address,
-            city: data.city,
-            houseNumber: data.houseNumber,
-            neighborhood: data.neighborhood,
-            zipCode: data.zipCode,
-            complement: data.complement,
-            state: data.state,
-            cnpj: data.cnpj,
-            cpf: data.cpf,
-            ie: data.ie,
+            phone: data.phone || null,
+            email: data.email || null,
+            address: data.address || null,
+            city: data.city || null,
+            houseNumber: data.houseNumber || null,
+            neighborhood: data.neighborhood || null,
+            zipCode: data.zipCode || null,
+            complement: data.complement || null,
+            state: data.state || null,
+            cnpj: data.cnpj || null,
+            cpf: data.cpf || null,
+            ie: data.ie || null,
             type: data.type === "PF" ? "PESSOA_FISICA" : "PESSOA_JURIDICA",
+            contacts: {
+                create: data.phone || data.email ? {
+                    name: data.name?.trim() || "Contato principal",
+                    phone: data.phone || null,
+                    email: data.email || null,
+                    isDefault: true,
+                } : undefined,
+            },
         },
     })
     revalidatePath("/dashboard/contabilidade")
@@ -167,6 +214,79 @@ export async function updateContability(id: string, data: Record<string, unknown
     revalidatePath("/dashboard/contabilidade")
     revalidatePath(`/dashboard/contabilidade/${id}`)
     return { success: true }
+}
+
+export async function addContabilityContact(contabilityId: string, data: {
+    name: string
+    phone?: string
+    email?: string
+    role?: string
+    bestContactTime?: string
+    isDefault?: boolean
+}) {
+    await getSession()
+
+    const result = await prisma.$transaction(async (tx) => {
+        if (data.isDefault) {
+            await (tx as any).contabilityContact.updateMany({
+                where: { contabilityId, isDefault: true },
+                data: { isDefault: false },
+            })
+        }
+
+        return (tx as any).contabilityContact.create({
+            data: {
+                contabilityId,
+                name: data.name,
+                phone: data.phone || null,
+                email: data.email || null,
+                role: data.role || null,
+                bestContactTime: data.bestContactTime || null,
+                isDefault: data.isDefault ?? false,
+            },
+        })
+    })
+
+    revalidatePath("/dashboard/contabilidade")
+    revalidatePath(`/dashboard/contabilidade/${contabilityId}`)
+    return { success: true, id: result.id }
+}
+
+export async function deleteContabilityContact(contactId: string) {
+    await getSession()
+
+    const contact = await prismaAny.contabilityContact.findUnique({
+        where: { id: contactId },
+        select: { contabilityId: true },
+    })
+
+    if (!contact) throw new Error("Contato não encontrado")
+
+    await prismaAny.contabilityContact.delete({ where: { id: contactId } })
+
+    revalidatePath("/dashboard/contabilidade")
+    revalidatePath(`/dashboard/contabilidade/${contact.contabilityId}`)
+    return { success: true }
+}
+
+export async function getContabilityContacts(contabilityId: string) {
+    await getSession()
+    return prismaAny.contabilityContact.findMany({
+        where: { contabilityId },
+        orderBy: [
+            { isDefault: "desc" },
+            { createdAt: "asc" },
+        ],
+        select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+            role: true,
+            bestContactTime: true,
+            isDefault: true,
+        },
+    })
 }
 
 export async function attachClientToContability(contabilityId: string, clientId: string) {

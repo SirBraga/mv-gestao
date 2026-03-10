@@ -2,14 +2,15 @@
 
 import { useEffect, useState, useMemo, type Dispatch, type SetStateAction } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getContabilities, createContability, updateContability, deleteContability } from "@/app/actions/contability"
+import { getContabilities, createContability, updateContability, deleteContability, addContabilityContact } from "@/app/actions/contability"
 import AccountingCard, { type AccountingData } from "../_components/accountingCard"
+import { GlobalScreenLoader } from "@/app/components/global-screen-loader"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
-import { Search, Calculator, Plus, Loader2, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Building2, User, Star } from "lucide-react"
+import { Search, Calculator, Plus, Loader2, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Building2, User, Star, Users, Trash2 } from "lucide-react"
 import { toast } from "react-toastify"
-import { maskCPF, maskCNPJ, maskPhone, maskCEP } from "@/app/utils/masks"
+import { maskCPF, maskCNPJ, maskPhone, maskCEP, maskContactTime } from "@/app/utils/masks"
 
 type FilterType = "all" | "pj" | "pf"
 type SortKey = "clientName" | "clientCount" | "phone" | "city" | "type"
@@ -49,6 +50,8 @@ const INITIAL_FORM = {
     address: "", houseNumber: "", neighborhood: "", zipCode: "", complement: "", ie: "",
 }
 
+const CONTACT_ROLES = ["Suporte", "Financeiro", "Comercial", "Proprietário", "Fiscal", "RH"]
+
 export default function ContabilidadePage() {
     const queryClient = useQueryClient()
     const [searchQuery, setSearchQuery] = useState("")
@@ -62,6 +65,8 @@ export default function ContabilidadePage() {
     const [selectedItem, setSelectedItem] = useState<AccountingData | null>(null)
     const [form, setForm] = useState(INITIAL_FORM)
     const [editForm, setEditForm] = useState(INITIAL_FORM)
+    const [extraContacts, setExtraContacts] = useState<Array<{ id: string; name: string; phone: string; email: string; role: string; bestContactTime: string }>>([])
+    const [expandedContacts, setExpandedContacts] = useState<Record<string, boolean>>({})
     const [cepLoading, setCepLoading] = useState(false)
     const [editCepLoading, setEditCepLoading] = useState(false)
     const [currentPage, setCurrentPage] = useState(1)
@@ -106,6 +111,8 @@ export default function ContabilidadePage() {
             queryClient.invalidateQueries({ queryKey: ["contabilities"] })
             setDrawerOpen(false)
             setForm(INITIAL_FORM)
+            setExtraContacts([])
+            setExpandedContacts({})
             toast.success("Escritório cadastrado com sucesso!")
         },
         onError: (err: Error) => toast.error(err.message),
@@ -132,9 +139,62 @@ export default function ContabilidadePage() {
         onError: (err: Error) => toast.error(err.message),
     })
 
-    const handleSubmit = () => {
+    const addExtraContact = () => {
+        const newContact = {
+            id: Date.now().toString(),
+            name: "",
+            phone: "",
+            email: "",
+            role: "",
+            bestContactTime: "",
+        }
+        setExtraContacts((prev) => [...prev, newContact])
+        setExpandedContacts((prev) => ({ ...prev, [newContact.id]: true }))
+    }
+
+    const updateExtraContact = (id: string, field: keyof typeof extraContacts[0], value: string) => {
+        setExtraContacts((prev) => prev.map((contact) =>
+            contact.id === id ? { ...contact, [field]: value } : contact
+        ))
+    }
+
+    const removeExtraContact = (id: string) => {
+        setExtraContacts((prev) => prev.filter((contact) => contact.id !== id))
+        setExpandedContacts((prev) => {
+            const newExpanded = { ...prev }
+            delete newExpanded[id]
+            return newExpanded
+        })
+    }
+
+    const toggleContactExpanded = (id: string) => {
+        setExpandedContacts((prev) => ({ ...prev, [id]: !prev[id] }))
+    }
+
+    const handleSubmit = async () => {
         if (!form.name?.trim()) return toast.error("Nome é obrigatório")
-        createMutation.mutate(form)
+
+        const contactsToCreate = [...extraContacts]
+        const created = await createMutation.mutateAsync(form)
+
+        if (contactsToCreate.length > 0) {
+            await Promise.all(
+                contactsToCreate.flatMap((contact) => {
+                    if (!contact.name.trim()) return []
+
+                    return [
+                        addContabilityContact(created.id, {
+                            name: contact.name,
+                            phone: contact.phone || undefined,
+                            email: contact.email || undefined,
+                            role: contact.role || undefined,
+                            bestContactTime: contact.bestContactTime || undefined,
+                        }),
+                    ]
+                })
+            )
+            queryClient.invalidateQueries({ queryKey: ["contabilities"] })
+        }
     }
 
     const handleEditSubmit = () => {
@@ -234,6 +294,10 @@ export default function ContabilidadePage() {
     }, [filteredContabilities, currentPage, pageSize])
     const pageStart = filteredContabilities.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
     const pageEnd = Math.min(currentPage * pageSize, filteredContabilities.length)
+
+    if (isLoading) {
+        return <GlobalScreenLoader />
+    }
 
     return (
         <div className="flex h-full bg-slate-50">
@@ -365,12 +429,7 @@ export default function ContabilidadePage() {
 
                 {/* Rows */}
                 <div className="flex-1 overflow-y-auto bg-white">
-                    {isLoading ? (
-                        <div className="flex flex-col items-center justify-center py-20">
-                            <Loader2 size={28} className="animate-spin text-indigo-600" />
-                            <p className="text-sm text-slate-500 mt-3">Carregando escritórios...</p>
-                        </div>
-                    ) : filteredContabilities.length === 0 ? (
+                    {filteredContabilities.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-20 text-slate-400">
                             <Calculator size={40} className="text-slate-300 mb-3" />
                             <p className="text-sm font-medium text-slate-600">Nenhum escritório encontrado</p>
@@ -483,10 +542,128 @@ export default function ContabilidadePage() {
                             <label className="text-xs font-medium text-gray-500 mb-1.5 block">Complemento</label>
                             <Input placeholder="Sala, conjunto, bloco..." className="h-10 rounded-lg text-sm" value={form.complement} onChange={e => setForm({...form, complement: e.target.value})} />
                         </div>
+
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Contatos Extras</p>
+                        <div className="space-y-2">
+                            {extraContacts.length === 0 ? (
+                                <button
+                                    type="button"
+                                    onClick={addExtraContact}
+                                    className="w-full py-2 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-gray-400 hover:text-gray-600 transition-colors text-sm"
+                                >
+                                    <Plus size={14} className="inline mr-1" />
+                                    Adicionar contato
+                                </button>
+                            ) : (
+                                <>
+                                    {extraContacts.map((contact) => (
+                                        <div key={contact.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleContactExpanded(contact.id)}
+                                                className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors"
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <Users size={14} className="text-gray-500" />
+                                                    <span className="text-sm font-medium text-gray-700">
+                                                        {contact.name || "Novo contato"}
+                                                    </span>
+                                                    {contact.role && (
+                                                        <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                                                            {contact.role}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            removeExtraContact(contact.id)
+                                                        }}
+                                                        className="text-gray-400 hover:text-red-500 transition-colors"
+                                                        title="Remover contato"
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                    <ChevronDown size={14} className={`text-gray-400 transition-transform ${expandedContacts[contact.id] ? "rotate-180" : ""}`} />
+                                                </div>
+                                            </button>
+
+                                            {expandedContacts[contact.id] && (
+                                                <div className="px-3 py-3 space-y-2 bg-white">
+                                                    <div>
+                                                        <label className="text-xs font-medium text-gray-500 mb-1 block">Nome *</label>
+                                                        <Input
+                                                            placeholder="Nome do contato"
+                                                            className="h-8 rounded text-xs"
+                                                            value={contact.name}
+                                                            onChange={(e) => updateExtraContact(contact.id, "name", e.target.value)}
+                                                        />
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <div>
+                                                            <label className="text-xs font-medium text-gray-500 mb-1 block">Telefone</label>
+                                                            <Input
+                                                                placeholder="(00) 00000-0000"
+                                                                className="h-8 rounded text-xs"
+                                                                value={contact.phone}
+                                                                onChange={(e) => updateExtraContact(contact.id, "phone", maskPhone(e.target.value))}
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-xs font-medium text-gray-500 mb-1 block">Email</label>
+                                                            <Input
+                                                                placeholder="email@exemplo.com"
+                                                                className="h-8 rounded text-xs"
+                                                                value={contact.email}
+                                                                onChange={(e) => updateExtraContact(contact.id, "email", e.target.value)}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <div>
+                                                            <label className="text-xs font-medium text-gray-500 mb-1 block">Cargo/Função</label>
+                                                            <select
+                                                                className="w-full h-8 rounded border border-gray-200 px-2 text-xs text-gray-700 bg-white"
+                                                                value={contact.role}
+                                                                onChange={(e) => updateExtraContact(contact.id, "role", e.target.value)}
+                                                            >
+                                                                <option value="">Selecione</option>
+                                                                {CONTACT_ROLES.map((role) => (
+                                                                    <option key={role} value={role}>{role}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-xs font-medium text-gray-500 mb-1 block">Melhor horário</label>
+                                                            <Input
+                                                                placeholder="09:00 - 18:00"
+                                                                className="h-8 rounded text-xs"
+                                                                value={contact.bestContactTime}
+                                                                onChange={(e) => updateExtraContact(contact.id, "bestContactTime", maskContactTime(e.target.value))}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                    <button
+                                        type="button"
+                                        onClick={addExtraContact}
+                                        className="w-full py-2 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-gray-400 hover:text-gray-600 transition-colors text-sm"
+                                    >
+                                        <Plus size={14} className="inline mr-1" />
+                                        Adicionar outro contato
+                                    </button>
+                                </>
+                            )}
+                        </div>
                     </div>
                     <SheetFooter className="px-6 py-4 border-t border-gray-100">
                         <div className="flex gap-2 w-full">
-                            <Button variant="outline" className="flex-1 h-10 rounded-lg text-sm" onClick={() => setDrawerOpen(false)}>Cancelar</Button>
+                            <Button variant="outline" className="flex-1 h-10 rounded-lg text-sm" onClick={() => { setDrawerOpen(false); setForm(INITIAL_FORM); setExtraContacts([]); setExpandedContacts({}) }}>Cancelar</Button>
                             <Button className="flex-1 h-10 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm" onClick={handleSubmit} disabled={createMutation.isPending}>
                                 {createMutation.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
                                 Salvar Escritório

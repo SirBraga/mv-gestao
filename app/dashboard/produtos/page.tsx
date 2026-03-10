@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getProducts, createProduct, updateProduct, deleteProduct } from "@/app/actions/products"
+import { GlobalScreenLoader } from "@/app/components/global-screen-loader"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
@@ -233,6 +234,10 @@ export default function ProdutosPage() {
     const pageStart = filteredProducts.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
     const pageEnd = Math.min(currentPage * pageSize, filteredProducts.length)
 
+    if (isLoading) {
+        return <GlobalScreenLoader />
+    }
+
     return (
         <div className="flex h-full bg-slate-50">
             {/* Left Filter Panel */}
@@ -363,12 +368,7 @@ export default function ProdutosPage() {
 
                 {/* Rows */}
                 <div className="flex-1 overflow-y-auto bg-white">
-                    {isLoading ? (
-                        <div className="flex flex-col items-center justify-center py-20">
-                            <Loader2 size={28} className="animate-spin text-indigo-600" />
-                            <p className="text-sm text-slate-500 mt-3">Carregando produtos...</p>
-                        </div>
-                    ) : filteredProducts.length === 0 ? (
+                    {filteredProducts.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-20 text-slate-400">
                             <Package size={40} className="text-slate-300 mb-3" />
                             <p className="text-sm font-medium text-slate-600">Nenhum produto encontrado</p>

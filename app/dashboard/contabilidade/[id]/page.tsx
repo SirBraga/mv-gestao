@@ -5,15 +5,16 @@ import { useRouter } from "next/navigation"
 import { use } from "react"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getContabilityById, updateContability, attachClientToContability, deleteContability } from "@/app/actions/contability"
+import { getContabilityById, updateContability, attachClientToContability, deleteContability, addContabilityContact, deleteContabilityContact } from "@/app/actions/contability"
 import { getClientSearchOptions } from "@/app/actions/clients"
+import { GlobalScreenLoader } from "@/app/components/global-screen-loader"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { maskCPF, maskCNPJ, maskPhone, maskCEP } from "@/app/utils/masks"
+import { maskCPF, maskCNPJ, maskPhone, maskCEP, maskContactTime } from "@/app/utils/masks"
 import { toast } from "react-toastify"
-import { ArrowLeft, Mail, MessageCircle, Users, Check, Copy, Pencil, Save, X, Loader2, Phone, Plus, Search, Trash2, AlertTriangle } from "lucide-react"
+import { ArrowLeft, Mail, MessageCircle, Users, Check, Copy, Pencil, Save, X, Loader2, Phone, Plus, Search, Trash2, AlertTriangle, Clock } from "lucide-react"
 
 const STATES = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"]
 
@@ -34,6 +35,8 @@ const INITIAL_FORM = {
     complement: "",
 }
 
+const CONTACT_ROLES = ["Suporte", "Financeiro", "Comercial", "Proprietário", "Fiscal", "RH"]
+
 function formatDateShort(dateStr: string) {
     return new Date(dateStr).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
 }
@@ -51,9 +54,11 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
     const [cepLoading, setCepLoading] = useState(false)
     const [showLinkClientModal, setShowLinkClientModal] = useState(false)
     const [showDeleteModal, setShowDeleteModal] = useState(false)
+    const [showContactModal, setShowContactModal] = useState(false)
     const [clientSearchQuery, setClientSearchQuery] = useState("")
     const [selectedClientId, setSelectedClientId] = useState("")
     const [editForm, setEditForm] = useState(INITIAL_FORM)
+    const [contactForm, setContactForm] = useState({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
 
     const { data: firm, isLoading, isError } = useQuery({
         queryKey: ["contability", id],
@@ -97,6 +102,53 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
             setClientSearchQuery("")
             setSelectedClientId("")
             toast.success("Cliente vinculado com sucesso!")
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const addContactMutation = useMutation({
+        mutationFn: (data: { name: string; phone?: string; email?: string; role?: string; bestContactTime?: string }) => addContabilityContact(id, data),
+        onSuccess: (result, variables) => {
+            queryClient.setQueryData(["contability", id], (old: any) => {
+                if (!old) return old
+
+                return {
+                    ...old,
+                    contacts: [
+                        ...old.contacts,
+                        {
+                            id: result.id,
+                            name: variables.name,
+                            phone: variables.phone ?? null,
+                            email: variables.email ?? null,
+                            role: variables.role ?? null,
+                            bestContactTime: variables.bestContactTime ?? null,
+                            isDefault: false,
+                        },
+                    ],
+                }
+            })
+            queryClient.invalidateQueries({ queryKey: ["contabilities"] })
+            toast.success("Contato adicionado!")
+            setShowContactModal(false)
+            setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const deleteContactMutation = useMutation({
+        mutationFn: (contactId: string) => deleteContabilityContact(contactId),
+        onSuccess: (_result, contactId) => {
+            queryClient.setQueryData(["contability", id], (old: any) => {
+                if (!old) return old
+
+                return {
+                    ...old,
+                    contacts: old.contacts.filter((contact: any) => contact.id !== contactId),
+                }
+            })
+            queryClient.invalidateQueries({ queryKey: ["contabilities"] })
+            toast.success("Contato removido!")
         },
         onError: (err: Error) => toast.error(err.message),
     })
@@ -173,11 +225,7 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
     const availableClients = (clientSearchResults?.items || []).filter((client) => !firm?.clients.some((linkedClient) => linkedClient.id === client.id))
 
     if (isLoading) {
-        return (
-            <div className="flex items-center justify-center h-full bg-slate-50">
-                <Loader2 size={28} className="animate-spin text-indigo-600" />
-            </div>
-        )
+        return <GlobalScreenLoader />
     }
 
     if (isError || !firm) {
@@ -456,6 +504,60 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                             <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-100">
                                 <div className="flex items-center gap-2">
                                     <Users size={12} className="text-slate-600" />
+                                    <p className="text-xs font-medium text-slate-600">Contatos ({firm.contacts.length})</p>
+                                </div>
+                                <button onClick={() => setShowContactModal(true)} className="text-slate-400 hover:text-indigo-600 cursor-pointer" title="Adicionar contato">
+                                    <Plus size={12} />
+                                </button>
+                            </div>
+                            <div>
+                                {firm.contacts.length === 0 ? (
+                                    <div className="px-3 py-4 text-center">
+                                        <p className="text-xs text-slate-400">Nenhum contato cadastrado</p>
+                                    </div>
+                                ) : (
+                                    <div className="divide-y divide-slate-50">
+                                        {firm.contacts.map((contact: any) => (
+                                            <div key={contact.id} className="px-3 py-2.5">
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className="text-xs font-semibold text-slate-900 truncate">{contact.name}</span>
+                                                    <div className="flex items-center gap-1.5">
+                                                        {contact.role && <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded capitalize">{contact.role}</span>}
+                                                        <button onClick={() => deleteContactMutation.mutate(contact.id)} className="text-slate-300 hover:text-red-500 cursor-pointer" title="Remover contato"><Trash2 size={10} /></button>
+                                                    </div>
+                                                </div>
+                                                {contact.phone && (
+                                                    <div className="flex items-center gap-1.5 text-xs text-slate-600 mb-1 break-all">
+                                                        <Phone size={9} className="text-slate-300" />
+                                                        <span>{contact.phone}</span>
+                                                        <button onClick={() => window.open(`https://wa.me/55${cleanPhone(contact.phone)}`, "_blank")} className="text-slate-300 hover:text-emerald-500 cursor-pointer"><MessageCircle size={9} /></button>
+                                                        <button onClick={() => handleCopy(contact.phone, `cphone-${contact.id}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer">{copied === `cphone-${contact.id}` ? <Check size={9} className="text-emerald-500" /> : <Copy size={9} />}</button>
+                                                    </div>
+                                                )}
+                                                {contact.email && (
+                                                    <div className="flex items-center gap-1.5 text-xs text-slate-600 mb-1 break-all">
+                                                        <Mail size={9} className="text-slate-300" />
+                                                        <span className="truncate">{contact.email}</span>
+                                                        <button onClick={() => handleCopy(contact.email, `cemail-${contact.id}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer shrink-0">{copied === `cemail-${contact.id}` ? <Check size={9} className="text-emerald-500" /> : <Copy size={9} />}</button>
+                                                    </div>
+                                                )}
+                                                {contact.bestContactTime && (
+                                                    <div className="flex items-center gap-1.5">
+                                                        <Clock size={9} className="text-slate-300" />
+                                                        <span className="text-xs text-slate-600">{contact.bestContactTime}</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-lg border border-slate-200">
+                            <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-100">
+                                <div className="flex items-center gap-2">
+                                    <Users size={12} className="text-slate-600" />
                                     <p className="text-xs font-medium text-slate-600">Clientes ({firm.clients.length})</p>
                                 </div>
                             </div>
@@ -576,6 +678,44 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                         <Button onClick={() => attachClientMutation.mutate(selectedClientId)} disabled={!selectedClientId || attachClientMutation.isPending}>
                             {attachClientMutation.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
                             Vincular cliente
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={showContactModal} onOpenChange={(open) => { setShowContactModal(open); if (!open) setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" }) }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Adicionar Contato</DialogTitle>
+                        <DialogDescription>Preencha os dados do novo contato da contabilidade.</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3">
+                        <Input placeholder="Nome *" value={contactForm.name} onChange={(e) => setContactForm((p) => ({ ...p, name: e.target.value }))} />
+                        <div className="grid grid-cols-2 gap-2">
+                            <Input placeholder="Telefone" value={contactForm.phone} onChange={(e) => setContactForm((p) => ({ ...p, phone: maskPhone(e.target.value) }))} />
+                            <Input placeholder="Email" value={contactForm.email} onChange={(e) => setContactForm((p) => ({ ...p, email: e.target.value }))} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={contactForm.role} onChange={(e) => setContactForm((p) => ({ ...p, role: e.target.value }))}>
+                                <option value="">Selecione</option>
+                                {CONTACT_ROLES.map((role) => (
+                                    <option key={role} value={role}>{role}</option>
+                                ))}
+                            </select>
+                            <Input placeholder="Melhor horário" value={contactForm.bestContactTime} onChange={(e) => setContactForm((p) => ({ ...p, bestContactTime: maskContactTime(e.target.value) }))} />
+                        </div>
+                    </div>
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => { setShowContactModal(false); setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" }) }}>Cancelar</Button>
+                        <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" disabled={!contactForm.name.trim() || addContactMutation.isPending} onClick={() => addContactMutation.mutate({
+                            name: contactForm.name,
+                            phone: contactForm.phone || undefined,
+                            email: contactForm.email || undefined,
+                            role: contactForm.role || undefined,
+                            bestContactTime: contactForm.bestContactTime || undefined,
+                        })}>
+                            {addContactMutation.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : <Plus size={14} className="mr-2" />}
+                            Adicionar contato
                         </Button>
                     </DialogFooter>
                 </DialogContent>
