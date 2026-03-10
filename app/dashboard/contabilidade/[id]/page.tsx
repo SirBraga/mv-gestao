@@ -18,6 +18,11 @@ import { ArrowLeft, Mail, MessageCircle, Users, Check, Copy, Pencil, Save, X, Lo
 
 const STATES = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"]
 
+type ContabilityDetail = NonNullable<Awaited<ReturnType<typeof getContabilityById>>>
+type ClientSearchResults = Awaited<ReturnType<typeof getClientSearchOptions>>
+type LinkedClient = ContabilityDetail["clients"][number]
+type SearchClient = ClientSearchResults["items"][number]
+
 const INITIAL_FORM = {
     name: "",
     type: "PJ" as "PF" | "PJ",
@@ -222,7 +227,7 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
         })
     }
 
-    const availableClients = (clientSearchResults?.items || []).filter((client) => !firm?.clients.some((linkedClient) => linkedClient.id === client.id))
+    const availableClients = (clientSearchResults?.items || []).filter((client: SearchClient) => !firm?.clients.some((linkedClient: LinkedClient) => linkedClient.id === client.id))
 
     if (isLoading) {
         return <GlobalScreenLoader />
