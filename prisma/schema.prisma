@@ -308,6 +308,7 @@ model Products {
   priceQuarterly  Float?  // Preço trimestral
   priceYearly     Float?  // Preço anual
   hasSerialControl Boolean @default(false)  // Controla se produto exige serial
+  hasPluginControl Boolean @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

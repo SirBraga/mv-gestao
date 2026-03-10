@@ -1,7 +1,8 @@
 "use client"
 
 import React, { useEffect, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
+import type { InstallationType } from "@/app/generated/prisma/enums"
 import { use } from "react"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
@@ -13,6 +14,7 @@ import { maskCPF, maskCNPJ, maskPhone, maskCEP, maskContactTime } from "@/app/ut
 import { CONTACT_ROLES } from "@/app/constants/options"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { MultiSelect } from "@/components/ui/multi-select"
 import {
     Dialog,
     DialogContent,
@@ -199,7 +201,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     })
 
     const { data: allProducts = [] } = useQuery({
-        queryKey: ["products"],
+        queryKey: ["product-options"],
         queryFn: () => getProductOptions(),
         enabled: editing,
         staleTime: 30 * 60 * 1000,
@@ -571,13 +573,13 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
         // Carregar produtos existentes do cliente
         if (client.clientProducts && client.clientProducts.length > 0) {
             client.clientProducts.forEach(clientProduct => {
-                existingProductIds.push(clientProduct.productId)
+                const productId = clientProduct.product.id
+                existingProductIds.push(productId)
                 if (clientProduct.installationType) {
-                    existingInstallationTypes[clientProduct.productId] = clientProduct.installationType
+                    existingInstallationTypes[productId] = clientProduct.installationType
                 }
-                // Carregar plugins do produto
                 if (clientProduct.plugins && clientProduct.plugins.length > 0) {
-                    existingPlugins[clientProduct.productId] = clientProduct.plugins.map(plugin => plugin.productPluginId)
+                    existingPlugins[productId] = clientProduct.plugins.map(plugin => plugin.productPlugin.id)
                 }
             })
         }
@@ -742,7 +744,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                 const clientProductResult = await createOrUpdateClientProduct({
                     clientId: id,
                     productId,
-                    installationType: productInstallationTypes[productId] || undefined,
+                    installationType: (productInstallationTypes[productId] as InstallationType | undefined) || undefined,
                 })
 
                 const clientProductId = clientProductResult.id
@@ -1269,10 +1271,11 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
                             {/* Lista de produtos */}
                             <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg mb-3">
-                                {(allProducts as { id: string; name: string; hasSerialControl: boolean; plugins: Array<{ id: string; name: string }> }[])
+                                {(allProducts as { id: string; name: string; hasSerialControl: boolean; installationTypesInUse?: string[]; plugins: Array<{ id: string; name: string; status?: string | null }> }[])
                                     .filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()))
                                     .map(p => {
                                         const selected = selectedProductIds.includes(p.id)
+                                        const showInstallationType = !!productInstallationTypes[p.id] || !!p.installationTypesInUse?.length
                                         return (
                                             <div key={p.id} className="border-b border-slate-100 last:border-b-0">
                                                 <button
@@ -1362,59 +1365,45 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                                 )}
                                                 {selected && (
                                                     <div className="px-3 pb-2 space-y-3">
-                                                        {/* Modalidade de Instalação */}
-                                                        <div>
-                                                            <label className="text-xs font-medium text-slate-600 mb-1 block">Modalidade de Instalação</label>
-                                                            <select
-                                                                className="w-full h-8 rounded border border-slate-200 px-2 text-xs text-slate-700 bg-white"
-                                                                value={productInstallationTypes[p.id] || ""}
-                                                                onChange={e => setProductInstallationTypes(prev => ({
-                                                                    ...prev,
-                                                                    [p.id]: e.target.value
-                                                                }))}
-                                                            >
-                                                                <option value="">Selecione...</option>
-                                                                <option value="LOCAL">Local</option>
-                                                                <option value="SERVIDOR">Servidor</option>
-                                                                <option value="ONLINE">Online</option>
-                                                            </select>
-                                                        </div>
+                                                        {showInstallationType && (
+                                                            <div>
+                                                                <label className="text-xs font-medium text-slate-600 mb-1 block">Modalidade de Instalação</label>
+                                                                <select
+                                                                    className="w-full h-8 rounded border border-slate-200 px-2 text-xs text-slate-700 bg-white"
+                                                                    value={productInstallationTypes[p.id] || ""}
+                                                                    onChange={e => setProductInstallationTypes(prev => ({
+                                                                        ...prev,
+                                                                        [p.id]: e.target.value
+                                                                    }))}
+                                                                >
+                                                                    <option value="">Selecione...</option>
+                                                                    <option value="LOCAL">Local</option>
+                                                                    <option value="SERVIDOR">Servidor</option>
+                                                                    <option value="ONLINE">Online</option>
+                                                                </select>
+                                                            </div>
+                                                        )}
                                                         
                                                         {/* Plugins */}
                                                         {p.plugins && p.plugins.length > 0 && (
                                                             <div>
                                                                 <label className="text-xs font-medium text-slate-600 mb-1 block">Plugins</label>
-                                                                <div className="space-y-1">
-                                                                    {p.plugins.map(plugin => {
-                                                                        const pluginSelected = selectedPlugins[p.id]?.includes(plugin.id)
-                                                                        return (
-                                                                            <label key={plugin.id} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                                                                                <input
-                                                                                    type="checkbox"
-                                                                                    checked={pluginSelected}
-                                                                                    onChange={e => {
-                                                                                        setSelectedPlugins(prev => {
-                                                                                            const currentPlugins = prev[p.id] || []
-                                                                                            if (e.target.checked) {
-                                                                                                return {
-                                                                                                    ...prev,
-                                                                                                    [p.id]: [...currentPlugins, plugin.id]
-                                                                                                }
-                                                                                            } else {
-                                                                                                return {
-                                                                                                    ...prev,
-                                                                                                    [p.id]: currentPlugins.filter(id => id !== plugin.id)
-                                                                                                }
-                                                                                            }
-                                                                                        })
-                                                                                    }}
-                                                                                    className="h-3 w-3 rounded border-slate-300 text-indigo-600"
-                                                                                />
-                                                                                <span>{plugin.name}</span>
-                                                                            </label>
-                                                                        )
-                                                                    })}
-                                                                </div>
+                                                                <MultiSelect
+                                                                    options={p.plugins.map((plugin) => ({
+                                                                        value: plugin.id,
+                                                                        label: plugin.name,
+                                                                        subtitle: plugin.status && plugin.status !== "ATIVO" ? plugin.status : undefined,
+                                                                    }))}
+                                                                    value={selectedPlugins[p.id] || []}
+                                                                    onChange={(values) => setSelectedPlugins((prev) => ({
+                                                                        ...prev,
+                                                                        [p.id]: values,
+                                                                    }))}
+                                                                    placeholder="Selecionar plugins..."
+                                                                    searchPlaceholder="Buscar plugin..."
+                                                                    emptyMessage="Nenhum plugin encontrado"
+                                                                    maxVisible={4}
+                                                                />
                                                             </div>
                                                         )}
                                                     </div>

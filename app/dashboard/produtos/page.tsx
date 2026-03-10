@@ -7,7 +7,7 @@ import { GlobalScreenLoader } from "@/app/components/global-screen-loader"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
-import { Search, Package, Plus, Loader2, Pencil, Trash2, MoreHorizontal, Key, ChevronUp, ChevronDown, ArrowUp, ArrowDown, CheckCircle, XCircle, PauseCircle, Star, Plug, Settings2, Link2 } from "lucide-react"
+import { Search, Package, Plus, Loader2, Pencil, Trash2, MoreHorizontal, Key, ChevronUp, ChevronDown, ArrowUp, ArrowDown, CheckCircle, XCircle, PauseCircle, Plug, Settings2, Link2 } from "lucide-react"
 import { toast } from "react-toastify"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 
@@ -39,6 +39,7 @@ interface ProductData {
     priceQuarterly: number | null
     priceYearly: number | null
     hasSerialControl: boolean
+    hasPluginControl: boolean
     clientId: string | null
     clientUsageCount?: number
     installationTypesInUse?: string[]
@@ -57,6 +58,7 @@ const INITIAL_FORM = {
     name: "", description: "", category: "ERP",
     status: "ATIVO", priceMonthly: "", priceQuarterly: "", priceYearly: "",
     hasSerialControl: false,
+    hasPluginControl: false,
     plugins: [{ name: "", status: "ATIVO", priceMonthly: "", priceQuarterly: "", priceYearly: "" }],
 }
 
@@ -97,7 +99,6 @@ export default function ProdutosPage() {
     const [sortKey, setSortKey] = useState<SortKey>("name")
     const [sortDir, setSortDir] = useState<SortDir>("asc")
     const [defaultOpen, setDefaultOpen] = useState(true)
-    const [favoritesOpen, setFavoritesOpen] = useState(false)
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [editDrawerOpen, setEditDrawerOpen] = useState(false)
     const [selectedProduct, setSelectedProduct] = useState<ProductData | null>(null)
@@ -200,7 +201,8 @@ export default function ProdutosPage() {
             priceQuarterly: form.priceQuarterly ? parseFloat(form.priceQuarterly) : undefined,
             priceYearly: form.priceYearly ? parseFloat(form.priceYearly) : undefined,
             hasSerialControl: form.hasSerialControl,
-            plugins: form.plugins
+            hasPluginControl: form.hasPluginControl,
+            plugins: form.hasPluginControl ? form.plugins
                 .filter((plugin) => plugin.name.trim())
                 .map((plugin) => ({
                     name: plugin.name.trim(),
@@ -208,7 +210,7 @@ export default function ProdutosPage() {
                     priceMonthly: plugin.priceMonthly ? parseFloat(plugin.priceMonthly) : undefined,
                     priceQuarterly: plugin.priceQuarterly ? parseFloat(plugin.priceQuarterly) : undefined,
                     priceYearly: plugin.priceYearly ? parseFloat(plugin.priceYearly) : undefined,
-                })),
+                })) : [],
         })
     }
 
@@ -226,7 +228,8 @@ export default function ProdutosPage() {
                 priceQuarterly: editForm.priceQuarterly ? parseFloat(editForm.priceQuarterly) : null,
                 priceYearly: editForm.priceYearly ? parseFloat(editForm.priceYearly) : null,
                 hasSerialControl: editForm.hasSerialControl,
-                plugins: editForm.plugins
+                hasPluginControl: editForm.hasPluginControl,
+                plugins: editForm.hasPluginControl ? editForm.plugins
                     .filter((plugin) => plugin.name.trim())
                     .map((plugin) => ({
                         name: plugin.name.trim(),
@@ -234,7 +237,7 @@ export default function ProdutosPage() {
                         priceMonthly: plugin.priceMonthly ? parseFloat(plugin.priceMonthly) : null,
                         priceQuarterly: plugin.priceQuarterly ? parseFloat(plugin.priceQuarterly) : null,
                         priceYearly: plugin.priceYearly ? parseFloat(plugin.priceYearly) : null,
-                    })),
+                    })) : [],
             },
         })
     }
@@ -249,7 +252,8 @@ export default function ProdutosPage() {
             priceMonthly: product.priceMonthly?.toString() || "",
             priceQuarterly: product.priceQuarterly?.toString() || "",
             priceYearly: product.priceYearly?.toString() || "",
-            hasSerialControl: product.hasSerialControl,
+            hasSerialControl: !!product.hasSerialControl,
+            hasPluginControl: !!product.hasPluginControl,
             plugins: product.plugins?.length
                 ? product.plugins.map((plugin) => ({
                     name: plugin.name,
@@ -372,23 +376,6 @@ export default function ProdutosPage() {
                     )}
                 </div>
 
-                {/* Favourites Section */}
-                <div>
-                    <button
-                        onClick={() => setFavoritesOpen(!favoritesOpen)}
-                        className="flex items-center justify-between w-full px-2 mb-2"
-                    >
-                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Favoritos</span>
-                        {favoritesOpen ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronUp size={14} className="text-slate-400" />}
-                    </button>
-
-                    {favoritesOpen && (
-                        <div className="flex items-center gap-2.5 px-3 py-3 text-slate-400 text-sm bg-slate-50 rounded-xl">
-                            <Star size={16} />
-                            <span>Nenhum favorito</span>
-                        </div>
-                    )}
-                </div>
             </div>
 
             {/* Right Content Area */}
@@ -607,7 +594,7 @@ export default function ProdutosPage() {
                             <input
                                 type="checkbox"
                                 id="hasSerialControl"
-                                checked={form.hasSerialControl}
+                                checked={!!form.hasSerialControl}
                                 onChange={e => setForm({...form, hasSerialControl: e.target.checked})}
                                 className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                             />
@@ -615,39 +602,53 @@ export default function ProdutosPage() {
                                 Exige controle de seriais
                             </label>
                         </div>
-                        <div className="space-y-3 rounded-xl border border-slate-200 p-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-sm font-semibold text-slate-900">Plugins base do produto</p>
-                                    <p className="text-xs text-slate-500">Esses plugins ficam disponíveis para contratação quando o produto for vinculado a clientes.</p>
-                                </div>
-                                <Button type="button" variant="outline" className="h-8 px-3 text-xs" onClick={() => addPluginRow("create")}>
-                                    <Plus size={12} className="mr-1" /> Plugin
-                                </Button>
-                            </div>
-                            <div className="space-y-3">
-                                {form.plugins.map((plugin, index) => (
-                                    <div key={`create-plugin-${index}`} className="rounded-lg border border-slate-200 p-3 space-y-3">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <Input placeholder="Nome do plugin" className="h-9 text-sm" value={plugin.name} onChange={(e) => updatePluginRow("create", index, "name", e.target.value)} />
-                                            <Button type="button" variant="ghost" className="h-9 px-2 text-slate-500" onClick={() => removePluginRow("create", index)} disabled={form.plugins.length === 1}>
-                                                <Trash2 size={14} />
-                                            </Button>
-                                        </div>
-                                        <div className="grid grid-cols-4 gap-2">
-                                            <select className="h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 bg-white" value={plugin.status} onChange={(e) => updatePluginRow("create", index, "status", e.target.value)}>
-                                                <option value="ATIVO">Ativo</option>
-                                                <option value="INATIVO">Inativo</option>
-                                                <option value="SUSPENSO">Suspenso</option>
-                                            </select>
-                                            <Input placeholder="Mensal" type="number" className="h-9 text-sm" value={plugin.priceMonthly} onChange={(e) => updatePluginRow("create", index, "priceMonthly", e.target.value)} />
-                                            <Input placeholder="Trim." type="number" className="h-9 text-sm" value={plugin.priceQuarterly} onChange={(e) => updatePluginRow("create", index, "priceQuarterly", e.target.value)} />
-                                            <Input placeholder="Anual" type="number" className="h-9 text-sm" value={plugin.priceYearly} onChange={(e) => updatePluginRow("create", index, "priceYearly", e.target.value)} />
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                        <div className="flex items-center gap-3 py-2">
+                            <input
+                                type="checkbox"
+                                id="hasPluginControl"
+                                checked={!!form.hasPluginControl}
+                                onChange={e => setForm({...form, hasPluginControl: e.target.checked})}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            />
+                            <label htmlFor="hasPluginControl" className="text-sm font-medium text-gray-700">
+                                Controla plugins
+                            </label>
                         </div>
+                        {form.hasPluginControl && (
+                            <div className="space-y-3 rounded-xl border border-slate-200 p-4">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-900">Plugins base do produto</p>
+                                        <p className="text-xs text-slate-500">Esses plugins ficam disponíveis para contratação quando o produto for vinculado a clientes.</p>
+                                    </div>
+                                    <Button type="button" variant="outline" className="h-8 px-3 text-xs" onClick={() => addPluginRow("create")}>
+                                        <Plus size={12} className="mr-1" /> Plugin
+                                    </Button>
+                                </div>
+                                <div className="space-y-3">
+                                    {form.plugins.map((plugin, index) => (
+                                        <div key={`create-plugin-${index}`} className="rounded-lg border border-slate-200 p-3 space-y-3">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <Input placeholder="Nome do plugin" className="h-9 text-sm" value={plugin.name} onChange={(e) => updatePluginRow("create", index, "name", e.target.value)} />
+                                                <Button type="button" variant="ghost" className="h-9 px-2 text-slate-500" onClick={() => removePluginRow("create", index)} disabled={form.plugins.length === 1}>
+                                                    <Trash2 size={14} />
+                                                </Button>
+                                            </div>
+                                            <div className="grid grid-cols-4 gap-2">
+                                                <select className="h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 bg-white" value={plugin.status} onChange={(e) => updatePluginRow("create", index, "status", e.target.value)}>
+                                                    <option value="ATIVO">Ativo</option>
+                                                    <option value="INATIVO">Inativo</option>
+                                                    <option value="SUSPENSO">Suspenso</option>
+                                                </select>
+                                                <Input placeholder="Mensal" type="number" className="h-9 text-sm" value={plugin.priceMonthly} onChange={(e) => updatePluginRow("create", index, "priceMonthly", e.target.value)} />
+                                                <Input placeholder="Trim." type="number" className="h-9 text-sm" value={plugin.priceQuarterly} onChange={(e) => updatePluginRow("create", index, "priceQuarterly", e.target.value)} />
+                                                <Input placeholder="Anual" type="number" className="h-9 text-sm" value={plugin.priceYearly} onChange={(e) => updatePluginRow("create", index, "priceYearly", e.target.value)} />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                     <SheetFooter className="px-6 py-4 border-t border-gray-100">
                         <div className="flex gap-2 w-full">
@@ -714,7 +715,7 @@ export default function ProdutosPage() {
                             <input
                                 type="checkbox"
                                 id="editHasSerialControl"
-                                checked={editForm.hasSerialControl}
+                                checked={!!editForm.hasSerialControl}
                                 onChange={e => setEditForm({...editForm, hasSerialControl: e.target.checked})}
                                 disabled={(selectedProduct?.clientUsageCount || 0) > 0 && selectedProduct?.hasSerialControl}
                                 className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
@@ -728,45 +729,65 @@ export default function ProdutosPage() {
                                 Este produto já possui clientes vinculados. Por segurança, o controle de serial não pode ser desativado.
                             </p>
                         )}
+                        <div className="flex items-center gap-3 py-2">
+                            <input
+                                type="checkbox"
+                                id="editHasPluginControl"
+                                checked={!!editForm.hasPluginControl}
+                                onChange={e => setEditForm({...editForm, hasPluginControl: e.target.checked})}
+                                disabled={(selectedProduct?.clientUsageCount || 0) > 0 && selectedProduct?.hasPluginControl}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            />
+                            <label htmlFor="editHasPluginControl" className="text-sm font-medium text-gray-700">
+                                Controla plugins
+                            </label>
+                        </div>
+                        {(selectedProduct?.clientUsageCount || 0) > 0 && selectedProduct?.hasPluginControl && (
+                            <p className="text-xs text-amber-600 -mt-1">
+                                Este produto já possui clientes vinculados. Por segurança, o controle de plugins não pode ser desativado e os plugins não podem ser alterados.
+                            </p>
+                        )}
                         {!!selectedProduct?.installationTypesInUse?.length && (
                             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                                 <p className="text-xs font-semibold text-slate-700">Modos de instalação em uso</p>
                                 <p className="mt-1 text-xs text-slate-500">{selectedProduct.installationTypesInUse.join(", ")}</p>
                             </div>
                         )}
-                        <div className="space-y-3 rounded-xl border border-slate-200 p-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-sm font-semibold text-slate-900">Plugins base do produto</p>
-                                    <p className="text-xs text-slate-500">Atualize os plugins disponíveis para novos vínculos deste produto.</p>
-                                </div>
-                                <Button type="button" variant="outline" className="h-8 px-3 text-xs" onClick={() => addPluginRow("edit")}>
-                                    <Plus size={12} className="mr-1" /> Plugin
-                                </Button>
-                            </div>
-                            <div className="space-y-3">
-                                {editForm.plugins.map((plugin, index) => (
-                                    <div key={`edit-plugin-${index}`} className="rounded-lg border border-slate-200 p-3 space-y-3">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <Input placeholder="Nome do plugin" className="h-9 text-sm" value={plugin.name} onChange={(e) => updatePluginRow("edit", index, "name", e.target.value)} />
-                                            <Button type="button" variant="ghost" className="h-9 px-2 text-slate-500" onClick={() => removePluginRow("edit", index)} disabled={editForm.plugins.length === 1}>
-                                                <Trash2 size={14} />
-                                            </Button>
-                                        </div>
-                                        <div className="grid grid-cols-4 gap-2">
-                                            <select className="h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 bg-white" value={plugin.status} onChange={(e) => updatePluginRow("edit", index, "status", e.target.value)}>
-                                                <option value="ATIVO">Ativo</option>
-                                                <option value="INATIVO">Inativo</option>
-                                                <option value="SUSPENSO">Suspenso</option>
-                                            </select>
-                                            <Input placeholder="Mensal" type="number" className="h-9 text-sm" value={plugin.priceMonthly} onChange={(e) => updatePluginRow("edit", index, "priceMonthly", e.target.value)} />
-                                            <Input placeholder="Trim." type="number" className="h-9 text-sm" value={plugin.priceQuarterly} onChange={(e) => updatePluginRow("edit", index, "priceQuarterly", e.target.value)} />
-                                            <Input placeholder="Anual" type="number" className="h-9 text-sm" value={plugin.priceYearly} onChange={(e) => updatePluginRow("edit", index, "priceYearly", e.target.value)} />
-                                        </div>
+                        {editForm.hasPluginControl && (
+                            <div className="space-y-3 rounded-xl border border-slate-200 p-4">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-900">Plugins base do produto</p>
+                                        <p className="text-xs text-slate-500">Atualize os plugins disponíveis para novos vínculos deste produto.</p>
                                     </div>
-                                ))}
+                                    <Button type="button" variant="outline" className="h-8 px-3 text-xs" onClick={() => addPluginRow("edit")} disabled={(selectedProduct?.clientUsageCount || 0) > 0 && selectedProduct?.hasPluginControl}>
+                                        <Plus size={12} className="mr-1" /> Plugin
+                                    </Button>
+                                </div>
+                                <div className="space-y-3">
+                                    {editForm.plugins.map((plugin, index) => (
+                                        <div key={`edit-plugin-${index}`} className="rounded-lg border border-slate-200 p-3 space-y-3">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <Input placeholder="Nome do plugin" className="h-9 text-sm" value={plugin.name} onChange={(e) => updatePluginRow("edit", index, "name", e.target.value)} disabled={(selectedProduct?.clientUsageCount || 0) > 0 && selectedProduct?.hasPluginControl} />
+                                                <Button type="button" variant="ghost" className="h-9 px-2 text-slate-500" onClick={() => removePluginRow("edit", index)} disabled={editForm.plugins.length === 1 || ((selectedProduct?.clientUsageCount || 0) > 0 && selectedProduct?.hasPluginControl)}>
+                                                    <Trash2 size={14} />
+                                                </Button>
+                                            </div>
+                                            <div className="grid grid-cols-4 gap-2">
+                                                <select className="h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 bg-white" value={plugin.status} onChange={(e) => updatePluginRow("edit", index, "status", e.target.value)} disabled={(selectedProduct?.clientUsageCount || 0) > 0 && selectedProduct?.hasPluginControl}>
+                                                    <option value="ATIVO">Ativo</option>
+                                                    <option value="INATIVO">Inativo</option>
+                                                    <option value="SUSPENSO">Suspenso</option>
+                                                </select>
+                                                <Input placeholder="Mensal" type="number" className="h-9 text-sm" value={plugin.priceMonthly} onChange={(e) => updatePluginRow("edit", index, "priceMonthly", e.target.value)} disabled={(selectedProduct?.clientUsageCount || 0) > 0 && selectedProduct?.hasPluginControl} />
+                                                <Input placeholder="Trim." type="number" className="h-9 text-sm" value={plugin.priceQuarterly} onChange={(e) => updatePluginRow("edit", index, "priceQuarterly", e.target.value)} disabled={(selectedProduct?.clientUsageCount || 0) > 0 && selectedProduct?.hasPluginControl} />
+                                                <Input placeholder="Anual" type="number" className="h-9 text-sm" value={plugin.priceYearly} onChange={(e) => updatePluginRow("edit", index, "priceYearly", e.target.value)} disabled={(selectedProduct?.clientUsageCount || 0) > 0 && selectedProduct?.hasPluginControl} />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
                     <SheetFooter className="px-6 py-4 border-t border-gray-100">
                         <div className="flex gap-2 w-full">

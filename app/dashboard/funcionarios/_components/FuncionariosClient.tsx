@@ -49,7 +49,6 @@ import {
     ArrowUp,
     ArrowDown,
     Users,
-    Star,
     Pencil,
 } from "lucide-react"
 import { toast } from "react-toastify"
@@ -137,7 +136,6 @@ export default function FuncionariosClient({ isAdmin, currentUserId }: Props) {
     const [sortKey, setSortKey] = useState<SortKey>("name")
     const [sortDir, setSortDir] = useState<SortDir>("asc")
     const [defaultOpen, setDefaultOpen] = useState(true)
-    const [favoritesOpen, setFavoritesOpen] = useState(false)
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [deleteModal, setDeleteModal] = useState<string | null>(null)
     const [roleModal, setRoleModal] = useState<{ userId: string; currentRole: Role } | null>(null)
@@ -299,23 +297,6 @@ export default function FuncionariosClient({ isAdmin, currentUserId }: Props) {
                     )}
                 </div>
 
-                {/* Favourites Section */}
-                <div>
-                    <button
-                        onClick={() => setFavoritesOpen(!favoritesOpen)}
-                        className="flex items-center justify-between w-full px-2 mb-2"
-                    >
-                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Favoritos</span>
-                        {favoritesOpen ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronUp size={14} className="text-slate-400" />}
-                    </button>
-
-                    {favoritesOpen && (
-                        <div className="flex items-center gap-2.5 px-3 py-3 text-slate-400 text-sm bg-slate-50 rounded-xl">
-                            <Star size={16} />
-                            <span>Nenhum favorito</span>
-                        </div>
-                    )}
-                </div>
             </div>
 
             {/* Right Content Area */}

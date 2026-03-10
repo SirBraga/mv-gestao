@@ -9,7 +9,7 @@ import { GlobalScreenLoader } from "@/app/components/global-screen-loader"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
-import { Search, Calculator, Plus, Loader2, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Building2, User, Star, Users, Trash2 } from "lucide-react"
+import { Search, Calculator, Plus, Loader2, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Building2, User, Users, Trash2 } from "lucide-react"
 import { toast } from "react-toastify"
 import { maskCPF, maskCNPJ, maskPhone, maskCEP, maskContactTime } from "@/app/utils/masks"
 
@@ -67,7 +67,6 @@ export default function ContabilidadePage() {
     const [sortKey, setSortKey] = useState<SortKey>("clientName")
     const [sortDir, setSortDir] = useState<SortDir>("asc")
     const [defaultOpen, setDefaultOpen] = useState(true)
-    const [favoritesOpen, setFavoritesOpen] = useState(false)
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [editDrawerOpen, setEditDrawerOpen] = useState(false)
     const [selectedItem, setSelectedItem] = useState<AccountingData | null>(null)
@@ -433,23 +432,6 @@ export default function ContabilidadePage() {
                     )}
                 </div>
 
-                {/* Favourites Section */}
-                <div>
-                    <button
-                        onClick={() => setFavoritesOpen(!favoritesOpen)}
-                        className="flex items-center justify-between w-full px-2 mb-2"
-                    >
-                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Favoritos</span>
-                        {favoritesOpen ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronUp size={14} className="text-slate-400" />}
-                    </button>
-
-                    {favoritesOpen && (
-                        <div className="flex items-center gap-2.5 px-3 py-3 text-slate-400 text-sm bg-slate-50 rounded-xl">
-                            <Star size={16} />
-                            <span>Nenhum favorito</span>
-                        </div>
-                    )}
-                </div>
             </div>
 
             {/* Right Content Area */}

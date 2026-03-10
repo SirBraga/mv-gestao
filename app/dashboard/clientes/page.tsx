@@ -27,7 +27,6 @@ import {
     Users,
     UserCheck,
     UserX,
-    Star,
     ArrowUp,
     ArrowDown,
     Plus,
@@ -146,7 +145,6 @@ export default function Clientes() {
     const [activeProductId, setActiveProductId] = useState<string>("")
     const [defaultOpen, setDefaultOpen] = useState(true)
     const [productsOpen, setProductsOpen] = useState(true)
-    const [favoritesOpen, setFavoritesOpen] = useState(true)
     const [searchQuery, setSearchQuery] = useState("")
     const [sortKey, setSortKey] = useState<SortKey>("name")
     const [sortDir, setSortDir] = useState<SortDir>("asc")
@@ -614,23 +612,6 @@ export default function Clientes() {
                     )}
                 </div>
 
-                {/* Favourites Section */}
-                <div>
-                    <button
-                        onClick={() => setFavoritesOpen(!favoritesOpen)}
-                        className="flex items-center justify-between w-full px-2 mb-2"
-                    >
-                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Favoritos</span>
-                        {favoritesOpen ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronUp size={14} className="text-slate-400" />}
-                    </button>
-
-                    {favoritesOpen && (
-                        <div className="flex items-center gap-2.5 px-3 py-3 text-slate-400 text-sm bg-slate-50 rounded-xl">
-                            <Star size={16} />
-                            <span>Nenhum favorito</span>
-                        </div>
-                    )}
-                </div>
             </div>
 
             {/* Right Content Area */}
