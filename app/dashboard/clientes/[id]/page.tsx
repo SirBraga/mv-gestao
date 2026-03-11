@@ -1253,6 +1253,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                                     <option value="DESCUMPRIMENTO">Descumprimento de Cláusulas</option>
                                                     <option value="INSATISFACAO_COM_SERVICO">Insatisfação com o Serviço</option>
                                                     <option value="MUDANCA_DE_FOCO">Mudança de Foco do Negócio</option>
+                                                    <option value="MUDOU_DE_SOFTWARE">Mudou de Software</option>
                                                     <option value="FUSAO_AQUISICAO">Fusão ou Aquisição</option>
                                                     <option value="ENCERRAMENTO_ATIVIDADES">Encerramento de Atividades</option>
                                                     <option value="OUTRO">Outro</option>
@@ -1347,6 +1348,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                             {client.contractCancelReason === "DESCUMPRIMENTO" && "Descumprimento de Cláusulas"}
                                             {client.contractCancelReason === "INSATISFACAO_COM_SERVICO" && "Insatisfação com o Serviço"}
                                             {client.contractCancelReason === "MUDANCA_DE_FOCO" && "Mudança de Foco do Negócio"}
+                                            {client.contractCancelReason === "MUDOU_DE_SOFTWARE" && "Mudou de Software"}
                                             {client.contractCancelReason === "FUSAO_AQUISICAO" && "Fusão ou Aquisição"}
                                             {client.contractCancelReason === "ENCERRAMENTO_ATIVIDADES" && "Encerramento de Atividades"}
                                             {client.contractCancelReason === "OUTRO" && "Outro"}
@@ -2280,6 +2282,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                             <option value="DESCUMPRIMENTO">Descumprimento de Cláusulas</option>
                                             <option value="INSATISFACAO_COM_SERVICO">Insatisfação com o Serviço</option>
                                             <option value="MUDANCA_DE_FOCO">Mudança de Foco do Negócio</option>
+                                            <option value="MUDOU_DE_SOFTWARE">Mudou de Software</option>
                                             <option value="FUSAO_AQUISICAO">Fusão ou Aquisição</option>
                                             <option value="ENCERRAMENTO_ATIVIDADES">Encerramento de Atividades</option>
                                             <option value="OUTRO">Outro</option>

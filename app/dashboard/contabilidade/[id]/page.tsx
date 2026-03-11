@@ -745,35 +745,7 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                             </div>
                         </div>
 
-                        <div className="bg-white rounded-lg border border-slate-200">
-                            <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-100">
-                                <div className="flex items-center gap-2">
-                                    <Users size={12} className="text-slate-600" />
-                                    <p className="text-xs font-medium text-slate-600">Clientes ({firm.clients.length})</p>
-                                </div>
-                            </div>
-                            <div>
-                                {firm.clients.length === 0 ? (
-                                    <div className="px-3 py-4 text-center">
-                                        <p className="text-xs text-slate-400">Nenhum cliente cadastrado</p>
-                                    </div>
-                                ) : (
-                                    <div className="divide-y divide-slate-50">
-                                        {firm.clients.map((client: LinkedClient) => (
-                                            <div key={client.id} className="px-3 py-2.5">
-                                                <div className="flex items-center justify-between mb-1">
-                                                    <span className="text-xs font-semibold text-slate-900 truncate">{client.name}</span>
-                                                    <span className="text-[10px] font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">{client.type}</span>
-                                                </div>
-                                                <div className="flex items-center gap-1.5">
-                                                    <span className="text-xs text-slate-600">{client.city || "Sem cidade"}</span>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
+                        
 
                         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                             <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50">
