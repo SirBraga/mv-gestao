@@ -169,6 +169,9 @@ export default function TicketCreateDrawer({
         mutationFn: createTicket,
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["tickets"] })
+            if (lockedClient?.id) {
+                queryClient.invalidateQueries({ queryKey: ["client", lockedClient.id] })
+            }
             onOpenChange(false)
             setForm({ ...INITIAL_FORM, clientId: lockedClient?.id || "" })
             setAttachFiles([])

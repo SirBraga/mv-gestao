@@ -392,7 +392,7 @@ export default function TicketsPage() {
                 </div>
 
                 {/* Column Headers */}
-                <div className="grid grid-cols-[70px_120px_2fr_110px_160px_100px] gap-3 px-6 py-3 border-b border-slate-200 bg-slate-50">
+                <div className="grid grid-cols-[72px_110px_minmax(0,1.7fr)_150px_130px_140px] gap-4 px-6 py-3 border-b border-slate-200 bg-slate-50">
                     {COLUMNS.map((col) => (
                         <button
                             key={col.key}

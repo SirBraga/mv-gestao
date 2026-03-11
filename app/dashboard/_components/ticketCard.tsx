@@ -47,11 +47,12 @@ interface TicketCardProps {
 export default function TicketCard({ ticket, onClaim, onNavigate }: TicketCardProps) {
   const priority = priorityConfig[ticket.priority] || priorityConfig.LOW
   const status = statusConfig[ticket.status] || statusConfig.NOVO
+  const [dateLabel = ticket.date, timeLabel = ""] = ticket.date.split(" ")
 
   return (
     <div
       onClick={() => onNavigate?.(ticket.id)}
-      className="group grid grid-cols-[70px_120px_2fr_110px_160px_100px] items-center border-b border-slate-100 hover:bg-slate-50/50 transition-all px-6 py-3.5 gap-3 cursor-pointer"
+      className="group grid grid-cols-[72px_110px_minmax(0,1.7fr)_150px_130px_140px] items-center border-b border-slate-100 hover:bg-slate-50/50 transition-all px-6 py-3.5 gap-4 cursor-pointer"
     >
       {/* ID */}
       <span className="text-sm text-slate-600 font-mono font-semibold">#{ticket.id}</span>
@@ -78,7 +79,7 @@ export default function TicketCard({ ticket, onClaim, onNavigate }: TicketCardPr
       </div>
 
       {/* Status */}
-      <div className="flex items-center justify-start">
+      <div className="flex items-center justify-start min-w-0">
         <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium ${status.bg} ${status.text}`}>
           <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
           {statusLabel[ticket.status]}
@@ -101,8 +102,8 @@ export default function TicketCard({ ticket, onClaim, onNavigate }: TicketCardPr
       </div>
 
       {/* Data */}
-      <div className="flex items-center justify-end">
-        <span className="text-xs text-slate-500 font-medium">{ticket.date}</span>
+      <div className="flex min-w-0 flex-col items-start justify-center text-right">
+        <span className="text-xs text-slate-500 font-medium leading-none ">{dateLabel} - {timeLabel}</span>
       </div>
     </div>
   )

@@ -20,6 +20,7 @@ model User {
   emailVerified Boolean   @default(false)
   image         String?
   role          Role      @default(USER)
+  permissions   Json?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   tickets       Tickets[]

@@ -3,6 +3,7 @@
 import Image from "next/image"
 import { useState, useEffect, useTransition, useRef, useCallback } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { type PermissionKey, type UserPermissions } from "@/app/utils/permissions"
 import { 
   LayoutDashboard, 
   Users, 
@@ -20,8 +21,6 @@ import {
   Loader2, 
   Bell, 
   CheckCheck,
-  ChevronLeft,
-  ChevronRight,
   Sparkles
 } from "lucide-react"
 import { HiArrowRightOnRectangle } from "react-icons/hi2";
@@ -58,14 +57,14 @@ import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
 
 const navItems = [
-  { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
-  { label: "Clientes", path: "/dashboard/clientes", icon: Users },
-  { label: "Tickets", path: "/dashboard/tickets", icon: Ticket },
-  { label: "Contabilidade", path: "/dashboard/contabilidade", icon: Calculator },
-  { label: "Produtos", path: "/dashboard/produtos", icon: Package },
-  { label: "Base de Conhecimento", path: "/dashboard/base-conhecimento", icon: BookOpen },
-  { label: "Funcionários", path: "/dashboard/funcionarios", icon: UsersRound },
-  { label: "Chat", path: "/dashboard/chat", icon: MessageCircle },
+  { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard, permission: "dashboard" as PermissionKey },
+  { label: "Clientes", path: "/dashboard/clientes", icon: Users, permission: "clientes" as PermissionKey },
+  { label: "Tickets", path: "/dashboard/tickets", icon: Ticket, permission: "tickets" as PermissionKey },
+  { label: "Contabilidade", path: "/dashboard/contabilidade", icon: Calculator, permission: "contabilidade" as PermissionKey },
+  { label: "Produtos", path: "/dashboard/produtos", icon: Package, permission: "produtos" as PermissionKey },
+  { label: "Base de Conhecimento", path: "/dashboard/base-conhecimento", icon: BookOpen, permission: "baseConhecimento" as PermissionKey },
+  { label: "Funcionários", path: "/dashboard/funcionarios", icon: UsersRound, permission: "funcionarios" as PermissionKey },
+  { label: "Chat", path: "/dashboard/chat", icon: MessageCircle, permission: "chat" as PermissionKey },
 ]
 
 function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
@@ -80,11 +79,11 @@ function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
 interface SidebarProps {
     avatar: string;
     name: string
-    userId: string
     role: string
+    permissions: UserPermissions
 }
 
-export default function Sidebar({ avatar, name, userId, role }: SidebarProps) {
+export default function Sidebar({ avatar, name, role, permissions }: SidebarProps) {
   const router = useRouter()
   const pathname = usePathname()
   const queryClient = useQueryClient()
@@ -319,7 +318,7 @@ export default function Sidebar({ avatar, name, userId, role }: SidebarProps) {
 
         {/* Navigation */}
         <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
-          {navItems.map((item) => {
+          {navItems.filter((item) => permissions[item.permission]).map((item) => {
             const Icon = item.icon
             const isActive = item.path === "/dashboard"
               ? pathname === "/dashboard"
