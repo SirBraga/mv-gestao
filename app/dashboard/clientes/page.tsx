@@ -491,9 +491,9 @@ export default function Clientes() {
 
                 const matchesSearch =
                     !searchQuery ||
-                    client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    (!!digitsQuery && normalizeDigits(client.cnpj || "").includes(digitsQuery)) ||
-                    (!!digitsQuery && normalizeDigits(client.cpf || "").includes(digitsQuery))
+                    (client.razaoSocial || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    (client.nomeFantasia || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    (!!digitsQuery && normalizeDigits(client.cnpj || "").includes(digitsQuery))
 
                 return matchesFilter && matchesProduct && matchesSearch
             })

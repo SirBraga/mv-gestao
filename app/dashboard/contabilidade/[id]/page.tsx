@@ -296,8 +296,19 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
         nomeFantasia: firm.nomeFantasia,
     })
     const doc = firm.type === "PF" ? (firm.cpf || "—") : (firm.cnpj || "—")
-    const phone = firm.phone || "—"
-    const email = firm.email || "—"
+    const companyPrimaryContact = {
+        id: "__company_primary__",
+        name: firmName,
+        phone: firm.phone || null,
+        email: firm.email || null,
+        role: "principal",
+        bestContactTime: null,
+        isCompanyPrimary: true,
+    }
+    const contactList = [
+        ...((companyPrimaryContact.phone || companyPrimaryContact.email) ? [companyPrimaryContact] : []),
+        ...firm.contacts.map((contact: ContabilityContact) => ({ ...contact, isCompanyPrimary: false })),
+    ]
 
     return (
         <div className="h-full overflow-y-auto bg-slate-50">
@@ -559,57 +570,32 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                             </div>
                         </div>
 
-                        {phone !== "—" && (
-                            <div className="bg-white rounded-lg border border-slate-200 p-3">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <Phone size={12} className="text-emerald-600" />
-                                    <p className="text-xs font-medium text-slate-600">Telefone Principal</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm font-semibold text-slate-900">{phone}</span>
-                                    <button onClick={() => window.open(`https://wa.me/55${cleanPhone(phone)}`, "_blank")} className="text-slate-400 hover:text-emerald-600 cursor-pointer" title="WhatsApp"><MessageCircle size={12} /></button>
-                                    <button onClick={() => handleCopy(phone, "sidePhone")} className="text-slate-400 hover:text-slate-600 cursor-pointer" title="Copiar">{copied === "sidePhone" ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}</button>
-                                </div>
-                            </div>
-                        )}
-
-                        {email !== "—" && (
-                            <div className="bg-white rounded-lg border border-slate-200 p-3">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <Mail size={12} className="text-blue-600" />
-                                    <p className="text-xs font-medium text-slate-600">Email Principal</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm font-semibold text-slate-900 truncate flex-1">{email}</span>
-                                    <button onClick={() => handleCopy(email, "sideEmail")} className="text-slate-400 hover:text-slate-600 cursor-pointer shrink-0" title="Copiar">{copied === "sideEmail" ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}</button>
-                                </div>
-                            </div>
-                        )}
-
                         <div className="bg-white rounded-lg border border-slate-200">
                             <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-100">
                                 <div className="flex items-center gap-2">
                                     <Users size={12} className="text-slate-600" />
-                                    <p className="text-xs font-medium text-slate-600">Contatos ({firm.contacts.length})</p>
+                                    <p className="text-xs font-medium text-slate-600">Contatos ({contactList.length})</p>
                                 </div>
                                 <button onClick={() => setShowContactModal(true)} className="text-slate-400 hover:text-indigo-600 cursor-pointer" title="Adicionar contato">
                                     <Plus size={12} />
                                 </button>
                             </div>
                             <div>
-                                {firm.contacts.length === 0 ? (
+                                {contactList.length === 0 ? (
                                     <div className="px-3 py-4 text-center">
                                         <p className="text-xs text-slate-400">Nenhum contato cadastrado</p>
                                     </div>
                                 ) : (
                                     <div className="divide-y divide-slate-50">
-                                        {firm.contacts.map((contact: ContabilityContact) => (
+                                        {contactList.map((contact: ContabilityContact & { isCompanyPrimary?: boolean }) => (
                                             <div key={contact.id} className="px-3 py-2.5">
                                                 <div className="flex items-center justify-between mb-1">
                                                     <span className="text-xs font-semibold text-slate-900 truncate">{contact.name}</span>
                                                     <div className="flex items-center gap-1.5">
                                                         {contact.role && <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded capitalize">{contact.role}</span>}
-                                                        <button onClick={() => deleteContactMutation.mutate(contact.id)} className="text-slate-300 hover:text-red-500 cursor-pointer" title="Remover contato"><Trash2 size={10} /></button>
+                                                        {!contact.isCompanyPrimary && (
+                                                            <button onClick={() => deleteContactMutation.mutate(contact.id)} className="text-slate-300 hover:text-red-500 cursor-pointer" title="Remover contato"><Trash2 size={10} /></button>
+                                                        )}
                                                     </div>
                                                 </div>
                                                 {contact.phone && (
@@ -632,6 +618,9 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                                                         <Clock size={9} className="text-slate-300" />
                                                         <span className="text-xs text-slate-600">{contact.bestContactTime}</span>
                                                     </div>
+                                                )}
+                                                {contact.isCompanyPrimary && (
+                                                    <p className="mt-1 text-[10px] font-medium text-slate-400">Contato principal vinculado ao cadastro da empresa.</p>
                                                 )}
                                             </div>
                                         ))}

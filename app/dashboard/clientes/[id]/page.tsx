@@ -828,8 +828,19 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
     const doc = client.cnpj || client.cpf || "—"
     const maskedDoc = client.cnpj ? maskCNPJ(client.cnpj) : client.cpf ? maskCPF(client.cpf) : "—"
-    const phone = client.ownerPhone ? maskPhone(client.ownerPhone) : "—"
-    const email = client.ownerEmail || "—"
+    const companyPrimaryContact = {
+        id: "__company_primary__",
+        name: client.name || "Empresa",
+        phone: client.ownerPhone || null,
+        email: client.ownerEmail || null,
+        role: "principal",
+        bestContactTime: null,
+        isCompanyPrimary: true,
+    }
+    const contactList = [
+        ...((companyPrimaryContact.phone || companyPrimaryContact.email) ? [companyPrimaryContact] : []),
+        ...client.contacts.map((contact: any) => ({ ...contact, isCompanyPrimary: false })),
+    ]
     const certExpired = client.certificateExpiresDate ? new Date(client.certificateExpiresDate) < new Date() : false
     const hasOwner = !!(client.ownerName || client.ownerCpf || client.ownerPhone || client.ownerEmail)
     const hasCert = !!(client.certificateType || client.certificateExpiresDate)
@@ -915,10 +926,10 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             </div>
 
             {/* Two-column layout */}
-            <div className="flex gap-6 p-8 w-full mx-auto">
+            <div className="flex w-full min-w-0 gap-6 p-8">
 
                 {/* ── Left: Main content ── */}
-                <div className="flex-1 space-y-4">
+                <div className="min-w-0 flex-1 space-y-4">
 
                     {/* Informações do Cliente */}
                     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -1887,9 +1898,9 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                             <p className="text-sm text-slate-500">Nenhum ticket encontrado</p>
                                         </div>
                                     ) : (
-                                        <div className="divide-y divide-slate-100">
+                                        <div className="min-w-0 divide-y divide-slate-100">
                                             {paginatedTickets.map((ticket: TicketSummary) => (
-                                                <Link key={ticket.id} href={`/dashboard/tickets/${ticket.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
+                                                <Link key={ticket.id} href={`/dashboard/tickets/${ticket.id}`} className="flex min-w-0 items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
                                                     <span className="text-xs font-mono font-semibold text-slate-400 shrink-0 w-8">#{ticket.ticketNumber}</span>
                                                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityDot[ticket.priority] || "bg-slate-400"}`} />
                                                     <div className="flex-1 min-w-0">
@@ -1984,85 +1995,58 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
                         </div>
 
-                        {/* Phone Highlight */}
-                        {phone !== "—" && (
-                            <div className="bg-white rounded-lg border border-slate-200 p-3">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <Phone size={12} className="text-emerald-600" />
-                                    <p className="text-xs font-medium text-slate-600">Telefone Principal</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm font-semibold text-slate-900">{phone}</span>
-                                    <button onClick={() => window.open(`https://wa.me/55${cleanPhone(phone)}`, "_blank")} className="text-slate-400 hover:text-emerald-600 cursor-pointer" title="WhatsApp"><MessageCircle size={12} /></button>
-                                    <button onClick={() => handleCopy(phone, "sidePhone")} className="text-slate-400 hover:text-slate-600 cursor-pointer" title="Copiar">{copied === "sidePhone" ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}</button>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Email Highlight */}
-                        {email !== "—" && (
-                            <div className="bg-white rounded-lg border border-slate-200 p-3">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <Mail size={12} className="text-blue-600" />
-                                    <p className="text-xs font-medium text-slate-600">Email Principal</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm font-semibold text-slate-900 truncate flex-1">{email}</span>
-                                    <button onClick={() => handleCopy(email, "sideEmail")} className="text-slate-400 hover:text-slate-600 cursor-pointer shrink-0" title="Copiar">{copied === "sideEmail" ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}</button>
-                                </div>
-                            </div>
-                        )}
-
-
-
                         {/* Contacts Section */}
                         <div className="bg-white rounded-lg border border-slate-200">
                             <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-100">
                                 <div className="flex items-center gap-2">
                                     <Users size={12} className="text-slate-600" />
-                                    <p className="text-xs font-medium text-slate-600">Contatos ({client.contacts.length})</p>
+                                    <p className="text-xs font-medium text-slate-600">Contatos ({contactList.length})</p>
                                 </div>
                                 <button onClick={openCreateContactModal} className="text-slate-400 hover:text-indigo-600 cursor-pointer" title="Adicionar contato">
                                     <Plus size={12} />
                                 </button>
                             </div>
                             <div>
-                                {client.contacts.length === 0 ? (
+                                {contactList.length === 0 ? (
                                     <div className="px-3 py-4 text-center">
                                         <p className="text-xs text-slate-400">Nenhum contato cadastrado</p>
                                     </div>
                                 ) : (
                                     <div className="divide-y divide-slate-50">
-                                        {client.contacts.map((contact: any) => (
+                                        {contactList.map((contact: any) => (
                                             <div key={contact.id} className="px-3 py-2.5">
                                                 <div className="flex items-center justify-between mb-1">
                                                     <span className="text-xs font-semibold text-slate-900">{contact.name}</span>
                                                     <div className="flex items-center gap-1.5">
                                                         {contact.role && <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded capitalize">{contact.role}</span>}
-                                                        <button onClick={() => openEditContactModal(contact)} className="text-slate-300 hover:text-indigo-500 cursor-pointer" title="Editar contato"><Pencil size={10} /></button>
-                                                        <button
-                                                            onClick={() => {
-                                                                if (!confirm(`Deseja realmente excluir o contato "${contact.name}"?`)) return
-                                                                deleteContactMut.mutate(contact.id)
-                                                            }}
-                                                            className="text-slate-300 hover:text-red-500 cursor-pointer"
-                                                            title="Remover contato"
-                                                        ><Trash2 size={10} /></button>
+                                                        {!contact.isCompanyPrimary && (
+                                                            <>
+                                                                <button onClick={() => openEditContactModal(contact)} className="text-slate-300 hover:text-indigo-500 cursor-pointer" title="Editar contato"><Pencil size={10} /></button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        if (!confirm(`Deseja realmente excluir o contato "${contact.name}"?`)) return
+                                                                        deleteContactMut.mutate(contact.id)
+                                                                    }}
+                                                                    className="text-slate-300 hover:text-red-500 cursor-pointer"
+                                                                    title="Remover contato"
+                                                                ><Trash2 size={10} /></button>
+                                                            </>
+                                                        )}
                                                     </div>
                                                 </div>
                                                 {contact.phone && (
                                                     <div className="flex items-center gap-1.5 mb-0.5">
                                                         <Phone size={9} className="text-slate-300" />
                                                         <span className="text-xs text-slate-600">{maskPhone(contact.phone)}</span>
-                                                        <button onClick={() => window.open(`https://wa.me/55${cleanPhone(contact.phone!)}`, "_blank")} className="text-slate-300 hover:text-emerald-500 cursor-pointer"><MessageCircle size={9} /></button>
-                                                        <button onClick={() => handleCopy(maskPhone(contact.phone!), `contact-${contact.id}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer">{copied === `contact-${contact.id}` ? <Check size={9} className="text-emerald-500" /> : <Copy size={9} />}</button>
+                                                        <button onClick={() => window.open(`https://wa.me/55${cleanPhone(contact.phone)}`, "_blank")} className="text-slate-300 hover:text-emerald-500 cursor-pointer"><MessageCircle size={9} /></button>
+                                                        <button onClick={() => handleCopy(maskPhone(contact.phone), `contact-${contact.id}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer">{copied === `contact-${contact.id}` ? <Check size={9} className="text-emerald-500" /> : <Copy size={9} />}</button>
                                                     </div>
                                                 )}
                                                 {contact.email && (
                                                     <div className="flex items-center gap-1.5">
                                                         <Mail size={9} className="text-slate-300" />
                                                         <span className="text-xs text-slate-600 truncate">{contact.email}</span>
-                                                        <button onClick={() => handleCopy(contact.email!, `cemail-${contact.id}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer shrink-0">{copied === `cemail-${contact.id}` ? <Check size={9} className="text-emerald-500" /> : <Copy size={9} />}</button>
+                                                        <button onClick={() => handleCopy(contact.email, `cemail-${contact.id}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer shrink-0">{copied === `cemail-${contact.id}` ? <Check size={9} className="text-emerald-500" /> : <Copy size={9} />}</button>
                                                     </div>
                                                 )}
                                                 {contact.bestContactTime && (
@@ -2070,6 +2054,9 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                                         <Clock size={9} className="text-slate-300" />
                                                         <span className="text-xs text-slate-600">{contact.bestContactTime}</span>
                                                     </div>
+                                                )}
+                                                {contact.isCompanyPrimary && (
+                                                    <p className="mt-1 text-[10px] font-medium text-slate-400">Contato principal vinculado ao cadastro da empresa.</p>
                                                 )}
                                             </div>
                                         ))}

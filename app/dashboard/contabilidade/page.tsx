@@ -358,10 +358,9 @@ export default function ContabilidadePage() {
                 const normalizedType = getNormalizedContabilityType(item)
                 const matchesFilter = filterTypeMap[activeFilter].includes(normalizedType)
                 const matchesSearch = searchQuery === "" ||
-                    (item.name || "").toLowerCase().includes(normalizedSearch) ||
-                    (item.clientNames || "").toLowerCase().includes(normalizedSearch) ||
-                    (!!digitsQuery && normalizeDigits(item.cnpj || "").includes(digitsQuery)) ||
-                    (item.city || "").toLowerCase().includes(normalizedSearch)
+                    (item.nomeFantasia || "").toLowerCase().includes(normalizedSearch) ||
+                    (item.razaoSocial || "").toLowerCase().includes(normalizedSearch) ||
+                    (!!digitsQuery && normalizeDigits(item.cnpj || "").includes(digitsQuery))
                 return matchesFilter && matchesSearch
             })
             .sort((a, b) => compareContabilities(a, b, sortKey, sortDir))
