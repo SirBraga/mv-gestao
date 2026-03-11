@@ -1,5 +1,6 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import { maskPhone } from "@/app/utils/masks"
 import { MoreHorizontal, Pencil, Trash2, Building2, User } from "lucide-react"
 import Link from "next/link"
 
@@ -69,7 +70,7 @@ export default function AccountingCard({ data, onEdit, onDelete }: AccountingCar
       </div>
 
       {/* Telefone */}
-      <span className="text-sm text-slate-600 truncate">{data.phone || <span className="text-slate-300">—</span>}</span>
+      <span className="text-sm text-slate-600 truncate">{data.phone ? maskPhone(data.phone) : <span className="text-slate-300">—</span>}</span>
 
       {/* Cidade */}
       <span className="text-sm text-slate-500 truncate">{data.city && data.state ? `${data.city}/${data.state}` : <span className="text-slate-300">—</span>}</span>

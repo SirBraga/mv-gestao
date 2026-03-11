@@ -6,7 +6,7 @@ import { Check, ChevronDown, Loader2, Paperclip, Plus, Search } from "lucide-rea
 import { toast } from "react-toastify"
 
 import { createTicket, addTicketAttachment, getAllUsers } from "@/app/actions/tickets"
-import { getClientContacts, getClientSearchOptions } from "@/app/actions/clients"
+import { getClientContacts, getClientContability, getClientSearchOptions } from "@/app/actions/clients"
 import { getKnowledgeBaseArticleOptions } from "@/app/actions/knowledge-base"
 import { getClientProductSerials } from "@/app/actions/products"
 import { uploadFile } from "@/app/utils/upload"
@@ -26,7 +26,7 @@ import LocalFilePreviewList from "@/app/dashboard/_components/local-file-preview
 
 const INITIAL_FORM = {
     clientId: "",
-    requestedByContactId: "",
+    requesterValue: "",
     ticketDescription: "",
     ticketPriority: "MEDIUM" as "LOW" | "MEDIUM" | "HIGH",
     ticketType: "SUPPORT" as "SUPPORT" | "SALES" | "FINANCE" | "MAINTENCE",
@@ -82,7 +82,7 @@ export default function TicketCreateDrawer({
 
     useEffect(() => {
         if (lockedClient?.id) {
-            setForm((old) => ({ ...old, clientId: lockedClient.id, requestedByContactId: "" }))
+            setForm((old) => ({ ...old, clientId: lockedClient.id, requesterValue: "" }))
         }
     }, [lockedClient])
 
@@ -120,6 +120,29 @@ export default function TicketCreateDrawer({
         enabled: !!form.clientId,
         staleTime: 5 * 60 * 1000,
     })
+
+    const { data: clientContability } = useQuery({
+        queryKey: ["client-contability", form.clientId],
+        queryFn: () => getClientContability(form.clientId),
+        enabled: !!form.clientId,
+        staleTime: 5 * 60 * 1000,
+    })
+
+    const requesterContacts = useMemo(() => {
+        if (clientContacts.length === 0) return []
+        const primaryContact = clientContacts.find((contact: { isDefault?: boolean }) => contact.isDefault) || clientContacts[0]
+        const companyOption = primaryContact
+            ? [{ id: primaryContact.id, optionValue: `company:${primaryContact.id}`, optionLabel: "Empresa" }]
+            : []
+        const contactOptions = clientContacts
+            .filter((contact: { id: string }) => contact.id !== primaryContact?.id)
+            .map((contact: { id: string; name: string; role: string | null }) => ({
+                id: contact.id,
+                optionValue: `contact:${contact.id}`,
+                optionLabel: `${contact.name}${contact.role ? ` (${contact.role})` : ""}`,
+            }))
+        return [...companyOption, ...contactOptions]
+    }, [clientContacts])
 
     const { data: clientProductSerials = [] } = useQuery({
         queryKey: ["client-product-serials", form.clientId],
@@ -185,16 +208,18 @@ export default function TicketCreateDrawer({
 
     const handleSubmit = async () => {
         if (!form.clientId) return toast.error("Selecione um cliente")
-        if (!form.requestedByContactId) return toast.error("Selecione o solicitante")
+        if (!form.requesterValue) return toast.error("Selecione o solicitante")
         if (!form.ticketDescription.trim()) return toast.error("Descrição é obrigatória")
         setSubmitting(true)
         try {
+            const [requesterType, requesterId] = form.requesterValue.split(":")
             const result = await createMutation.mutateAsync({
                 clientId: form.clientId,
                 ticketDescription: form.ticketDescription,
                 ticketPriority: form.ticketPriority,
                 ticketType: form.ticketType,
-                requestedByContactId: form.requestedByContactId,
+                requestedByContactId: requesterType === "contact" || requesterType === "company" ? requesterId : undefined,
+                requestedByContabilityId: requesterType === "contability" ? requesterId : undefined,
                 assignedToId: form.assignedToId || undefined,
                 knowledgeArticleId: form.knowledgeArticleId || undefined,
             })
@@ -284,7 +309,7 @@ export default function TicketCreateDrawer({
                                             <Input
                                                 value={clientSearchInput}
                                                 onChange={(e) => setClientSearchInput(e.target.value)}
-                                                placeholder="Buscar por nome ou CNPJ..."
+                                                placeholder="Buscar por nome, CNPJ, CPF ou telefone..."
                                                 className="pl-9 h-9"
                                             />
                                         </div>
@@ -297,7 +322,7 @@ export default function TicketCreateDrawer({
                                                     key={client.id}
                                                     type="button"
                                                     onClick={() => {
-                                                        setForm((old) => ({ ...old, clientId: client.id, requestedByContactId: "", knowledgeArticleId: "" }))
+                                                        setForm((old) => ({ ...old, clientId: client.id, requesterValue: "", knowledgeArticleId: "" }))
                                                         setArticleSearch("")
                                                         setPendingArticleId("")
                                                         setShowArticleMismatchDialog(false)
@@ -342,11 +367,20 @@ export default function TicketCreateDrawer({
                     </div>
                     <div>
                         <label className="text-xs font-medium text-gray-500 mb-1.5 block">Solicitante <span className="text-red-400">*</span></label>
-                        <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white disabled:bg-gray-50 disabled:text-gray-400" value={form.requestedByContactId} onChange={e => setForm({ ...form, requestedByContactId: e.target.value })} disabled={!form.clientId}>
-                            <option value="">{form.clientId ? (clientContacts.length === 0 ? "Nenhum contato cadastrado" : "Selecione o solicitante...") : "Selecione um cliente primeiro"}</option>
-                            {clientContacts.map((ct: { id: string; name: string; role: string | null }) => (
-                                <option key={ct.id} value={ct.id}>{ct.name}{ct.role ? ` (${ct.role})` : ""}</option>
-                            ))}
+                        <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white disabled:bg-gray-50 disabled:text-gray-400" value={form.requesterValue} onChange={e => setForm({ ...form, requesterValue: e.target.value })} disabled={!form.clientId}>
+                            <option value="">{form.clientId ? ((requesterContacts.length === 0 && !clientContability) ? "Nenhum solicitante cadastrado" : "Selecione o solicitante...") : "Selecione um cliente primeiro"}</option>
+                            {requesterContacts.length > 0 && (
+                                <optgroup label="Contatos">
+                                    {requesterContacts.map((ct: { optionValue: string; optionLabel: string }) => (
+                                        <option key={ct.optionValue} value={ct.optionValue}>{ct.optionLabel}</option>
+                                    ))}
+                                </optgroup>
+                            )}
+                            {clientContability && (
+                                <optgroup label="Contabilidade">
+                                    <option value={`contability:${clientContability.id}`}>{clientContability.name || clientContability.cnpj || clientContability.cpf || "Contabilidade"}</option>
+                                </optgroup>
+                            )}
                         </select>
                     </div>
                     <div>

@@ -24,6 +24,28 @@ function normalizeDigits(value: string) {
     return value.replace(/\D/g, "")
 }
 
+async function getClientPrimaryCompanyContactId(clientId: string) {
+    const client = await prisma.clients.findUnique({
+        where: { id: clientId },
+        select: {
+            contacts: {
+                orderBy: [
+                    { isDefault: "desc" },
+                    { createdAt: "asc" },
+                ],
+                select: {
+                    id: true,
+                    isDefault: true,
+                },
+            },
+        },
+    })
+
+    if (!client) return null
+
+    return client.contacts.find((contact) => contact.isDefault)?.id || client.contacts[0]?.id || null
+}
+
 export async function getClients() {
     await getSession()
     const clients = await prisma.clients.findMany({
@@ -80,8 +102,9 @@ export async function getClients() {
         cpf: c.cpf,
         type: c.type === "PESSOA_FISICA" ? "PF" as const : "PJ" as const,
         city: c.city,
-        phone: c.contacts.find(ct => ct.isDefault)?.phone || c.ownerPhone || null,
-        email: c.contacts.find(ct => ct.isDefault)?.email || c.ownerEmail || null,
+        contactPhones: c.contacts.map((ct) => ct.phone).filter((phone): phone is string => !!phone),
+        phone: c.contacts.find(ct => ct.isDefault)?.phone || c.contacts[0]?.phone || null,
+        email: c.contacts.find(ct => ct.isDefault)?.email || c.contacts[0]?.email || null,
         hasContract: c.hasContract ?? false,
         contractType: c.contractType,
         supportReleased: c.supportReleased ?? false,
@@ -164,6 +187,12 @@ export async function getClientSearchOptions(params?: {
             cnpj: true,
             cpf: true,
             type: true,
+            contacts: {
+                select: {
+                    phone: true,
+                    isDefault: true,
+                },
+            },
         },
     })
 
@@ -180,6 +209,8 @@ export async function getClientSearchOptions(params?: {
         const normalizedFantasyName = normalizeText(client.nomeFantasia || "")
         const normalizedCnpj = normalizeDigits(client.cnpj || "")
         const normalizedCpf = normalizeDigits(client.cpf || "")
+        const normalizedPrimaryPhone = normalizeDigits(client.contacts.find((contact) => contact.isDefault)?.phone || client.contacts[0]?.phone || "")
+        const normalizedContactPhones = client.contacts.map((contact) => normalizeDigits(contact.phone || ""))
 
         const matchesName =
             normalizedName.includes(normalizedQuery)
@@ -188,8 +219,11 @@ export async function getClientSearchOptions(params?: {
         const matchesDocument = digitsQuery
             ? normalizedCnpj.includes(digitsQuery) || normalizedCpf.includes(digitsQuery)
             : false
+        const matchesPhone = digitsQuery
+            ? normalizedPrimaryPhone.includes(digitsQuery) || normalizedContactPhones.some((phone) => phone.includes(digitsQuery))
+            : false
 
-        return matchesName || matchesDocument
+        return matchesName || matchesDocument || matchesPhone
     })
 
     const items = filtered.slice(offset, offset + limit)
@@ -328,6 +362,17 @@ export async function getClientById(id: string) {
                     },
                 },
             },
+            clientProductSerials: {
+                select: {
+                    id: true,
+                    productId: true,
+                    serial: true,
+                    expiresAt: true,
+                },
+                orderBy: {
+                    createdAt: "asc",
+                },
+            },
         },
     })
     if (!client) throw new Error("Cliente não encontrado")
@@ -406,28 +451,40 @@ export async function getClientById(id: string) {
             id: p.id,
             name: p.name,
         })),
-        clientProducts: client.clientProducts.map((clientProduct) => ({
-            id: clientProduct.id,
-            installationType: clientProduct.installationType,
-            priceMonthly: clientProduct.priceMonthly,
-            priceQuarterly: clientProduct.priceQuarterly,
-            priceYearly: clientProduct.priceYearly,
-            notes: clientProduct.notes,
-            product: clientProduct.product,
-            serials: clientProduct.serials.map((serial) => ({
+        clientProducts: client.clientProducts.map((clientProduct) => {
+            const directSerials = clientProduct.serials.map((serial) => ({
                 id: serial.id,
                 serial: serial.serial,
                 expiresAt: serial.expiresAt?.toISOString() || null,
-            })),
-            plugins: clientProduct.plugins.map((plugin) => ({
-                id: plugin.id,
-                priceMonthly: plugin.priceMonthly,
-                priceQuarterly: plugin.priceQuarterly,
-                priceYearly: plugin.priceYearly,
-                notes: plugin.notes,
-                productPlugin: plugin.productPlugin,
-            })),
-        })),
+            }))
+            const fallbackSerials = client.clientProductSerials
+                .filter((serial) => serial.productId === clientProduct.product.id)
+                .map((serial) => ({
+                    id: serial.id,
+                    serial: serial.serial,
+                    expiresAt: serial.expiresAt?.toISOString() || null,
+                }))
+            const serials = directSerials.length > 0 ? directSerials : fallbackSerials
+
+            return {
+                id: clientProduct.id,
+                installationType: clientProduct.installationType,
+                priceMonthly: clientProduct.priceMonthly,
+                priceQuarterly: clientProduct.priceQuarterly,
+                priceYearly: clientProduct.priceYearly,
+                notes: clientProduct.notes,
+                product: clientProduct.product,
+                serials,
+                plugins: clientProduct.plugins.map((plugin) => ({
+                    id: plugin.id,
+                    priceMonthly: plugin.priceMonthly,
+                    priceQuarterly: plugin.priceQuarterly,
+                    priceYearly: plugin.priceYearly,
+                    notes: plugin.notes,
+                    productPlugin: plugin.productPlugin,
+                })),
+            }
+        }),
         attachments: client.attachments,
     }
 }
@@ -456,6 +513,8 @@ export async function createClient(data: {
     certificateType?: string
     certificateExpiresDate?: Date
     photoUrl?: string
+    phone?: string
+    email?: string
     ownerName?: string
     ownerPhone?: string
     ownerEmail?: string
@@ -518,6 +577,15 @@ export async function createClient(data: {
             aditionalInfo: data.aditionalInfo || null,
             contractType: data.contractType || null,
             photoUrl: data.photoUrl || null,
+            contacts: (data.phone || data.email) ? {
+                create: {
+                    name: normalizedName,
+                    phone: data.phone || null,
+                    email: data.email || null,
+                    role: "Principal",
+                    isDefault: true,
+                },
+            } : undefined,
             ownerName: data.ownerName || null,
             ownerPhone: data.ownerPhone || null,
             ownerEmail: data.ownerEmail || null,

@@ -360,7 +360,12 @@ export default function ContabilidadePage() {
                 const matchesSearch = searchQuery === "" ||
                     (item.nomeFantasia || "").toLowerCase().includes(normalizedSearch) ||
                     (item.razaoSocial || "").toLowerCase().includes(normalizedSearch) ||
-                    (!!digitsQuery && normalizeDigits(item.cnpj || "").includes(digitsQuery))
+                    (!!digitsQuery && (
+                        normalizeDigits(item.cnpj || "").includes(digitsQuery) ||
+                        normalizeDigits(item.cpf || "").includes(digitsQuery) ||
+                        normalizeDigits(item.phone || "").includes(digitsQuery) ||
+                        (((item as AccountingData & { contactPhones?: string[] }).contactPhones) || []).some((phone: string) => normalizeDigits(phone).includes(digitsQuery))
+                    ))
                 return matchesFilter && matchesSearch
             })
             .sort((a, b) => compareContabilities(a, b, sortKey, sortDir))

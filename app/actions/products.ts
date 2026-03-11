@@ -293,6 +293,13 @@ export async function createClientProductSerial(data: {
     expiresAt?: Date
 }) {
     await getSession()
+    const clientProduct = await prisma.clientProduct.findFirst({
+        where: {
+            clientId: data.clientId,
+            productId: data.productId,
+        },
+        select: { id: true },
+    })
     
     // Primeiro, buscar se já existe um serial para este cliente/produto
     const existingSerial = await prisma.clientProductSerial.findFirst({
@@ -308,6 +315,7 @@ export async function createClientProductSerial(data: {
         serial = await prisma.clientProductSerial.update({
             where: { id: existingSerial.id },
             data: {
+                clientProductId: clientProduct?.id || null,
                 serial: data.serial,
                 expiresAt: data.expiresAt || null,
             },
@@ -318,6 +326,7 @@ export async function createClientProductSerial(data: {
             data: {
                 clientId: data.clientId,
                 productId: data.productId,
+                clientProductId: clientProduct?.id || null,
                 serial: data.serial,
                 expiresAt: data.expiresAt || null,
             },
@@ -380,6 +389,20 @@ export async function createOrUpdateClientProduct(data: {
             },
         })
     }
+
+    await prisma.clientProductSerial.updateMany({
+        where: {
+            clientId: data.clientId,
+            productId: data.productId,
+            OR: [
+                { clientProductId: null },
+                { clientProductId: { not: clientProduct.id } },
+            ],
+        },
+        data: {
+            clientProductId: clientProduct.id,
+        },
+    })
 
     return { success: true, id: clientProduct.id }
 }

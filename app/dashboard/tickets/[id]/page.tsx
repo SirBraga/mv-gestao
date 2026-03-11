@@ -392,6 +392,19 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
         staleTime: 5 * 60 * 1000,
     })
 
+    const requesterOptions = [
+        ...((changeContacts.length > 0)
+            ? [{
+                id: `company:${(changeContacts.find((contact: { isDefault?: boolean }) => contact.isDefault) || changeContacts[0]).id}`,
+                label: "Empresa",
+            }]
+            : []),
+        ...changeContacts.map((ct: { id: string; name: string; role: string | null }) => ({
+            id: `contact:${ct.id}`,
+            label: `${ct.name}${ct.role ? ` (${ct.role})` : ""}`,
+        })),
+    ]
+
     const updateTicketDetailCache = (updater: (old: TicketDetail) => TicketDetail) => {
         queryClient.setQueryData(["ticket", id], (old: TicketDetail | undefined) => {
             if (!old) return old
@@ -1229,10 +1242,10 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                     <DialogHeader><DialogTitle>Definir Solicitante</DialogTitle><DialogDescription>Selecione o contato ou contabilidade solicitante do ticket.</DialogDescription></DialogHeader>
                     <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={changeContactId} onChange={e => setChangeContactId(e.target.value)}>
                         <option value="">Selecione o solicitante...</option>
-                        {changeContacts.length > 0 && (
+                        {requesterOptions.length > 0 && (
                             <optgroup label="Contatos">
-                                {changeContacts.map((ct: { id: string; name: string; role: string | null }) => (
-                                    <option key={ct.id} value={`contact:${ct.id}`}>{ct.name}{ct.role ? ` (${ct.role})` : ""}</option>
+                                {requesterOptions.map((ct: { id: string; label: string }) => (
+                                    <option key={ct.id} value={ct.id}>{ct.label}</option>
                                 ))}
                             </optgroup>
                         )}
@@ -1248,7 +1261,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                             onClick={() => {
                                 const [type, val] = changeContactId.split(":")
                                 requesterMut.mutate({
-                                    contactId: type === "contact" ? val : null,
+                                    contactId: type === "contact" || type === "company" ? val : null,
                                     contabilityId: type === "contability" ? val : null,
                                 })
                             }}

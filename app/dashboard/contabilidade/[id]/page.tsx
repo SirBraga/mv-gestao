@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { use } from "react"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getContabilityById, updateContability, attachClientToContability, deleteContability, addContabilityContact, deleteContabilityContact } from "@/app/actions/contability"
+import { getContabilityById, updateContability, attachClientToContability, deleteContability, addContabilityContact, deleteContabilityContact, updateContabilityContact } from "@/app/actions/contability"
 import { getClientSearchOptions } from "@/app/actions/clients"
 import { lookupCnpj } from "@/app/actions/cnpj"
 import { GlobalScreenLoader } from "@/app/components/global-screen-loader"
@@ -25,6 +25,7 @@ type ClientSearchResults = Awaited<ReturnType<typeof getClientSearchOptions>>
 type LinkedClient = ContabilityDetail["clients"][number]
 type ContabilityContact = ContabilityDetail["contacts"][number]
 type SearchClient = ClientSearchResults["items"][number]
+type ContactModalMode = "contact" | "company-primary"
 
 const INITIAL_FORM = {
     name: "",
@@ -66,6 +67,9 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
     const [showLinkClientModal, setShowLinkClientModal] = useState(false)
     const [showDeleteModal, setShowDeleteModal] = useState(false)
     const [showContactModal, setShowContactModal] = useState(false)
+    const [contactToDelete, setContactToDelete] = useState<ContabilityContact | null>(null)
+    const [contactModalMode, setContactModalMode] = useState<ContactModalMode>("contact")
+    const [editingContactId, setEditingContactId] = useState<string | null>(null)
     const [clientSearchQuery, setClientSearchQuery] = useState("")
     const [selectedClientId, setSelectedClientId] = useState("")
     const [editForm, setEditForm] = useState(INITIAL_FORM)
@@ -163,6 +167,109 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
         },
         onError: (err: Error) => toast.error(err.message),
     })
+
+    const updateContactMutation = useMutation({
+        mutationFn: ({ contactId, data }: { contactId: string; data: { name: string; phone?: string; email?: string; role?: string; bestContactTime?: string } }) =>
+            updateContabilityContact(contactId, data),
+        onSuccess: (_result, variables) => {
+            queryClient.setQueryData(["contability", id], (old: any) => {
+                if (!old) return old
+
+                return {
+                    ...old,
+                    contacts: old.contacts.map((contact: any) => contact.id === variables.contactId ? {
+                        ...contact,
+                        name: variables.data.name,
+                        phone: variables.data.phone ?? null,
+                        email: variables.data.email ?? null,
+                        role: variables.data.role ?? null,
+                        bestContactTime: variables.data.bestContactTime ?? null,
+                    } : contact),
+                }
+            })
+            queryClient.invalidateQueries({ queryKey: ["contabilities"] })
+            toast.success("Contato atualizado!")
+            setShowContactModal(false)
+            setEditingContactId(null)
+            setContactModalMode("contact")
+            setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const assignCompanyPrimaryContactMutation = useMutation({
+        mutationFn: (data: { phone?: string; email?: string }) => addContabilityContact(id, {
+            name: firm?.name || "Contabilidade",
+            phone: data.phone,
+            email: data.email,
+            role: "principal",
+            isDefault: true,
+        }),
+        onSuccess: (result, variables) => {
+            queryClient.setQueryData(["contability", id], (old: any) => {
+                if (!old) return old
+
+                return {
+                    ...old,
+                    contacts: [
+                        {
+                            id: result.id,
+                            name: old.name || firm?.name || "Contabilidade",
+                            phone: variables.phone ?? null,
+                            email: variables.email ?? null,
+                            role: "principal",
+                            bestContactTime: null,
+                            isDefault: true,
+                        },
+                        ...old.contacts.map((contact: any) => ({
+                            ...contact,
+                            isDefault: false,
+                        })),
+                    ],
+                }
+            })
+            queryClient.invalidateQueries({ queryKey: ["contabilities"] })
+            toast.success("Contato principal atribuído!")
+            setShowContactModal(false)
+            setEditingContactId(null)
+            setContactModalMode("contact")
+            setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const openCreateContactModal = () => {
+        setEditingContactId(null)
+        setContactModalMode("contact")
+        setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
+        setShowContactModal(true)
+    }
+
+    const openEditContactModal = (contact: ContabilityContact) => {
+        setEditingContactId(contact.id)
+        setContactModalMode("contact")
+        setContactForm({
+            name: contact.name || "",
+            phone: contact.phone ? maskPhone(contact.phone) : "",
+            email: contact.email || "",
+            role: contact.role || "",
+            bestContactTime: contact.bestContactTime || "",
+        })
+        setShowContactModal(true)
+    }
+
+    const openCompanyPrimaryModal = (contact?: { sourceContactId: string | null; phone: string | null; email: string | null }) => {
+        setEditingContactId(contact?.sourceContactId || null)
+        setContactModalMode("company-primary")
+        setContactForm({
+            name: "",
+            phone: contact?.phone ? maskPhone(contact.phone) : "",
+            email: contact?.email || "",
+            role: "",
+            bestContactTime: "",
+        })
+        setShowContactModal(true)
+    }
 
     useEffect(() => {
         if (!firm) return
@@ -296,18 +403,23 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
         nomeFantasia: firm.nomeFantasia,
     })
     const doc = firm.type === "PF" ? (firm.cpf || "—") : (firm.cnpj || "—")
+    const primaryCompanyContactSource = firm.contacts.find((contact: ContabilityContact) => contact.isDefault) || null
+    const hasCompanyPrimaryContact = !!(primaryCompanyContactSource?.phone || primaryCompanyContactSource?.email || firm.phone || firm.email)
     const companyPrimaryContact = {
         id: "__company_primary__",
         name: firmName,
-        phone: firm.phone || null,
-        email: firm.email || null,
+        phone: primaryCompanyContactSource?.phone || firm.phone || null,
+        email: primaryCompanyContactSource?.email || firm.email || null,
         role: "principal",
         bestContactTime: null,
         isCompanyPrimary: true,
+        sourceContactId: primaryCompanyContactSource?.id || null,
     }
     const contactList = [
-        ...((companyPrimaryContact.phone || companyPrimaryContact.email) ? [companyPrimaryContact] : []),
-        ...firm.contacts.map((contact: ContabilityContact) => ({ ...contact, isCompanyPrimary: false })),
+        ...(hasCompanyPrimaryContact ? [companyPrimaryContact] : []),
+        ...firm.contacts
+            .filter((contact: ContabilityContact) => !contact.isDefault)
+            .map((contact: ContabilityContact) => ({ ...contact, isCompanyPrimary: false })),
     ]
 
     return (
@@ -446,7 +558,7 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                                 )}
                                 <Prop label={firm.type === "PF" ? "CPF" : "CNPJ"} value={doc} />
                                 <Prop label="IE" value={firm.ie || "—"} />
-                                <Prop label="Telefone" value={firm.phone || "—"} />
+                                <Prop label="Telefone" value={firm.phone ? maskPhone(firm.phone) : "—"} />
                                 <Prop label="Email" value={firm.email || "—"} />
                                 <Prop label="Cadastro" value={formatDateShort(firm.createdAt)} />
                             </div>
@@ -576,11 +688,24 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                                     <Users size={12} className="text-slate-600" />
                                     <p className="text-xs font-medium text-slate-600">Contatos ({contactList.length})</p>
                                 </div>
-                                <button onClick={() => setShowContactModal(true)} className="text-slate-400 hover:text-indigo-600 cursor-pointer" title="Adicionar contato">
+                                <button onClick={openCreateContactModal} className="text-slate-400 hover:text-indigo-600 cursor-pointer" title="Adicionar contato">
                                     <Plus size={12} />
                                 </button>
                             </div>
                             <div>
+                                {!hasCompanyPrimaryContact && (
+                                    <div className="px-3 py-4 border-b border-slate-100 bg-amber-50/60">
+                                        <p className="text-xs font-medium text-amber-900">Não possui um contato principal.</p>
+                                        <p className="mt-1 text-[11px] text-amber-700">É preciso atribuir um contato principal para a contabilidade.</p>
+                                        <button
+                                            onClick={() => openCompanyPrimaryModal()}
+                                            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 cursor-pointer"
+                                        >
+                                            <Plus size={12} />
+                                            Atribuir contato principal
+                                        </button>
+                                    </div>
+                                )}
                                 {contactList.length === 0 ? (
                                     <div className="px-3 py-4 text-center">
                                         <p className="text-xs text-slate-400">Nenhum contato cadastrado</p>
@@ -590,18 +715,23 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                                         {contactList.map((contact: ContabilityContact & { isCompanyPrimary?: boolean }) => (
                                             <div key={contact.id} className="px-3 py-2.5">
                                                 <div className="flex items-center justify-between mb-1">
-                                                    <span className="text-xs font-semibold text-slate-900 truncate">{contact.name}</span>
+                                                    <span className="text-xs font-semibold text-slate-900 truncate">{contact.isCompanyPrimary ? "Empresa" : contact.name}</span>
                                                     <div className="flex items-center gap-1.5">
                                                         {contact.role && <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded capitalize">{contact.role}</span>}
-                                                        {!contact.isCompanyPrimary && (
-                                                            <button onClick={() => deleteContactMutation.mutate(contact.id)} className="text-slate-300 hover:text-red-500 cursor-pointer" title="Remover contato"><Trash2 size={10} /></button>
+                                                        {contact.isCompanyPrimary ? (
+                                                            <button onClick={() => openCompanyPrimaryModal(contact)} className="text-slate-300 hover:text-indigo-500 cursor-pointer" title="Editar contato principal"><Pencil size={10} /></button>
+                                                        ) : (
+                                                            <>
+                                                                <button onClick={() => openEditContactModal(contact)} className="text-slate-300 hover:text-indigo-500 cursor-pointer" title="Editar contato"><Pencil size={10} /></button>
+                                                                <button onClick={() => setContactToDelete(contact)} className="text-slate-300 hover:text-red-500 cursor-pointer" title="Remover contato"><Trash2 size={10} /></button>
+                                                            </>
                                                         )}
                                                     </div>
                                                 </div>
                                                 {contact.phone && (
                                                     <div className="flex items-center gap-1.5 text-xs text-slate-600 mb-1 break-all">
                                                         <Phone size={9} className="text-slate-300" />
-                                                        <span>{contact.phone}</span>
+                                                        <span>{maskPhone(contact.phone)}</span>
                                                         <button onClick={() => window.open(`https://wa.me/55${cleanPhone(contact.phone)}`, "_blank")} className="text-slate-300 hover:text-emerald-500 cursor-pointer"><MessageCircle size={9} /></button>
                                                         <button onClick={() => handleCopy(contact.phone, `cphone-${contact.id}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer">{copied === `cphone-${contact.id}` ? <Check size={9} className="text-emerald-500" /> : <Copy size={9} />}</button>
                                                     </div>
@@ -758,39 +888,104 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={showContactModal} onOpenChange={(open) => { setShowContactModal(open); if (!open) setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" }) }}>
+            <Dialog open={showContactModal} onOpenChange={(open) => {
+                setShowContactModal(open)
+                if (!open) {
+                    setEditingContactId(null)
+                    setContactModalMode("contact")
+                    setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
+                }
+            }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>Adicionar Contato</DialogTitle>
-                        <DialogDescription>Preencha os dados do novo contato da contabilidade.</DialogDescription>
+                        <DialogTitle>
+                            {contactModalMode === "company-primary"
+                                ? (editingContactId ? "Editar Contato Principal" : "Atribuir Contato Principal")
+                                : (editingContactId ? "Editar Contato" : "Adicionar Contato")}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {contactModalMode === "company-primary"
+                                ? (editingContactId ? "Atualize o telefone e o email do contato principal da contabilidade." : "Informe o telefone e o email do contato principal da contabilidade.")
+                                : (editingContactId ? "Atualize os dados do contato da contabilidade." : "Preencha os dados do novo contato da contabilidade.")}
+                        </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-3">
-                        <Input placeholder="Nome *" value={contactForm.name} onChange={(e) => setContactForm((p) => ({ ...p, name: e.target.value }))} />
+                        {contactModalMode === "contact" && (
+                            <Input placeholder="Nome *" value={contactForm.name} onChange={(e) => setContactForm((p) => ({ ...p, name: e.target.value }))} />
+                        )}
                         <div className="grid grid-cols-2 gap-2">
                             <Input placeholder="Telefone" value={contactForm.phone} onChange={(e) => setContactForm((p) => ({ ...p, phone: maskPhone(e.target.value) }))} />
                             <Input placeholder="Email" value={contactForm.email} onChange={(e) => setContactForm((p) => ({ ...p, email: e.target.value }))} />
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
-                            <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={contactForm.role} onChange={(e) => setContactForm((p) => ({ ...p, role: e.target.value }))}>
-                                <option value="">Selecione</option>
-                                {CONTACT_ROLES.map((role) => (
-                                    <option key={role} value={role}>{role}</option>
-                                ))}
-                            </select>
-                            <Input placeholder="Melhor horário" value={contactForm.bestContactTime} onChange={(e) => setContactForm((p) => ({ ...p, bestContactTime: maskContactTime(e.target.value) }))} />
-                        </div>
+                        {contactModalMode === "contact" && (
+                            <div className="grid grid-cols-2 gap-2">
+                                <select className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={contactForm.role} onChange={(e) => setContactForm((p) => ({ ...p, role: e.target.value }))}>
+                                    <option value="">Selecione</option>
+                                    {CONTACT_ROLES.map((role) => (
+                                        <option key={role} value={role}>{role}</option>
+                                    ))}
+                                </select>
+                                <Input placeholder="Melhor horário" value={contactForm.bestContactTime} onChange={(e) => setContactForm((p) => ({ ...p, bestContactTime: maskContactTime(e.target.value) }))} />
+                            </div>
+                        )}
                     </div>
                     <DialogFooter className="gap-2">
-                        <Button variant="outline" onClick={() => { setShowContactModal(false); setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" }) }}>Cancelar</Button>
-                        <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" disabled={!contactForm.name.trim() || addContactMutation.isPending} onClick={() => addContactMutation.mutate({
-                            name: contactForm.name,
-                            phone: contactForm.phone || undefined,
-                            email: contactForm.email || undefined,
-                            role: contactForm.role || undefined,
-                            bestContactTime: contactForm.bestContactTime || undefined,
-                        })}>
-                            {addContactMutation.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : <Plus size={14} className="mr-2" />}
-                            Adicionar contato
+                        <Button variant="outline" onClick={() => {
+                            setShowContactModal(false)
+                            setEditingContactId(null)
+                            setContactModalMode("contact")
+                            setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
+                        }}>Cancelar</Button>
+                        <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" disabled={(contactModalMode === "contact" && !contactForm.name.trim()) || addContactMutation.isPending || updateContactMutation.isPending || assignCompanyPrimaryContactMutation.isPending} onClick={() => {
+                            if (contactModalMode === "company-primary") {
+                                const payload = {
+                                    phone: contactForm.phone || undefined,
+                                    email: contactForm.email || undefined,
+                                }
+
+                                if (!payload.phone && !payload.email) {
+                                    toast.error("Informe ao menos telefone ou email")
+                                    return
+                                }
+
+                                if (editingContactId) {
+                                    const sourceContact = firm.contacts.find((contact: ContabilityContact) => contact.id === editingContactId)
+                                    updateContactMutation.mutate({
+                                        contactId: editingContactId,
+                                        data: {
+                                            name: sourceContact?.name || firm.name || "Contabilidade",
+                                            phone: payload.phone,
+                                            email: payload.email,
+                                            role: sourceContact?.role || "principal",
+                                            bestContactTime: sourceContact?.bestContactTime || undefined,
+                                        },
+                                    })
+                                    return
+                                }
+
+                                assignCompanyPrimaryContactMutation.mutate(payload)
+                                return
+                            }
+
+                            const payload = {
+                                name: contactForm.name,
+                                phone: contactForm.phone || undefined,
+                                email: contactForm.email || undefined,
+                                role: contactForm.role || undefined,
+                                bestContactTime: contactForm.bestContactTime || undefined,
+                            }
+
+                            if (editingContactId) {
+                                updateContactMutation.mutate({ contactId: editingContactId, data: payload })
+                                return
+                            }
+
+                            addContactMutation.mutate(payload)
+                        }}>
+                            {(addContactMutation.isPending || updateContactMutation.isPending || assignCompanyPrimaryContactMutation.isPending) ? <Loader2 size={14} className="animate-spin mr-2" /> : <Plus size={14} className="mr-2" />}
+                            {contactModalMode === "company-primary"
+                                ? (editingContactId ? "Salvar alterações" : "Atribuir contato principal")
+                                : (editingContactId ? "Salvar alterações" : "Adicionar contato")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -824,6 +1019,35 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                         <Button variant="destructive" onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending}>
                             {deleteMutation.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : <Trash2 size={14} className="mr-2" />}
                             Excluir contabilidade
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!contactToDelete} onOpenChange={(open) => { if (!open) setContactToDelete(null) }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-red-600">
+                            <AlertTriangle size={18} /> Excluir contato
+                        </DialogTitle>
+                        <DialogDescription>
+                            Deseja realmente excluir o contato <span className="font-medium text-slate-900">{contactToDelete?.name}</span>?
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setContactToDelete(null)} disabled={deleteContactMutation.isPending}>Cancelar</Button>
+                        <Button
+                            variant="destructive"
+                            onClick={() => {
+                                if (!contactToDelete) return
+                                deleteContactMutation.mutate(contactToDelete.id, {
+                                    onSuccess: () => setContactToDelete(null),
+                                })
+                            }}
+                            disabled={deleteContactMutation.isPending}
+                        >
+                            {deleteContactMutation.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : <Trash2 size={14} className="mr-2" />}
+                            Excluir contato
                         </Button>
                     </DialogFooter>
                 </DialogContent>

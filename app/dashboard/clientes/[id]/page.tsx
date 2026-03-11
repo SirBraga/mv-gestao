@@ -47,6 +47,7 @@ import {
     Search,
     Building2,
     Clock,
+    AlertTriangle,
 } from "lucide-react"
 import { uploadFile } from "@/app/utils/upload"
 import { toast } from "react-toastify"
@@ -66,6 +67,8 @@ interface ContactWithTime {
     createdAt: string
     updatedAt: string
 }
+
+type ContactModalMode = "contact" | "company-primary"
 
 // Tipo para o cliente
 interface ClientData {
@@ -334,6 +337,46 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
         onError: (err: Error) => toast.error(err.message),
     })
 
+    const assignCompanyPrimaryContactMut = useMutation({
+        mutationFn: (data: { phone?: string; email?: string }) => addClientContact(id, {
+            name: client?.name || "Empresa",
+            phone: data.phone,
+            email: data.email,
+            role: "principal",
+            isDefault: true,
+        }),
+        onSuccess: (result, variables) => {
+            queryClient.setQueryData(["client", id], (old: any) => {
+                if (!old) return old
+
+                return {
+                    ...old,
+                    contacts: [
+                        {
+                            id: result.id,
+                            name: old.name || client?.name || "Empresa",
+                            phone: variables.phone ?? null,
+                            email: variables.email ?? null,
+                            role: "principal",
+                            bestContactTime: null,
+                            isDefault: true,
+                        },
+                        ...old.contacts.map((contact: any) => ({
+                            ...contact,
+                            isDefault: false,
+                        })),
+                    ],
+                }
+            })
+            toast.success("Contato principal atribuído!")
+            setShowContactModal(false)
+            setEditingContactId(null)
+            setContactModalMode("contact")
+            setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
     const deleteContactMut = useMutation({
         mutationFn: (contactId: string) => deleteClientContact(contactId),
         onSuccess: (_result, contactId) => {
@@ -352,18 +395,33 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
     const openCreateContactModal = () => {
         setEditingContactId(null)
+        setContactModalMode("contact")
         setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
         setShowContactModal(true)
     }
 
     const openEditContactModal = (contact: ContactWithTime) => {
         setEditingContactId(contact.id)
+        setContactModalMode("contact")
         setContactForm({
             name: contact.name || "",
             phone: contact.phone ? maskPhone(contact.phone) : "",
             email: contact.email || "",
             role: contact.role || "",
             bestContactTime: contact.bestContactTime || "",
+        })
+        setShowContactModal(true)
+    }
+
+    const openCompanyPrimaryModal = (contact?: { sourceContactId: string | null; phone: string | null; email: string | null }) => {
+        setEditingContactId(contact?.sourceContactId || null)
+        setContactModalMode("company-primary")
+        setContactForm({
+            name: "",
+            phone: contact?.phone ? maskPhone(contact.phone) : "",
+            email: contact?.email || "",
+            role: "",
+            bestContactTime: "",
         })
         setShowContactModal(true)
     }
@@ -480,8 +538,10 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     const [contractCancelDate, setContractCancelDate] = useState("")
     const [editForm, setEditForm] = useState<Record<string, string>>({})
     const [showContactModal, setShowContactModal] = useState(false)
+    const [contactModalMode, setContactModalMode] = useState<ContactModalMode>("contact")
     const [contactForm, setContactForm] = useState({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
     const [editingContactId, setEditingContactId] = useState<string | null>(null)
+    const [contactToDelete, setContactToDelete] = useState<ContactWithTime | null>(null)
     const [attachUploading, setAttachUploading] = useState(false)
     const [pendingAttachFiles, setPendingAttachFiles] = useState<File[]>([])
     const [cnpjLoading, setCnpjLoading] = useState(false)
@@ -828,18 +888,23 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
     const doc = client.cnpj || client.cpf || "—"
     const maskedDoc = client.cnpj ? maskCNPJ(client.cnpj) : client.cpf ? maskCPF(client.cpf) : "—"
+    const primaryCompanyContactSource = client.contacts.find((contact: any) => contact.isDefault) || null
+    const hasCompanyPrimaryContact = !!(primaryCompanyContactSource?.phone || primaryCompanyContactSource?.email)
     const companyPrimaryContact = {
         id: "__company_primary__",
         name: client.name || "Empresa",
-        phone: client.ownerPhone || null,
-        email: client.ownerEmail || null,
+        phone: primaryCompanyContactSource?.phone || null,
+        email: primaryCompanyContactSource?.email || null,
         role: "principal",
         bestContactTime: null,
         isCompanyPrimary: true,
+        sourceContactId: primaryCompanyContactSource?.id || null,
     }
     const contactList = [
-        ...((companyPrimaryContact.phone || companyPrimaryContact.email) ? [companyPrimaryContact] : []),
-        ...client.contacts.map((contact: any) => ({ ...contact, isCompanyPrimary: false })),
+        ...(hasCompanyPrimaryContact ? [companyPrimaryContact] : []),
+        ...client.contacts
+            .filter((contact: any) => !contact.isDefault)
+            .map((contact: any) => ({ ...contact, isCompanyPrimary: false })),
     ]
     const certExpired = client.certificateExpiresDate ? new Date(client.certificateExpiresDate) < new Date() : false
     const hasOwner = !!(client.ownerName || client.ownerCpf || client.ownerPhone || client.ownerEmail)
@@ -1837,7 +1902,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                     </div>
 
                     {/* Tickets */}
-                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="min-w-0 bg-white border border-slate-200 rounded-xl overflow-hidden">
                         <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <Ticket size={16} className="text-slate-600" />
@@ -1861,9 +1926,9 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                 </div>
                             ) : (
                                 <>
-                                    <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/60 space-y-3">
-                                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                            <div className="relative w-full md:max-w-sm">
+                                    <div className="min-w-0 px-5 py-4 border-b border-slate-100 bg-slate-50/60 space-y-3">
+                                        <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                            <div className="relative w-full min-w-0 md:max-w-sm">
                                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                                                 <Input
                                                     value={ticketSearchQuery}
@@ -1872,7 +1937,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                                     className="pl-10 h-10 bg-white border-slate-200 text-sm"
                                                 />
                                             </div>
-                                            <label className="inline-flex items-center gap-2 text-sm text-slate-600 select-none">
+                                            <label className="inline-flex shrink-0 items-center gap-2 text-sm text-slate-600 select-none">
                                                 <input
                                                     type="checkbox"
                                                     checked={showClosedTickets}
@@ -1882,11 +1947,11 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                                 <span>Exibir fechados</span>
                                             </label>
                                         </div>
-                                        <div className="flex items-center justify-between text-xs text-slate-500">
-                                            <span>
+                                        <div className="flex min-w-0 flex-col gap-1 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+                                            <span className="min-w-0">
                                                 Mostrando {paginatedTickets.length} de {filteredTickets.length} ticket{filteredTickets.length === 1 ? "" : "s"}
                                             </span>
-                                            <span>
+                                            <span className="shrink-0">
                                                 Página {totalTicketPages === 0 ? 0 : ticketsPage} de {totalTicketPages}
                                             </span>
                                         </div>
@@ -1914,11 +1979,11 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                     )}
 
                                     {filteredTickets.length > 0 && totalTicketPages > 1 && (
-                                        <div className="px-5 py-3 border-t border-slate-100 bg-white flex items-center justify-between">
-                                            <p className="text-xs text-slate-500">
+                                        <div className="flex min-w-0 flex-col gap-3 px-5 py-3 border-t border-slate-100 bg-white sm:flex-row sm:items-center sm:justify-between">
+                                            <p className="min-w-0 text-xs text-slate-500">
                                                 Exibindo {(ticketsPage - 1) * ticketsPageSize + 1} a {Math.min(ticketsPage * ticketsPageSize, filteredTickets.length)} de {filteredTickets.length}
                                             </p>
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex shrink-0 items-center gap-2">
                                                 <Button
                                                     type="button"
                                                     variant="outline"
@@ -2007,6 +2072,19 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                 </button>
                             </div>
                             <div>
+                                {!hasCompanyPrimaryContact && (
+                                    <div className="px-3 py-4 border-b border-slate-100 bg-amber-50/60">
+                                        <p className="text-xs font-medium text-amber-900">Não possui um contato principal.</p>
+                                        <p className="mt-1 text-[11px] text-amber-700">É preciso atribuir um contato principal para a empresa.</p>
+                                        <button
+                                            onClick={() => openCompanyPrimaryModal()}
+                                            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 cursor-pointer"
+                                        >
+                                            <Plus size={12} />
+                                            Atribuir contato principal
+                                        </button>
+                                    </div>
+                                )}
                                 {contactList.length === 0 ? (
                                     <div className="px-3 py-4 text-center">
                                         <p className="text-xs text-slate-400">Nenhum contato cadastrado</p>
@@ -2016,17 +2094,16 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                         {contactList.map((contact: any) => (
                                             <div key={contact.id} className="px-3 py-2.5">
                                                 <div className="flex items-center justify-between mb-1">
-                                                    <span className="text-xs font-semibold text-slate-900">{contact.name}</span>
+                                                    <span className="text-xs font-semibold text-slate-900">{contact.isCompanyPrimary ? "Empresa" : contact.name}</span>
                                                     <div className="flex items-center gap-1.5">
                                                         {contact.role && <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded capitalize">{contact.role}</span>}
-                                                        {!contact.isCompanyPrimary && (
+                                                        {contact.isCompanyPrimary ? (
+                                                            <button onClick={() => openCompanyPrimaryModal(contact)} className="text-slate-300 hover:text-indigo-500 cursor-pointer" title="Editar contato principal"><Pencil size={10} /></button>
+                                                        ) : (
                                                             <>
                                                                 <button onClick={() => openEditContactModal(contact)} className="text-slate-300 hover:text-indigo-500 cursor-pointer" title="Editar contato"><Pencil size={10} /></button>
                                                                 <button
-                                                                    onClick={() => {
-                                                                        if (!confirm(`Deseja realmente excluir o contato "${contact.name}"?`)) return
-                                                                        deleteContactMut.mutate(contact.id)
-                                                                    }}
+                                                                    onClick={() => setContactToDelete(contact)}
                                                                     className="text-slate-300 hover:text-red-500 cursor-pointer"
                                                                     title="Remover contato"
                                                                 ><Trash2 size={10} /></button>
@@ -2181,45 +2258,89 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                 setShowContactModal(open)
                 if (!open) {
                     setEditingContactId(null)
+                    setContactModalMode("contact")
                     setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
                 }
             }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>{editingContactId ? "Editar Contato" : "Adicionar Contato"}</DialogTitle>
-                        <DialogDescription>{editingContactId ? "Atualize os dados do contato." : "Preencha os dados do novo contato."}</DialogDescription>
+                        <DialogTitle>
+                            {contactModalMode === "company-primary"
+                                ? (editingContactId ? "Editar Contato Principal" : "Atribuir Contato Principal")
+                                : (editingContactId ? "Editar Contato" : "Adicionar Contato")}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {contactModalMode === "company-primary"
+                                ? (editingContactId ? "Atualize o telefone e o email do contato principal da empresa." : "Informe o telefone e o email do contato principal da empresa.")
+                                : (editingContactId ? "Atualize os dados do contato." : "Preencha os dados do novo contato.")}
+                        </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-3">
-                        <Input placeholder="Nome *" value={contactForm.name} onChange={(e) => setContactForm(p => ({ ...p, name: e.target.value }))} />
+                        {contactModalMode === "contact" && (
+                            <Input placeholder="Nome *" value={contactForm.name} onChange={(e) => setContactForm(p => ({ ...p, name: e.target.value }))} />
+                        )}
                         <div className="grid grid-cols-2 gap-2">
                             <Input placeholder="Telefone" value={contactForm.phone} onChange={(e) => setContactForm(p => ({ ...p, phone: maskPhone(e.target.value) }))} />
                             <Input placeholder="Email" value={contactForm.email} onChange={(e) => setContactForm(p => ({ ...p, email: e.target.value }))} />
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
-                            <select 
-                                className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" 
-                                value={contactForm.role}
-                                onChange={(e) => setContactForm(p => ({ ...p, role: e.target.value }))}
-                            >
-                                <option value="">Selecione</option>
-                                {CONTACT_ROLES.map(role => (
-                                    <option key={role.value} value={role.value}>{role.label}</option>
-                                ))}
-                            </select>
-                            <Input 
-                                placeholder="Melhor horário" 
-                                value={contactForm.bestContactTime} 
-                                onChange={(e) => setContactForm(p => ({ ...p, bestContactTime: maskContactTime(e.target.value) }))} 
-                            />
-                        </div>
+                        {contactModalMode === "contact" && (
+                            <div className="grid grid-cols-2 gap-2">
+                                <select 
+                                    className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" 
+                                    value={contactForm.role}
+                                    onChange={(e) => setContactForm(p => ({ ...p, role: e.target.value }))}
+                                >
+                                    <option value="">Selecione</option>
+                                    {CONTACT_ROLES.map(role => (
+                                        <option key={role.value} value={role.value}>{role.label}</option>
+                                    ))}
+                                </select>
+                                <Input 
+                                    placeholder="Melhor horário" 
+                                    value={contactForm.bestContactTime} 
+                                    onChange={(e) => setContactForm(p => ({ ...p, bestContactTime: maskContactTime(e.target.value) }))} 
+                                />
+                            </div>
+                        )}
                     </div>
                     <DialogFooter className="gap-2">
                         <Button variant="outline" onClick={() => {
                             setShowContactModal(false)
                             setEditingContactId(null)
+                            setContactModalMode("contact")
                             setContactForm({ name: "", phone: "", email: "", role: "", bestContactTime: "" })
                         }}>Cancelar</Button>
-                        <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={!contactForm.name.trim() || addContactMut.isPending || updateContactMut.isPending} onClick={() => {
+                        <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" disabled={(contactModalMode === "contact" && !contactForm.name.trim()) || addContactMut.isPending || updateContactMut.isPending || assignCompanyPrimaryContactMut.isPending} onClick={() => {
+                            if (contactModalMode === "company-primary") {
+                                const payload = {
+                                    phone: contactForm.phone || undefined,
+                                    email: contactForm.email || undefined,
+                                }
+
+                                if (!payload.phone && !payload.email) {
+                                    toast.error("Informe ao menos telefone ou email")
+                                    return
+                                }
+
+                                if (editingContactId) {
+                                    const sourceContact = client.contacts.find((contact: any) => contact.id === editingContactId)
+                                    updateContactMut.mutate({
+                                        contactId: editingContactId,
+                                        data: {
+                                            name: sourceContact?.name || client.name || "Empresa",
+                                            phone: payload.phone,
+                                            email: payload.email,
+                                            role: sourceContact?.role || "principal",
+                                            bestContactTime: sourceContact?.bestContactTime || undefined,
+                                        },
+                                    })
+                                    return
+                                }
+
+                                assignCompanyPrimaryContactMut.mutate(payload)
+                                return
+                            }
+
                             const payload = {
                                 name: contactForm.name,
                                 phone: contactForm.phone || undefined,
@@ -2234,7 +2355,35 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                             }
 
                             addContactMut.mutate(payload)
-                        }}>{(addContactMut.isPending || updateContactMut.isPending) ? <Loader2 size={14} className="animate-spin mr-2" /> : null}Salvar</Button>
+                        }}>{(addContactMut.isPending || updateContactMut.isPending || assignCompanyPrimaryContactMut.isPending) ? <Loader2 size={14} className="animate-spin mr-2" /> : null}Salvar</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={!!contactToDelete} onOpenChange={(open) => { if (!open) setContactToDelete(null) }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-red-600">
+                            <AlertTriangle size={18} /> Excluir contato
+                        </DialogTitle>
+                        <DialogDescription>
+                            Deseja realmente excluir o contato <span className="font-medium text-slate-900">{contactToDelete?.name}</span>?
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => setContactToDelete(null)} disabled={deleteContactMut.isPending}>Cancelar</Button>
+                        <Button
+                            variant="destructive"
+                            onClick={() => {
+                                if (!contactToDelete) return
+                                deleteContactMut.mutate(contactToDelete.id, {
+                                    onSuccess: () => setContactToDelete(null),
+                                })
+                            }}
+                            disabled={deleteContactMut.isPending}
+                        >
+                            {deleteContactMut.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : <Trash2 size={14} className="mr-2" />}
+                            Excluir contato
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

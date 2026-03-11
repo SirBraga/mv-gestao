@@ -164,6 +164,7 @@ export async function getContabilities() {
                 razaoSocial: cl.razaoSocial,
                 nomeFantasia: cl.nomeFantasia,
             })).join(", "),
+            contactPhones: c.contacts.map((contact: any) => contact.phone).filter((phone: string | null): phone is string => !!phone),
             phone: defaultPhone,
             email: defaultEmail,
             address: c.address,
@@ -361,6 +362,38 @@ export async function deleteContabilityContact(contactId: string) {
     if (!contact) throw new Error("Contato não encontrado")
 
     await prismaAny.contabilityContact.delete({ where: { id: contactId } })
+
+    revalidatePath("/dashboard/contabilidade")
+    revalidatePath(`/dashboard/contabilidade/${contact.contabilityId}`)
+    return { success: true }
+}
+
+export async function updateContabilityContact(contactId: string, data: {
+    name: string
+    phone?: string
+    email?: string
+    role?: string
+    bestContactTime?: string
+}) {
+    await getSession()
+
+    const contact = await prismaAny.contabilityContact.findUnique({
+        where: { id: contactId },
+        select: { contabilityId: true },
+    })
+
+    if (!contact) throw new Error("Contato não encontrado")
+
+    await prismaAny.contabilityContact.update({
+        where: { id: contactId },
+        data: {
+            name: data.name,
+            phone: data.phone || null,
+            email: data.email || null,
+            role: data.role || null,
+            bestContactTime: data.bestContactTime || null,
+        },
+    })
 
     revalidatePath("/dashboard/contabilidade")
     revalidatePath(`/dashboard/contabilidade/${contact.contabilityId}`)

@@ -493,7 +493,12 @@ export default function Clientes() {
                     !searchQuery ||
                     (client.razaoSocial || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
                     (client.nomeFantasia || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    (!!digitsQuery && normalizeDigits(client.cnpj || "").includes(digitsQuery))
+                    (!!digitsQuery && (
+                        normalizeDigits(client.cnpj || "").includes(digitsQuery) ||
+                        normalizeDigits(client.cpf || "").includes(digitsQuery) ||
+                        normalizeDigits(client.phone || "").includes(digitsQuery) ||
+                        (((client as ClientData & { contactPhones?: string[] }).contactPhones) || []).some((phone: string) => normalizeDigits(phone).includes(digitsQuery))
+                    ))
 
                 return matchesFilter && matchesProduct && matchesSearch
             })
