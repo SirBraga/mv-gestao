@@ -13,12 +13,36 @@ async function getSession() {
 
 export async function updateProfileImage(imageUrl: string) {
     const session = await getSession()
-    await prisma.user.update({
+    const user = await prisma.user.update({
         where: { id: session.user.id },
         data: { image: imageUrl },
+        select: { id: true, name: true, email: true, image: true, role: true },
     })
-    revalidatePath("/dashboard")
-    return { success: true }
+    revalidatePath("/dashboard", "layout")
+    revalidatePath("/dashboard/perfil")
+    return { success: true, user }
+}
+
+export async function updateProfile(data: { name: string; image?: string | null }) {
+    const session = await getSession()
+    const name = data.name.trim()
+
+    if (!name) {
+        throw new Error("Nome é obrigatório")
+    }
+
+    const user = await prisma.user.update({
+        where: { id: session.user.id },
+        data: {
+            name,
+            ...(data.image !== undefined ? { image: data.image } : {}),
+        },
+        select: { id: true, name: true, email: true, image: true, role: true },
+    })
+
+    revalidatePath("/dashboard", "layout")
+    revalidatePath("/dashboard/perfil")
+    return { success: true, user }
 }
 
 export async function getProfile() {

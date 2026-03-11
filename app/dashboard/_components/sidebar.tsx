@@ -12,33 +12,21 @@ import {
   Package, 
   BookOpen,
   LogOut, 
-  Settings, 
   UsersRound, 
   MessageCircle, 
   Wifi, 
   WifiOff, 
-  Camera, 
-  Loader2, 
   Bell, 
   CheckCheck,
-  Sparkles
+  Sparkles,
+  UserCircle
 } from "lucide-react"
 import { HiArrowRightOnRectangle } from "react-icons/hi2";
 import { updateOnlineStatus } from "@/app/actions/chat"
-import { updateProfileImage } from "@/app/actions/profile"
+import { getProfile } from "@/app/actions/profile"
 import { getNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead } from "@/app/actions/notifications"
-import { uploadFile } from "@/app/utils/upload"
 import { useChatState } from "@/components/chat/ChatStateProvider"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ImagePositioner } from "./ImagePositioner"
-import { toast } from "react-toastify"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -90,14 +78,26 @@ export default function Sidebar({ avatar, name, role, permissions }: SidebarProp
   const { totalUnreadCount } = useChatState()
   const [isOnline, setIsOnline] = useState(true)
   const [isPending, startTransition] = useTransition()
-  const [profileOpen, setProfileOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
-  const [photoSrc, setPhotoSrc] = useState<string | null>(avatar || null)
-  const [photoPosition, setPhotoPosition] = useState("50% 50%")
-  const [photoFile, setPhotoFile] = useState<File | null>(null)
-  const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const prevNotifCountRef = useRef(0)
   const prevChatCountRef = useRef(0)
+
+  const { data: profile } = useQuery({
+    queryKey: ["profile"],
+    queryFn: () => getProfile(),
+    initialData: {
+      id: "",
+      name,
+      email: "",
+      image: avatar || null,
+      role,
+    },
+    staleTime: 60 * 1000,
+  })
+
+  const displayName = profile?.name || name
+  const displayAvatar = profile?.image || avatar || ""
+  const displayRole = (profile?.role || role).toLowerCase()
 
   const playNotifSound = useCallback(() => {
     try {
@@ -148,16 +148,6 @@ export default function Sidebar({ avatar, name, role, permissions }: SidebarProp
       queryClient.invalidateQueries({ queryKey: ["notifications"] })
       queryClient.invalidateQueries({ queryKey: ["unreadNotifCount"] })
     },
-  })
-
-  const profileMutation = useMutation({
-    mutationFn: (imageUrl: string) => updateProfileImage(imageUrl),
-    onSuccess: () => {
-      toast.success("Foto de perfil atualizada!")
-      queryClient.invalidateQueries({ queryKey: ["chat-users"] })
-      setProfileOpen(false)
-    },
-    onError: () => toast.error("Erro ao atualizar foto"),
   })
 
   // Sound + browser notification: ticket notifications
@@ -255,50 +245,13 @@ export default function Sidebar({ avatar, name, role, permissions }: SidebarProp
     router.push("/")
   }
 
-  const handlePhotoFileSelect = (file: File) => {
-    setPhotoFile(file)
-    const url = URL.createObjectURL(file)
-    setPhotoSrc(url)
-  }
-
-  const handlePhotoRemove = () => {
-    setPhotoFile(null)
-    setPhotoSrc(null)
-    setPhotoPosition("50% 50%")
-  }
-
-  const handleSavePhoto = async () => {
-    if (!photoFile) {
-      if (!photoSrc) {
-        profileMutation.mutate("")
-      }
-      return
-    }
-    setUploadingPhoto(true)
-    try {
-      const result = await uploadFile(photoFile, "avatars")
-      profileMutation.mutate(result.url)
-    } catch {
-      toast.error("Erro ao fazer upload da foto")
-    } finally {
-      setUploadingPhoto(false)
-    }
-  }
-
-  const openProfileModal = () => {
-    setPhotoSrc(avatar || null)
-    setPhotoFile(null)
-    setPhotoPosition("50% 50%")
-    setProfileOpen(true)
-  }
-
   const [expanded, setExpanded] = useState(false)
 
   return (
     <TooltipProvider delayDuration={0}>
       <aside 
-        className={`h-full bg-gradient-to-b from-slate-900 to-slate-800 flex flex-col transition-all duration-300 ease-in-out border-r border-slate-700/50 ${
-          expanded ? "w-56" : "w-[60px]"
+        className={`h-full bg-linear-to-b from-slate-900 to-slate-800 flex flex-col transition-all duration-300 ease-in-out border-r border-slate-700/50 ${
+          expanded ? "w-56" : "w-15"
         }`}
       >
         {/* Header */}
@@ -453,9 +406,9 @@ export default function Sidebar({ avatar, name, role, permissions }: SidebarProp
               <button className={`w-full flex items-center gap-3 px-3 h-12 rounded-xl hover:bg-white/5 transition-all cursor-pointer ${expanded ? "" : "justify-center"}`}>
                 <div className="relative shrink-0">
                   <Avatar className="size-8 ring-2 ring-white/10">
-                    <AvatarImage src={avatar} alt={name} />
+                    <AvatarImage src={displayAvatar} alt={displayName} />
                     <AvatarFallback className="bg-indigo-600 text-white text-xs font-semibold">
-                      {name.charAt(0).toUpperCase()}
+                      {displayName.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-slate-900 ${
@@ -464,28 +417,24 @@ export default function Sidebar({ avatar, name, role, permissions }: SidebarProp
                 </div>
                 {expanded && (
                   <div className="flex-1 min-w-0 text-left">
-                    <p className="text-sm font-medium text-white truncate">{name}</p>
-                    <p className="text-[10px] text-slate-400 capitalize">{role.toLowerCase()}</p>
+                    <p className="text-sm font-medium text-white truncate">{displayName}</p>
+                    <p className="text-[10px] text-slate-400 capitalize">{displayRole}</p>
                   </div>
                 )}
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="right" align="end" sideOffset={8} className="w-56 bg-white border-slate-200">
               <div className="px-3 py-3 border-b border-slate-100">
-                <p className="text-sm font-semibold text-slate-900 truncate">{name}</p>
-                <p className="text-xs text-slate-500 capitalize">{role.toLowerCase()}</p>
+                <p className="text-sm font-semibold text-slate-900 truncate">{displayName}</p>
+                <p className="text-xs text-slate-500 capitalize">{displayRole}</p>
               </div>
               <DropdownMenuItem onClick={toggleOnline} className="gap-3 py-2.5 cursor-pointer" disabled={isPending}>
                 {isOnline ? <Wifi size={16} className="text-emerald-500" /> : <WifiOff size={16} className="text-slate-400" />}
                 <span className="text-sm">{isOnline ? "Ficar offline" : "Ficar online"}</span>
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={openProfileModal} className="gap-3 py-2.5 cursor-pointer">
-                <Camera size={16} className="text-slate-500" />
-                <span className="text-sm">Foto de perfil</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem className="gap-3 py-2.5 cursor-pointer">
-                <Settings size={16} className="text-slate-500" />
-                <span className="text-sm">Configurações</span>
+              <DropdownMenuItem onClick={() => router.push("/dashboard/perfil")} className="gap-3 py-2.5 cursor-pointer">
+                <UserCircle size={16} className="text-slate-500" />
+                <span className="text-sm">Meu perfil</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-slate-100" />
               <DropdownMenuItem onClick={handleLogout} className="gap-3 py-2.5 text-red-600 focus:text-red-600 cursor-pointer">
@@ -496,39 +445,6 @@ export default function Sidebar({ avatar, name, role, permissions }: SidebarProp
           </DropdownMenu>
         </div>
       </aside>
-      {/* Profile Photo Modal */}
-      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-base">Foto de Perfil</DialogTitle>
-          </DialogHeader>
-          <div className="py-2">
-            <div className="mx-auto w-48">
-              <ImagePositioner
-                src={photoSrc}
-                position={photoPosition}
-                onPositionChange={setPhotoPosition}
-                onFileSelect={handlePhotoFileSelect}
-                onRemove={handlePhotoRemove}
-                aspectClass="aspect-square"
-                label="Foto"
-                rounded
-              />
-            </div>
-            <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
-              <p className="text-[11px] text-gray-400">Arraste para reposicionar</p>
-              <Button
-                onClick={handleSavePhoto}
-                disabled={uploadingPhoto || profileMutation.isPending}
-                className="bg-blue-600 hover:bg-blue-700 text-white text-sm h-9 px-4 rounded-lg"
-              >
-                {(uploadingPhoto || profileMutation.isPending) ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
-                Salvar
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </TooltipProvider>
   )
 }

@@ -85,7 +85,7 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
 function DashboardLoadingState() {
   return (
     <div className="h-full overflow-y-auto bg-slate-50">
-      <div className="mx-auto max-w-[1600px] p-8">
+      <div className="w-full p-8">
         <div className="mb-8 overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
           <div className="bg-linear-to-r from-indigo-50 via-white to-sky-50 px-8 py-8">
             <div className="flex flex-col gap-6 xl:flex-row xl:items-center xl:justify-between">
@@ -238,7 +238,7 @@ export default function Dashboard() {
 
   return (
     <div className="h-full overflow-y-auto bg-slate-50">
-      <div className="mx-auto max-w-[1600px] p-8">
+      <div className="w-full p-8">
         <div className="mb-5 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-stretch">
             <div>
