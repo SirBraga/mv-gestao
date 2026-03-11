@@ -6,7 +6,7 @@ import type { InstallationType } from "@/app/generated/prisma/enums"
 import { use } from "react"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getClientById, updateClient, toggleClientSupport, addClientContact, updateClientContact, deleteClientContact, addClientAttachment, deleteClientAttachment, cancelContract } from "@/app/actions/clients"
+import { getClientById, updateClient, toggleClientSupport, toggleClientActive, addClientContact, updateClientContact, deleteClientContact, addClientAttachment, deleteClientAttachment, cancelContract } from "@/app/actions/clients"
 import { getContabilityOptions } from "@/app/actions/contability"
 import { getProductOptions, createClientProductSerial, getClientProductSerials, createOrUpdateClientProduct, createClientProductPlugin, deleteClientProductPlugin } from "@/app/actions/products"
 import { lookupCnpj } from "@/app/actions/cnpj"
@@ -48,6 +48,8 @@ import {
     Building2,
     Clock,
     AlertTriangle,
+    UserCheck,
+    UserX,
 } from "lucide-react"
 import { uploadFile } from "@/app/utils/upload"
 import { toast } from "react-toastify"
@@ -97,6 +99,7 @@ interface ClientData {
     ownerPhone?: string
     ownerEmail?: string
     hasContract: boolean
+    isActive: boolean
     contractType?: string
     supportReleased: boolean
     contability?: {
@@ -241,6 +244,30 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             setBlockReason("")
             setContractCancelReason("")
             setContractCancelDate("")
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const toggleActiveMutation = useMutation({
+        mutationFn: (isActive: boolean) => toggleClientActive(id, isActive),
+        onSuccess: (_result, isActive) => {
+            queryClient.setQueryData(["client", id], (old: any) => {
+                if (!old) return old
+
+                return {
+                    ...old,
+                    isActive,
+                }
+            })
+            queryClient.setQueryData(["clients"], (old: any) => {
+                if (!Array.isArray(old)) return old
+
+                return old.map((item: any) => item.id === id ? {
+                    ...item,
+                    isActive,
+                } : item)
+            })
+            toast.success(isActive ? "Cliente ativado" : "Cliente inativado")
         },
         onError: (err: Error) => toast.error(err.message),
     })
@@ -949,8 +976,11 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                     <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs font-medium">
                                         {client.type === "PF" ? "Pessoa Física" : "Pessoa Jurídica"}
                                     </span>
-                                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${client.supportReleased ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
-                                        {client.supportReleased ? "Ativo" : "Bloqueado"}
+                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${client.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-700"}`}>
+                                        {client.isActive ? "Ativo" : "Inativo"}
+                                    </span>
+                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${client.supportReleased ? "bg-blue-100 text-blue-700" : "bg-red-100 text-red-700"}`}>
+                                        {client.supportReleased ? "Suporte liberado" : "Suporte bloqueado"}
                                     </span>
                                 </div>
                             </div>
@@ -963,6 +993,20 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                     <Ticket size={16} /> Abrir Ticket
                                 </button>
                             )}
+                            <button
+                                onClick={() => toggleActiveMutation.mutate(!client.isActive)}
+                                disabled={toggleActiveMutation.isPending}
+                                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors disabled:opacity-50 cursor-pointer"
+                            >
+                                {toggleActiveMutation.isPending ? (
+                                    <Loader2 size={16} className="animate-spin" />
+                                ) : client.isActive ? (
+                                    <UserX size={16} />
+                                ) : (
+                                    <UserCheck size={16} />
+                                )}
+                                {client.isActive ? "Inativar cliente" : "Ativar cliente"}
+                            </button>
                             {client.supportReleased
                                 ? <button onClick={() => setShowBlockModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors">
                                     <ShieldX size={16} /> Bloquear

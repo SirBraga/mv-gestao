@@ -123,6 +123,7 @@ model Clients {
   attachments Attachment[]
   clientProductSerials ClientProductSerial[]
   hasContract Boolean?
+  isActive Boolean? @default(true)
   contractType ContractType?
   supportReleased Boolean?
   contractCancelReason String?

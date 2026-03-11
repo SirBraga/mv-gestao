@@ -62,6 +62,7 @@ export async function getClients() {
             ownerPhone: true,
             ownerEmail: true,
             hasContract: true,
+            isActive: true,
             contractType: true,
             supportReleased: true,
             certificateExpiresDate: true,
@@ -106,6 +107,7 @@ export async function getClients() {
         phone: c.contacts.find(ct => ct.isDefault)?.phone || c.contacts[0]?.phone || null,
         email: c.contacts.find(ct => ct.isDefault)?.email || c.contacts[0]?.email || null,
         hasContract: c.hasContract ?? false,
+        isActive: c.isActive ?? true,
         contractType: c.contractType,
         supportReleased: c.supportReleased ?? false,
         certificateExpiresDate: c.certificateExpiresDate?.toISOString() || null,
@@ -275,6 +277,7 @@ export async function getClientById(id: string) {
             zipCode: true,
             complement: true,
             hasContract: true,
+            isActive: true,
             supportReleased: true,
             ownerName: true,
             ownerPhone: true,
@@ -409,6 +412,7 @@ export async function getClientById(id: string) {
         zipCode: client.zipCode,
         complement: client.complement,
         hasContract: client.hasContract ?? false,
+        isActive: client.isActive ?? true,
         supportReleased: client.supportReleased ?? false,
         ownerName: client.ownerName,
         ownerPhone: client.ownerPhone,
@@ -520,6 +524,7 @@ export async function createClient(data: {
     ownerEmail?: string
     ownerCpf?: string
     hasContract?: boolean
+    isActive?: boolean
     supportReleased?: boolean
     contabilityId?: string
 }) {
@@ -591,6 +596,7 @@ export async function createClient(data: {
             ownerEmail: data.ownerEmail || null,
             ownerCpf: data.ownerCpf || null,
             hasContract: data.hasContract ?? false,
+            isActive: data.isActive ?? true,
             supportReleased: data.supportReleased ?? false,
             contabilityId: data.contabilityId || null,
         },
@@ -782,5 +788,18 @@ export async function toggleClientSupport(id: string, released: boolean, blockRe
             blockReason: released ? null : (blockReason || null),
         },
     })
+    return { success: true }
+}
+
+export async function toggleClientActive(id: string, isActive: boolean) {
+    await getSession()
+    await prisma.clients.update({
+        where: { id },
+        data: {
+            isActive,
+        },
+    })
+    revalidatePath("/dashboard/clientes")
+    revalidatePath(`/dashboard/clientes/${id}`)
     return { success: true }
 }

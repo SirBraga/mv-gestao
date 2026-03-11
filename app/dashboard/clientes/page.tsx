@@ -21,7 +21,6 @@ import { ImagePositioner } from "../_components/ImagePositioner"
 import { getEntityDisplayName } from "@/app/utils/entity-names"
 import {
     Search,
-    Filter,
     ChevronUp,
     ChevronDown,
     Users,
@@ -45,6 +44,7 @@ import {
 } from "lucide-react"
 
 type FilterType = "all" | "active" | "blocked" | "cert_expired" | "cert_expiring" | "serial_expired" | "serial_expiring"
+type StatusFilterType = "all" | "active" | "inactive"
 type SortKey = "id" | "name" | "phone" | "email" | "status" | "contract" | "type"
 type SortDir = "asc" | "desc"
 
@@ -114,6 +114,12 @@ const FILTERS = [
     { key: "serial_expired" as FilterType, label: "Serial Vencido", icon: Clock },
 ]
 
+const STATUS_FILTERS = [
+    { key: "all" as StatusFilterType, label: "Todos", icon: Users },
+    { key: "active" as StatusFilterType, label: "Ativos", icon: UserCheck },
+    { key: "inactive" as StatusFilterType, label: "Inativos", icon: UserX },
+]
+
 const COLUMNS: { key: SortKey; label: string }[] = [
     { key: "name", label: "Cliente" },
     { key: "phone", label: "Telefone" },
@@ -131,7 +137,7 @@ function compareClients(a: ClientData, b: ClientData, key: SortKey, dir: SortDir
         case "name": valA = a.name; valB = b.name; break
         case "phone": valA = a.phone || ""; valB = b.phone || ""; break
         case "email": valA = a.email || ""; valB = b.email || ""; break
-        case "status": valA = a.supportReleased; valB = b.supportReleased; break
+        case "status": valA = a.isActive; valB = b.isActive; break
         case "contract": valA = a.contractType || ""; valB = b.contractType || ""; break
         case "type": valA = a.type; valB = b.type; break
     }
@@ -146,8 +152,10 @@ function compareClients(a: ClientData, b: ClientData, key: SortKey, dir: SortDir
 export default function Clientes() {
     const queryClient = useQueryClient()
     const [activeFilter, setActiveFilter] = useState<FilterType>("all")
+    const [activeStatusFilter, setActiveStatusFilter] = useState<StatusFilterType>("all")
     const [activeProductId, setActiveProductId] = useState<string>("")
     const [defaultOpen, setDefaultOpen] = useState(true)
+    const [statusOpen, setStatusOpen] = useState(true)
     const [productsOpen, setProductsOpen] = useState(true)
     const [searchQuery, setSearchQuery] = useState("")
     const [sortKey, setSortKey] = useState<SortKey>("name")
@@ -231,6 +239,7 @@ export default function Clientes() {
                         phone: variables.ownerPhone || null,
                         email: variables.ownerEmail || null,
                         hasContract: true,
+                        isActive: true,
                         contractType: variables.contractType || undefined,
                         supportReleased: variables.supportReleased ?? false,
                         certificateExpiresDate: variables.certificateExpiresDate?.toISOString() || null,
@@ -427,16 +436,22 @@ export default function Clientes() {
     const clientsForProductCounts = useMemo(() => {
         return allClients.filter((client) => {
             return (
-                activeFilter === "all" ||
-                (activeFilter === "active" && client.supportReleased) ||
-                (activeFilter === "blocked" && !client.supportReleased) ||
-                (activeFilter === "cert_expired" && isCertExpired(client.certificateExpiresDate)) ||
-                (activeFilter === "cert_expiring" && isCertExpiring30d(client.certificateExpiresDate)) ||
-                (activeFilter === "serial_expired" && isSerialExpired(client)) ||
-                (activeFilter === "serial_expiring" && isSerialExpiring45d(client))
+                (
+                    activeStatusFilter === "all" ||
+                    (activeStatusFilter === "active" && client.isActive) ||
+                    (activeStatusFilter === "inactive" && !client.isActive)
+                ) && (
+                    activeFilter === "all" ||
+                    (activeFilter === "active" && client.supportReleased) ||
+                    (activeFilter === "blocked" && !client.supportReleased) ||
+                    (activeFilter === "cert_expired" && isCertExpired(client.certificateExpiresDate)) ||
+                    (activeFilter === "cert_expiring" && isCertExpiring30d(client.certificateExpiresDate)) ||
+                    (activeFilter === "serial_expired" && isSerialExpired(client)) ||
+                    (activeFilter === "serial_expiring" && isSerialExpiring45d(client))
+                )
             )
         })
-    }, [allClients, activeFilter])
+    }, [allClients, activeFilter, activeStatusFilter])
 
     const clientsWithoutProductCount = useMemo(() => {
         return clientsForProductCounts.filter((client) => !client.clientProductSerials || client.clientProductSerials.length === 0).length
@@ -484,6 +499,11 @@ export default function Clientes() {
                     (activeFilter === "serial_expired" && isSerialExpired(client)) ||
                     (activeFilter === "serial_expiring" && isSerialExpiring45d(client))
 
+                const matchesStatus =
+                    activeStatusFilter === "all" ||
+                    (activeStatusFilter === "active" && client.isActive) ||
+                    (activeStatusFilter === "inactive" && !client.isActive)
+
                 const matchesProduct = !activeProductId
                     || (activeProductId === "__NO_PRODUCT__"
                         ? !client.clientProductSerials || client.clientProductSerials.length === 0
@@ -500,17 +520,17 @@ export default function Clientes() {
                         (((client as ClientData & { contactPhones?: string[] }).contactPhones) || []).some((phone: string) => normalizeDigits(phone).includes(digitsQuery))
                     ))
 
-                return matchesFilter && matchesProduct && matchesSearch
+                return matchesFilter && matchesStatus && matchesProduct && matchesSearch
             })
             .sort((a, b) => compareClients(a, b, sortKey, sortDir))
-    }, [allClients, activeFilter, activeProductId, searchQuery, sortKey, sortDir])
+    }, [allClients, activeFilter, activeStatusFilter, activeProductId, searchQuery, sortKey, sortDir])
 
     const [currentPage, setCurrentPage] = useState(1)
     const [pageSize, setPageSize] = useState(15)
 
     useEffect(() => {
         setCurrentPage(1)
-    }, [activeFilter, activeProductId, searchQuery, sortKey, sortDir, pageSize])
+    }, [activeFilter, activeStatusFilter, activeProductId, searchQuery, sortKey, sortDir, pageSize])
 
     const totalPages = Math.max(1, Math.ceil(filteredClients.length / pageSize))
     const paginatedClients = useMemo(() => {
@@ -528,6 +548,11 @@ export default function Clientes() {
         cert_expired: allClients.filter((c) => isCertExpired(c.certificateExpiresDate)).length,
         serial_expiring: allClients.filter((c) => isSerialExpiring45d(c)).length,
         serial_expired: allClients.filter((c) => isSerialExpired(c)).length,
+    }
+    const statusCounts: Record<StatusFilterType, number> = {
+        all: allClients.length,
+        active: allClients.filter((c) => c.isActive).length,
+        inactive: allClients.filter((c) => !c.isActive).length,
     }
 
     if (isLoading) {
@@ -576,6 +601,44 @@ export default function Clientes() {
                                         <span className={`text-xs min-w-6 text-center rounded-full px-2 py-0.5 font-semibold ${
                                             isActive ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
                                         }`}>{counts[filter.key]}</span>
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                <div className="mb-6">
+                    <button
+                        onClick={() => setStatusOpen(!statusOpen)}
+                        className="flex items-center justify-between w-full px-2 mb-2"
+                    >
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</span>
+                        {statusOpen ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+                    </button>
+
+                    {statusOpen && (
+                        <div className="flex flex-col gap-0.5">
+                            {STATUS_FILTERS.map((filter) => {
+                                const Icon = filter.icon
+                                const isActive = activeStatusFilter === filter.key
+                                return (
+                                    <button
+                                        key={filter.key}
+                                        onClick={() => setActiveStatusFilter(filter.key)}
+                                        className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all cursor-pointer ${
+                                            isActive
+                                                ? "bg-indigo-50 text-indigo-700 font-medium"
+                                                : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <Icon size={16} strokeWidth={1.5} />
+                                            <span>{filter.label}</span>
+                                        </div>
+                                        <span className={`text-xs min-w-6 text-center rounded-full px-2 py-0.5 font-semibold ${
+                                            isActive ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
+                                        }`}>{statusCounts[filter.key]}</span>
                                     </button>
                                 )
                             })}
