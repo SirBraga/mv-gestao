@@ -446,8 +446,8 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                                 )}
                                 <Prop label={firm.type === "PF" ? "CPF" : "CNPJ"} value={doc} />
                                 <Prop label="IE" value={firm.ie || "—"} />
-                                <Prop label="Telefone" value={phone} />
-                                <Prop label="Email" value={email} />
+                                <Prop label="Telefone" value={firm.phone || "—"} />
+                                <Prop label="Email" value={firm.email || "—"} />
                                 <Prop label="Cadastro" value={formatDateShort(firm.createdAt)} />
                             </div>
                         )}
