@@ -981,9 +981,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${client.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-700"}`}>
                                         {client.isActive ? "Ativo" : "Inativo"}
                                     </span>
-                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${client.supportReleased ? "bg-blue-100 text-blue-700" : "bg-red-100 text-red-700"}`}>
-                                        {client.supportReleased ? "Suporte liberado" : "Suporte bloqueado"}
-                                    </span>
+                                    
                                 </div>
                             </div>
                         </div>
