@@ -15,6 +15,7 @@ import { CONTACT_ROLES } from "@/app/constants/options"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { MultiSelect } from "@/components/ui/multi-select"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import {
     Dialog,
     DialogContent,
@@ -50,6 +51,7 @@ import {
     AlertTriangle,
     UserCheck,
     UserX,
+    ChevronDown,
 } from "lucide-react"
 import { uploadFile } from "@/app/utils/upload"
 import { toast } from "react-toastify"
@@ -989,32 +991,46 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                         {/* Action buttons */}
                         <div className="flex items-center gap-2 justify-end h-full">
                             {!editing && (
-                                <button onClick={() => setShowTicketDrawer(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer">
-                                    <Ticket size={16} /> Abrir Ticket
-                                </button>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer">
+                                            Ações
+                                            <ChevronDown size={16} />
+                                        </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-56">
+                                        <DropdownMenuItem onClick={() => setShowTicketDrawer(true)} className="cursor-pointer">
+                                            <Ticket size={14} className="mr-2" /> Abrir Ticket
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                            onClick={() => toggleActiveMutation.mutate(!client.isActive)}
+                                            disabled={toggleActiveMutation.isPending}
+                                            className="cursor-pointer"
+                                        >
+                                            {toggleActiveMutation.isPending ? (
+                                                <Loader2 size={14} className="mr-2 animate-spin" />
+                                            ) : client.isActive ? (
+                                                <UserX size={14} className="mr-2" />
+                                            ) : (
+                                                <UserCheck size={14} className="mr-2" />
+                                            )}
+                                            {client.isActive ? "Inativar cliente" : "Ativar cliente"}
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem onClick={() => setShowBlockModal(true)} className="cursor-pointer">
+                                            {client.supportReleased ? (
+                                                <>
+                                                    <ShieldX size={14} className="mr-2" /> Bloquear suporte
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <ShieldCheck size={14} className="mr-2" /> Liberar suporte
+                                                </>
+                                            )}
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
                             )}
-                            <button
-                                onClick={() => toggleActiveMutation.mutate(!client.isActive)}
-                                disabled={toggleActiveMutation.isPending}
-                                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors disabled:opacity-50 cursor-pointer"
-                            >
-                                {toggleActiveMutation.isPending ? (
-                                    <Loader2 size={16} className="animate-spin" />
-                                ) : client.isActive ? (
-                                    <UserX size={16} />
-                                ) : (
-                                    <UserCheck size={16} />
-                                )}
-                                {client.isActive ? "Inativar cliente" : "Ativar cliente"}
-                            </button>
-                            {client.supportReleased
-                                ? <button onClick={() => setShowBlockModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors">
-                                    <ShieldX size={16} /> Bloquear
-                                </button>
-                                : <button onClick={() => setShowBlockModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors">
-                                    <ShieldCheck size={16} /> Liberar
-                                </button>
-                            }
                             {editing ? (
                                 <>
                                     <button onClick={() => setEditing(false)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 border border-slate-200 hover:bg-slate-50 text-sm font-medium transition-colors">

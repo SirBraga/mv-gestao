@@ -335,8 +335,6 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
             cnpj: editForm.cnpj || undefined,
             cpf: editForm.cpf || undefined,
             ie: editForm.ie || undefined,
-            phone: editForm.phone || undefined,
-            email: editForm.email || undefined,
             address: editForm.address || undefined,
             city: editForm.city || undefined,
             state: editForm.state || undefined,
@@ -360,8 +358,6 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                 nomeFantasia: data.nomeFantasia || current.nomeFantasia,
                 name: data.nomeFantasia || data.razaoSocial || current.name,
                 ie: data.ie || current.ie,
-                phone: data.phone ? maskPhone(data.phone) : current.phone,
-                email: data.email || current.email,
                 address: data.address || current.address,
                 houseNumber: data.houseNumber || current.houseNumber,
                 neighborhood: data.neighborhood || current.neighborhood,
@@ -536,14 +532,6 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                                         <label className="text-xs text-slate-600 mb-1.5 block font-medium">IE</label>
                                         <Input className="h-9 text-sm" value={editForm.ie} onChange={e => setEditForm({ ...editForm, ie: e.target.value })} placeholder="Inscrição Estadual" />
                                     </div>
-                                    <div>
-                                        <label className="text-xs text-slate-600 mb-1.5 block font-medium">Telefone</label>
-                                        <Input className="h-9 text-sm" value={editForm.phone} onChange={e => setEditForm({ ...editForm, phone: maskPhone(e.target.value) })} placeholder="(00) 00000-0000" />
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="text-xs text-slate-600 mb-1.5 block font-medium">Email</label>
-                                    <Input className="h-9 text-sm" value={editForm.email} onChange={e => setEditForm({ ...editForm, email: e.target.value })} placeholder="contato@contabilidade.com" />
                                 </div>
                             </div>
                         ) : (
@@ -558,8 +546,6 @@ export default function AccountingDetailPage({ params }: { params: Promise<{ id:
                                 )}
                                 <Prop label={firm.type === "PF" ? "CPF" : "CNPJ"} value={doc} />
                                 <Prop label="IE" value={firm.ie || "—"} />
-                                <Prop label="Telefone" value={firm.phone ? maskPhone(firm.phone) : "—"} />
-                                <Prop label="Email" value={firm.email || "—"} />
                                 <Prop label="Cadastro" value={formatDateShort(firm.createdAt)} />
                             </div>
                         )}
