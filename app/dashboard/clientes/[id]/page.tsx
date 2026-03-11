@@ -963,7 +963,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                     {/* Client identity */}
                     <div className="flex items-end justify-between h-full">
                         <div className="flex items-start gap-4">
-                            <div className="w-16 h-16 rounded-xl bg-indigo-600 flex items-center justify-center text-xl font-bold text-white shadow-sm">
+                            <div className="w-24 h-24 rounded-xl bg-indigo-600 flex items-center justify-center text-xl font-bold text-white shadow-sm">
                                 {getInitials(client.name)}
                             </div>
 
