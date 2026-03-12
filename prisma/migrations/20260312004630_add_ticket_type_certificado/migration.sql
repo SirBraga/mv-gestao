@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "Ticket_Type" ADD VALUE 'CERTIFICADO';

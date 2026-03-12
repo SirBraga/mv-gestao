@@ -81,7 +81,7 @@ export async function createTicket(data: {
     clientId: string
     ticketDescription: string
     ticketPriority: "LOW" | "MEDIUM" | "HIGH"
-    ticketType?: "SUPPORT" | "SALES" | "FINANCE" | "MAINTENCE"
+    ticketType?: "SUPPORT" | "SALES" | "FINANCE" | "MAINTENCE" | "CERTIFICADO"
     requestedByContactId?: string
     requestedByContabilityId?: string
     assignedToId?: string

@@ -14,7 +14,7 @@ import { toast } from "react-toastify"
 import { maskCPF, maskCNPJ, maskPhone, maskCEP, maskContactTime } from "@/app/utils/masks"
 
 type FilterType = "all" | "pj" | "pf"
-type SortKey = "clientName" | "clientCount" | "phone" | "city" | "type"
+type SortKey = "clientName" | "clientCount" | "phone" | "email" | "type"
 type SortDir = "asc" | "desc"
 
 function normalizeDigits(value: string) {
@@ -33,7 +33,7 @@ const COLUMNS: { key: SortKey; label: string }[] = [
     { key: "clientName", label: "Escritório" },
     { key: "clientCount", label: "Clientes" },
     { key: "phone", label: "Telefone" },
-    { key: "city", label: "Cidade" },
+    { key: "email", label: "Email" },
     { key: "type", label: "Tipo" },
 ]
 
@@ -50,7 +50,7 @@ function compareContabilities(a: AccountingData, b: AccountingData, key: SortKey
         case "clientName": cmp = (a.clientNames || "").localeCompare(b.clientNames || "", "pt-BR"); break
         case "clientCount": cmp = a.clientCount - b.clientCount; break
         case "phone": cmp = (a.phone || "").localeCompare(b.phone || ""); break
-        case "city": cmp = (a.city || "").localeCompare(b.city || "", "pt-BR"); break
+        case "email": cmp = (a.email || "").localeCompare(b.email || "", "pt-BR"); break
         case "type": cmp = getNormalizedContabilityType(a).localeCompare(getNormalizedContabilityType(b)); break
     }
     return dir === "asc" ? cmp : -cmp
@@ -360,6 +360,7 @@ export default function ContabilidadePage() {
                 const matchesSearch = searchQuery === "" ||
                     (item.nomeFantasia || "").toLowerCase().includes(normalizedSearch) ||
                     (item.razaoSocial || "").toLowerCase().includes(normalizedSearch) ||
+                    (item.email || "").toLowerCase().includes(normalizedSearch) ||
                     (!!digitsQuery && (
                         normalizeDigits(item.cnpj || "").includes(digitsQuery) ||
                         normalizeDigits(item.cpf || "").includes(digitsQuery) ||
@@ -486,7 +487,7 @@ export default function ContabilidadePage() {
                 </div>
 
                 {/* Column Headers */}
-                <div className="grid grid-cols-[1.5fr_100px_140px_120px_80px_50px] gap-3 px-6 py-3 border-b border-slate-200 bg-slate-50">
+                <div className="grid grid-cols-[minmax(220px,1.25fr)_100px_180px_minmax(220px,1fr)_80px_50px] gap-4 px-6 py-3 border-b border-slate-200 bg-slate-50">
                     {COLUMNS.map((col) => (
                         <button
                             key={col.key}

@@ -124,7 +124,7 @@ const COLUMNS: { key: SortKey; label: string }[] = [
     { key: "name", label: "Cliente" },
     { key: "phone", label: "Telefone" },
     { key: "email", label: "Email" },
-    { key: "status", label: "Status" },
+    { key: "status", label: "Suporte" },
     { key: "contract", label: "Contrato" },
     { key: "type", label: "Tipo" },
 ]
@@ -137,7 +137,7 @@ function compareClients(a: ClientData, b: ClientData, key: SortKey, dir: SortDir
         case "name": valA = a.name; valB = b.name; break
         case "phone": valA = a.phone || ""; valB = b.phone || ""; break
         case "email": valA = a.email || ""; valB = b.email || ""; break
-        case "status": valA = a.isActive; valB = b.isActive; break
+        case "status": valA = a.supportReleased; valB = b.supportReleased; break
         case "contract": valA = a.contractType || ""; valB = b.contractType || ""; break
         case "type": valA = a.type; valB = b.type; break
     }
@@ -431,7 +431,26 @@ export default function Clientes() {
         }
     }
 
-    const allClients = clients as (ClientData & { clientProductSerials?: Array<{ expiresAt: string | null; product: { id: string; name: string } | null }> })[]
+    const allClients = clients as (ClientData & {
+        clientProductSerials?: Array<{ expiresAt: string | null; product: { id: string; name: string } | null }>
+        clientProducts?: Array<{ product: { id: string; name: string } }>
+    })[]
+
+    const getClientLinkedProducts = (client: typeof allClients[number]) => {
+        const productMap = new Map<string, { id: string; name: string }>()
+
+        client.clientProducts?.forEach((clientProduct) => {
+            productMap.set(clientProduct.product.id, clientProduct.product)
+        })
+
+        client.clientProductSerials?.forEach((serial) => {
+            if (serial.product) {
+                productMap.set(serial.product.id, serial.product)
+            }
+        })
+
+        return Array.from(productMap.values())
+    }
 
     const clientsForProductCounts = useMemo(() => {
         return allClients.filter((client) => {
@@ -454,7 +473,7 @@ export default function Clientes() {
     }, [allClients, activeFilter, activeStatusFilter])
 
     const clientsWithoutProductCount = useMemo(() => {
-        return clientsForProductCounts.filter((client) => !client.clientProductSerials || client.clientProductSerials.length === 0).length
+        return clientsForProductCounts.filter((client) => getClientLinkedProducts(client).length === 0).length
     }, [clientsForProductCounts])
 
     const totalProductsFilterCount = useMemo(() => {
@@ -465,15 +484,7 @@ export default function Clientes() {
         const productMap = new Map<string, { id: string; name: string; count: number }>()
 
         clientsForProductCounts.forEach((client) => {
-            const uniqueProducts = new Map<string, { id: string; name: string }>()
-
-            client.clientProductSerials?.forEach((serial) => {
-                if (serial.product) {
-                    uniqueProducts.set(serial.product.id, serial.product)
-                }
-            })
-
-            uniqueProducts.forEach((product) => {
+            getClientLinkedProducts(client).forEach((product) => {
                 const existing = productMap.get(product.id)
                 if (existing) {
                     existing.count += 1
@@ -504,10 +515,12 @@ export default function Clientes() {
                     (activeStatusFilter === "active" && client.isActive) ||
                     (activeStatusFilter === "inactive" && !client.isActive)
 
+                const linkedProducts = getClientLinkedProducts(client)
+
                 const matchesProduct = !activeProductId
                     || (activeProductId === "__NO_PRODUCT__"
-                        ? !client.clientProductSerials || client.clientProductSerials.length === 0
-                        : (client.clientProductSerials || []).some((serial) => serial.product?.id === activeProductId))
+                        ? linkedProducts.length === 0
+                        : linkedProducts.some((product) => product.id === activeProductId))
 
                 const matchesSearch =
                     !searchQuery ||

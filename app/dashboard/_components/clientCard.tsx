@@ -107,12 +107,12 @@ export default function ClientCard({ client }: { client: ClientData }) {
       {/* Status */}
       <div>
         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${
-          client.isActive
-            ? "bg-emerald-50 text-emerald-700" 
-            : "bg-slate-100 text-slate-600"
+          client.supportReleased
+            ? "bg-blue-50 text-blue-700"
+            : "bg-red-50 text-red-700"
         }`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${client.isActive ? "bg-emerald-500" : "bg-slate-400"}`} />
-          {client.isActive ? "Ativo" : "Inativo"}
+          <span className={`w-1.5 h-1.5 rounded-full ${client.supportReleased ? "bg-blue-500" : "bg-red-500"}`} />
+          {client.supportReleased ? "Liberado" : "Bloqueado"}
         </span>
       </div>
 

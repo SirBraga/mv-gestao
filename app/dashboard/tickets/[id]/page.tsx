@@ -66,7 +66,7 @@ import LocalFilePreviewList from "@/app/dashboard/_components/local-file-preview
 // ── Types matching the DB schema ──
 type TicketStatus = "NOVO" | "PENDING_CLIENT" | "PENDING_EMPRESS" | "IN_PROGRESS" | "CLOSED" | "CANCELLED"
 type TicketPriority = "LOW" | "MEDIUM" | "HIGH"
-type TicketType = "SUPPORT" | "SALES" | "FINANCE" | "MAINTENCE"
+type TicketType = "SUPPORT" | "SALES" | "FINANCE" | "MAINTENCE" | "CERTIFICADO"
 type ApontamentoCategory = "PROBLEMA_RESOLVIDO" | "TREINAMENTO" | "REUNIAO" | "TIRA_DUVIDAS" | "DESENVOLVIMENTO"
 type TicketScheduleType = "TREINAMENTO" | "TIRA_DUVIDAS" | "CONSULTORIA" | "IMPLANTACAO" | "PARAMETRIZACAO" | "REUNIAO_ALINHAMENTO" | "VISITA_TECNICA"
 type TicketScheduleFormat = "PRESENCIAL" | "ONLINE"
@@ -239,6 +239,7 @@ const typeLabels: Record<TicketType, string> = {
     SALES: "Vendas",
     FINANCE: "Financeiro",
     MAINTENCE: "Manutenção",
+    CERTIFICADO: "Certificado",
 }
 
 const typeColors: Record<TicketType, string> = {
@@ -246,6 +247,7 @@ const typeColors: Record<TicketType, string> = {
     SALES: "bg-green-50 text-green-700 border-green-200",
     FINANCE: "bg-purple-50 text-purple-700 border-purple-200",
     MAINTENCE: "bg-orange-50 text-orange-700 border-orange-200",
+    CERTIFICADO: "bg-cyan-50 text-cyan-700 border-cyan-200",
 }
 
 const categoryLabels: Record<ApontamentoCategory, string> = {

@@ -1,7 +1,10 @@
+"use client"
+
+import { useState } from "react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { maskPhone } from "@/app/utils/masks"
-import { MoreHorizontal, Pencil, Trash2, Building2, User } from "lucide-react"
+import { MoreHorizontal, Pencil, Trash2, Building2, User, Copy, Check, MessageCircle } from "lucide-react"
 import Link from "next/link"
 
 export interface AccountingData {
@@ -32,6 +35,8 @@ function getInitials(name: string) {
   return name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()
 }
 
+function cleanPhone(phone: string) { return phone.replace(/\D/g, "") }
+
 interface AccountingCardProps {
   data: AccountingData
   onEdit?: (data: AccountingData) => void
@@ -39,8 +44,26 @@ interface AccountingCardProps {
 }
 
 export default function AccountingCard({ data, onEdit, onDelete }: AccountingCardProps) {
+  const [copied, setCopied] = useState<string | null>(null)
+
+  const handleCopy = (e: React.MouseEvent, text: string, label: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    navigator.clipboard.writeText(text)
+    setCopied(label)
+    setTimeout(() => setCopied(null), 1500)
+  }
+
+  const handleWhatsApp = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (data.phone) {
+      window.open(`https://wa.me/55${cleanPhone(data.phone)}`, "_blank")
+    }
+  }
+
   return (
-    <div className="group grid grid-cols-[1.5fr_100px_140px_120px_110px_50px] items-center border-b border-slate-100 hover:bg-slate-50/50 transition-all px-6 py-3.5 gap-3">
+    <div className="group grid grid-cols-[minmax(220px,1.25fr)_100px_180px_minmax(220px,1fr)_80px_50px] items-center border-b border-slate-100 hover:bg-slate-50/50 transition-all px-6 py-3.5 gap-4">
       {/* Escritório */}
       <Link href={`/dashboard/contabilidade/${data.id}`} className="flex items-center gap-3 min-w-0">
         <Avatar className="h-9 w-9 shrink-0 ring-2 ring-white shadow-sm">
@@ -70,10 +93,31 @@ export default function AccountingCard({ data, onEdit, onDelete }: AccountingCar
       </div>
 
       {/* Telefone */}
-      <span className="text-sm text-slate-600 truncate">{data.phone ? maskPhone(data.phone) : <span className="text-slate-300">—</span>}</span>
+      <div className="flex items-center gap-2 min-w-0">
+        {data.phone ? (
+          <>
+            <span className="text-sm text-slate-600 truncate">{maskPhone(data.phone)}</span>
+            <button onClick={handleWhatsApp} className="text-slate-300 hover:text-emerald-500 cursor-pointer shrink-0 transition-colors" title="WhatsApp">
+              <MessageCircle size={14} />
+            </button>
+            <button onClick={(e) => handleCopy(e, maskPhone(data.phone), "phone")} className="text-slate-300 hover:text-slate-600 cursor-pointer shrink-0 transition-colors" title="Copiar telefone">
+              {copied === "phone" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+            </button>
+          </>
+        ) : <span className="text-sm text-slate-300">—</span>}
+      </div>
 
-      {/* Cidade */}
-      <span className="text-sm text-slate-500 truncate">{data.city && data.state ? `${data.city}/${data.state}` : <span className="text-slate-300">—</span>}</span>
+      {/* Email */}
+      <div className="flex items-center gap-2 min-w-0">
+        {data.email ? (
+          <>
+            <span className="text-sm text-slate-600 truncate">{data.email}</span>
+            <button onClick={(e) => handleCopy(e, data.email, "email")} className="text-slate-300 hover:text-slate-600 cursor-pointer shrink-0 transition-colors" title="Copiar email">
+              {copied === "email" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+            </button>
+          </>
+        ) : <span className="text-sm text-slate-300">—</span>}
+      </div>
 
       {/* Tipo */}
       <span className={`inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${

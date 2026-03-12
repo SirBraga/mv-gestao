@@ -29,7 +29,7 @@ const INITIAL_FORM = {
     requesterValue: "",
     ticketDescription: "",
     ticketPriority: "MEDIUM" as "LOW" | "MEDIUM" | "HIGH",
-    ticketType: "SUPPORT" as "SUPPORT" | "SALES" | "FINANCE" | "MAINTENCE",
+    ticketType: "SUPPORT" as "SUPPORT" | "SALES" | "FINANCE" | "MAINTENCE" | "CERTIFICADO",
     assignedToId: "",
     knowledgeArticleId: "",
 }
@@ -424,11 +424,12 @@ export default function TicketCreateDrawer({
                         </div>
                         <div>
                             <label className="text-xs font-medium text-gray-500 mb-1.5 block">Tipo</label>
-                            <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.ticketType} onChange={e => setForm({ ...form, ticketType: e.target.value as "SUPPORT" | "SALES" | "FINANCE" | "MAINTENCE" })}>
+                            <select className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 bg-white" value={form.ticketType} onChange={e => setForm({ ...form, ticketType: e.target.value as "SUPPORT" | "SALES" | "FINANCE" | "MAINTENCE" | "CERTIFICADO" })}>
                                 <option value="SUPPORT">Suporte</option>
                                 <option value="SALES">Vendas</option>
                                 <option value="FINANCE">Financeiro</option>
                                 <option value="MAINTENCE">Manutenção</option>
+                                <option value="CERTIFICADO">Certificado</option>
                             </select>
                         </div>
                     </div>

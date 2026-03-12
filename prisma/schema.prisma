@@ -469,6 +469,7 @@ enum Ticket_Type {
   SALES
   FINANCE
   MAINTENCE
+  CERTIFICADO
 }
 
 enum Apontamento_Category {

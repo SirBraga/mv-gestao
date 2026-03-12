@@ -86,6 +86,16 @@ export async function getClients() {
                     },
                 },
             },
+            clientProducts: {
+                select: {
+                    product: {
+                        select: {
+                            id: true,
+                            name: true,
+                        },
+                    },
+                },
+            },
             _count: { select: { tickets: true, contacts: true } },
         },
     })
@@ -117,6 +127,12 @@ export async function getClients() {
         clientProductSerials: c.clientProductSerials.map((serial) => ({
             expiresAt: serial.expiresAt?.toISOString() || null,
             product: serial.product,
+        })),
+        clientProducts: c.clientProducts.map((clientProduct) => ({
+            product: {
+                id: clientProduct.product.id,
+                name: clientProduct.product.name,
+            },
         })),
         createdAt: c.createdAt.toISOString(),
     }))

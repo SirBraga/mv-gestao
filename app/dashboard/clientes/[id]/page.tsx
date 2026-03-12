@@ -58,6 +58,7 @@ import { toast } from "react-toastify"
 import TicketCreateDrawer from "@/app/dashboard/_components/ticket-create-drawer"
 import LocalFilePreviewList from "@/app/dashboard/_components/local-file-preview-list"
 import { getEntitySecondaryName } from "@/app/utils/entity-names"
+import { getProfile } from "@/app/actions/profile"
 
 // Tipo explícito para contato com bestContactTime
 interface ContactWithTime {
@@ -104,6 +105,7 @@ interface ClientData {
     isActive: boolean
     contractType?: string
     supportReleased: boolean
+    blockReason?: "CONTRATO_CANCELADO" | "INADIMPLENCIA" | "SOLICITACAO_CLIENTE" | "OUTROS" | null
     contability?: {
         id: string
         name: string | null
@@ -177,6 +179,12 @@ const statusLabels: Record<string, string> = {
 
 const priorityDot: Record<string, string> = { LOW: "bg-emerald-500", MEDIUM: "bg-amber-500", HIGH: "bg-red-500" }
 const priorityLabels: Record<string, string> = { LOW: "Baixa", MEDIUM: "Média", HIGH: "Alta" }
+const blockReasonLabels: Record<NonNullable<ClientData["blockReason"]>, string> = {
+    CONTRATO_CANCELADO: "Contrato cancelado",
+    INADIMPLENCIA: "Inadimplência",
+    SOLICITACAO_CLIENTE: "Solicitação do cliente",
+    OUTROS: "Outros",
+}
 
 function formatDateShort(dateStr: string) {
     return new Date(dateStr).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
@@ -199,6 +207,12 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     const { data: client, isLoading, isError } = useQuery({
         queryKey: ["client", id],
         queryFn: () => getClientById(id),
+    })
+
+    const { data: profile } = useQuery({
+        queryKey: ["profile"],
+        queryFn: () => getProfile(),
+        staleTime: 5 * 60 * 1000,
     })
 
     const { data: serials = [] } = useQuery({
@@ -231,6 +245,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                 return {
                     ...old,
                     supportReleased: variables.released,
+                    blockReason: variables.released ? null : (variables.reason || null),
                 }
             })
             queryClient.setQueryData(["clients"], (old: any) => {
@@ -239,6 +254,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                 return old.map((item: any) => item.id === id ? {
                     ...item,
                     supportReleased: variables.released,
+                    blockReason: variables.released ? null : (variables.reason || null),
                 } : item)
             })
             toast.success(client?.supportReleased ? "Suporte bloqueado" : "Suporte liberado")
@@ -2084,6 +2100,12 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                                     <span className={`w-2 h-2 rounded-full ${client.supportReleased ? "bg-emerald-500" : "bg-red-500"}`} />
                                     <span className={`text-sm font-semibold ${client.supportReleased ? "text-emerald-700" : "text-red-700"}`}>{client.supportReleased ? "Liberado" : "Bloqueado"}</span>
                                 </div>
+                                {profile?.role === "ADMIN" && !client.supportReleased && client.blockReason && (
+                                    <div className="mt-2 rounded-md border border-red-200 bg-white/70 px-2.5 py-2">
+                                        <p className="text-[11px] font-medium uppercase tracking-wide text-red-500">Motivo do bloqueio</p>
+                                        <p className="mt-1 text-sm font-medium text-red-700">{blockReasonLabels[client.blockReason]}</p>
+                                    </div>
+                                )}
                             </div>
                             {/* Modalidade de Contrato */}
                             {client.contractType && (
