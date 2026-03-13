@@ -34,30 +34,33 @@ import {
 } from "@/components/ui/dropdown-menu"
 import {
     ArrowLeft,
-    UserPlus,
-    Clock,
-    XCircle,
-    RotateCcw,
-    Plus,
-    Copy,
-    MessageCircle,
-    ClipboardList,
     ArrowRightLeft,
-    UserCheck,
-    Users,
-    Send,
-    Reply,
-    Loader2,
-    Paperclip,
-    FileText,
-    Download,
-    X,
-    Image as ImageIcon,
     BookOpen,
-    ChevronDown,
+    Building2,
     CalendarClock,
-    Trash2,
+    Check,
+    ChevronDown,
+    ClipboardList,
+    Clock,
+    Copy,
+    Download,
+    FileText,
+    Loader2,
+    Mail,
     MapPin,
+    MessageCircle,
+    Paperclip,
+    Phone,
+    Plus,
+    Reply,
+    RotateCcw,
+    Send,
+    Trash2,
+    UserCheck,
+    UserPlus,
+    Users,
+    X,
+    XCircle,
 } from "lucide-react"
 import { uploadFile } from "@/app/utils/upload"
 import { toast } from "react-toastify"
@@ -686,297 +689,389 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
 
     return (
         <div className="h-full overflow-y-auto bg-slate-50">
-            <div className="border-b border-slate-200 bg-white/95 backdrop-blur-sm">
-                <div className="px-8 py-6">
-                    <button onClick={() => router.push("/dashboard/tickets")} className="mb-6 inline-flex items-center gap-2 rounded-xl  px-3 py-2 text-slate-600 transition-colors hover:bg-white hover:text-slate-900 cursor-pointer">
+            {/* Header */}
+            <div className="border-b border-slate-200 bg-white">
+                <div className="px-6 py-5">
+                    <button 
+                        onClick={() => router.push("/dashboard/tickets")} 
+                        className="mb-4 inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 cursor-pointer"
+                    >
                         <ArrowLeft size={16} />
-                        <span className="text-sm font-medium">Voltar para tickets</span>
+                        <span className="font-medium">Voltar</span>
                     </button>
 
-                    <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="min-w-0 flex-1">
-                            <div className="flex items-start gap-4 min-w-0">
-                                
-
-                                <div className="min-w-0">
-                                    <div className="mb-3 flex items-center gap-2 flex-wrap">
-                                        <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-sm font-mono font-bold text-indigo-700">#{ticket.id}</span>
-                                        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold text-white ${statusBadgeColors[status]}`}>{statusLabels[status]}</span>
-                                    </div>
-                                    <h1 className="text-2xl font-bold leading-tight text-slate-900 wrap-break-word xl:text-3xl">{ticket.ticketDescription}</h1>
-                                    
-                                </div>
+                            <div className="mb-3 flex items-center gap-2 flex-wrap">
+                                <span className="rounded-lg bg-indigo-50 px-3 py-1 text-sm font-mono font-bold text-indigo-700">#{ticket.id}</span>
+                               
+                            </div>
+                            <h1 className="text-xl font-bold leading-tight text-slate-900 lg:text-2xl">{ticket.ticketDescription}</h1>
+                            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500">
+                                <span className="flex items-center gap-1.5">
+                                    <Clock size={12} />
+                                    Criado {formatDate(ticket.createdAt)}
+                                </span>
+                                {ticket.assignedTo && (
+                                    <span className="flex items-center gap-1.5">
+                                        <UserCheck size={12} />
+                                        {ticket.assignedTo.name}
+                                    </span>
+                                )}
+                                <span className="flex items-center gap-1.5">
+                                    <ClipboardList size={12} />
+                                    {formatDuration(totalMinutes)}
+                                </span>
                             </div>
                         </div>
 
-                        <div className="shrink-0 xl:max-w-md h-full flex flex-col mt-auto">
-                            <div className="flex justify-start lg:justify-end">
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <button className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer">
-                                            Ações
-                                            <ChevronDown size={16} />
-                                        </button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end" className="w-56">
-                                        {!isTerminalStatus && (
-                                            <DropdownMenuItem onClick={() => setShowApontamentoModal(true)}>
-                                                <Plus size={16} />
-                                                Novo apontamento
-                                            </DropdownMenuItem>
-                                        )}
-                                        {!isTerminalStatus && !ticket.assignedTo && (
-                                            <DropdownMenuItem onClick={() => setShowClaimModal(true)}>
-                                                <UserPlus size={16} />
-                                                Assumir ticket
-                                            </DropdownMenuItem>
-                                        )}
-                                        {!isTerminalStatus && (
-                                            <DropdownMenuItem onClick={() => setShowAssignModal(true)}>
-                                                <UserCheck size={16} />
-                                                Atribuir responsável
-                                            </DropdownMenuItem>
-                                        )}
-                                        {!isTerminalStatus && isAssignedToMe && (
-                                            <DropdownMenuItem onClick={() => setShowTransferModal(true)}>
-                                                <ArrowRightLeft size={16} />
-                                                Transferir ticket
-                                            </DropdownMenuItem>
-                                        )}
-                                        <DropdownMenuSeparator />
-                                        {!isTerminalStatus && ticket.totalApontamentos === 0 && (
-                                            <DropdownMenuItem onClick={() => setShowCancelModal(true)} className="text-red-600 focus:text-red-600">
-                                                <XCircle size={16} />
-                                                Cancelar ticket
-                                            </DropdownMenuItem>
-                                        )}
-                                        {!isTerminalStatus && ticket.totalApontamentos > 0 && (
-                                            <DropdownMenuItem onClick={() => setShowCloseModal(true)} className="text-red-600 focus:text-red-600">
-                                                <XCircle size={16} />
-                                                Fechar ticket
-                                            </DropdownMenuItem>
-                                        )}
-                                        {status === "CLOSED" && (
-                                            <DropdownMenuItem onClick={() => setShowReopenModal(true)}>
-                                                <RotateCcw size={16} />
-                                                Reabrir ticket
-                                            </DropdownMenuItem>
-                                        )}
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            </div>
+                        <div className="flex gap-2 mt-auto">
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <button className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer">
+                                        Ações
+                                        <ChevronDown size={16} />
+                                    </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-56">
+                                    {!isTerminalStatus && (
+                                        <DropdownMenuItem onClick={() => setShowApontamentoModal(true)}>
+                                            <Plus size={16} />
+                                            Novo apontamento
+                                        </DropdownMenuItem>
+                                    )}
+                                    {!isTerminalStatus && !ticket.assignedTo && (
+                                        <DropdownMenuItem onClick={() => setShowClaimModal(true)}>
+                                            <UserPlus size={16} />
+                                            Assumir ticket
+                                        </DropdownMenuItem>
+                                    )}
+                                    {!isTerminalStatus && (
+                                        <DropdownMenuItem onClick={() => setShowAssignModal(true)}>
+                                            <UserCheck size={16} />
+                                            Atribuir responsável
+                                        </DropdownMenuItem>
+                                    )}
+                                    {!isTerminalStatus && isAssignedToMe && (
+                                        <DropdownMenuItem onClick={() => setShowTransferModal(true)}>
+                                            <ArrowRightLeft size={16} />
+                                            Transferir ticket
+                                        </DropdownMenuItem>
+                                    )}
+                                    <DropdownMenuSeparator />
+                                    {!isTerminalStatus && ticket.totalApontamentos === 0 && (
+                                        <DropdownMenuItem onClick={() => setShowCancelModal(true)} className="text-red-600 focus:text-red-600">
+                                            <XCircle size={16} />
+                                            Cancelar ticket
+                                        </DropdownMenuItem>
+                                    )}
+                                    {!isTerminalStatus && ticket.totalApontamentos > 0 && (
+                                        <DropdownMenuItem onClick={() => setShowCloseModal(true)} className="text-red-600 focus:text-red-600">
+                                            <XCircle size={16} />
+                                            Fechar ticket
+                                        </DropdownMenuItem>
+                                    )}
+                                    {status === "CLOSED" && (
+                                        <DropdownMenuItem onClick={() => setShowReopenModal(true)}>
+                                            <RotateCcw size={16} />
+                                            Reabrir ticket
+                                        </DropdownMenuItem>
+                                    )}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div className="mx-auto flex w-full gap-6 p-8 xl:flex-row flex-col">
+            <div className="mx-auto flex w-full gap-6 p-6 lg:flex-row flex-col">
 
-                {/* ── Left: Main content ── */}
+                {/* Main content */}
                 <div className="flex-1 space-y-4 min-w-0">
-
-                    <div className="sticky top-0 z-10 rounded-2xl border border-slate-200 bg-white/95 p-1 shadow-sm backdrop-blur-sm">
+                    {/* Tabs */}
+                    <div className="rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
                         <div className="flex gap-1">
                             <button
                                 onClick={() => setActiveTab("descricao")}
-                                className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-medium transition-colors cursor-pointer ${activeTab === "descricao" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
+                                className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-all cursor-pointer ${activeTab === "descricao" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}
                             >
                                 Descrição
                             </button>
                             <button
                                 onClick={() => setActiveTab("apontamentos")}
-                                className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-medium transition-colors cursor-pointer ${activeTab === "apontamentos" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
+                                className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-all cursor-pointer ${activeTab === "apontamentos" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}
                             >
-                                Apontamentos ({ticket.totalApontamentos})
+                                Apontamentos
+                                <span className={`ml-1.5 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-bold ${activeTab === "apontamentos" ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"}`}>
+                                    {ticket.totalApontamentos}
+                                </span>
                             </button>
                             <button
                                 onClick={() => setActiveTab("comentarios")}
-                                className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-medium transition-colors cursor-pointer ${activeTab === "comentarios" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
+                                className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-all cursor-pointer ${activeTab === "comentarios" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}
                             >
-                                Comentários ({ticket.totalComments})
+                                Comentários
+                                <span className={`ml-1.5 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-bold ${activeTab === "comentarios" ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"}`}>
+                                    {ticket.totalComments}
+                                </span>
                             </button>
                             <button
                                 onClick={() => setActiveTab("agendamentos")}
-                                className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-medium transition-colors cursor-pointer ${activeTab === "agendamentos" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
+                                className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-all cursor-pointer ${activeTab === "agendamentos" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}
                             >
-                                Agendamentos ({schedules.length})
+                                Agendamentos
+                                <span className={`ml-1.5 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-bold ${activeTab === "agendamentos" ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"}`}>
+                                    {schedules.length}
+                                </span>
                             </button>
                         </div>
                     </div>
 
                     {activeTab === "descricao" && (
                         <>
-                            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                                <div className="mb-5 grid gap-4 lg:grid-cols-2">
-                                    <div className="flex min-h-[150px] flex-col rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-                                        <div className="mb-3 flex items-center justify-between gap-3">
-                                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Cliente</p>
-                                            <button
-                                                onClick={() => setShowChangeClientModal(true)}
-                                                disabled={ticket.totalApontamentos > 0}
-                                                title={ticket.totalApontamentos > 0 ? "Não é possível mudar o cliente com apontamentos" : undefined}
-                                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-medium text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                            ><Users size={10} /> Mudar</button>
-                                        </div>
-                                        <div className="flex flex-1 flex-col justify-end gap-2">
-                                            <div className="space-y-2">
-                                                <Link href={`/dashboard/clientes/${ticket.client.id}`} className="block text-sm font-semibold text-slate-900 hover:text-emerald-600 transition-colors">{ticket.client.name}</Link>
-                                                <p className="text-xs text-slate-500">{ticket.client.cnpj ? "CNPJ" : "CPF"}: {clientDoc}</p>
+                            {/* Cliente e Solicitante */}
+                            <div className="grid gap-4 lg:grid-cols-2">
+                                {/* Card Cliente */}
+                                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm flex flex-col justify-between">
+                                    <div className="mb-4 flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100">
+                                                <Building2 size={16} className="text-indigo-600" />
                                             </div>
-                                            <div className="space-y-2">
+                                            <h3 className="text-sm font-semibold text-slate-900">Cliente</h3>
+                                        </div>
+                                        <button
+                                            onClick={() => setShowChangeClientModal(true)}
+                                            disabled={ticket.totalApontamentos > 0}
+                                            title={ticket.totalApontamentos > 0 ? "Não é possível mudar o cliente com apontamentos" : undefined}
+                                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                        >
+                                            <Users size={12} /> Alterar
+                                        </button>
+                                    </div>
+                                    <div className="space-y-3">
+                                        <div>
+                                            <Link href={`/dashboard/clientes/${ticket.client.id}`} className="text-base font-semibold text-slate-900 hover:text-indigo-600 transition-colors">
+                                                {ticket.client.name}
+                                            </Link>
+                                            <p className="mt-1 text-xs text-slate-500">
+                                                {ticket.client.cnpj ? "CNPJ" : "CPF"}: {clientDoc}
+                                            </p>
+                                        </div>
+                                        {(ticket.client.ownerPhone || ticket.client.ownerEmail) && (
+                                            <div className="space-y-2 border-t border-slate-100 pt-3">
                                                 {ticket.client.ownerPhone && (
-                                                    <div className="flex items-center gap-2 text-xs text-slate-600">
-                                                        <span>{ticket.client.ownerPhone}</span>
-                                                        <button onClick={() => window.open(`https://wa.me/55${cleanPhone(ticket.client.ownerPhone!)}`, "_blank")} className="text-gray-300 hover:text-emerald-500 cursor-pointer"><MessageCircle size={11} /></button>
-                                                        <button onClick={() => handleCopy(ticket.client.ownerPhone!, "phone")} className="text-gray-300 hover:text-gray-500 cursor-pointer">{copied === "phone" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
+                                                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                                                        <Phone size={12} className="text-slate-400" />
+                                                        <span className="flex-1">{ticket.client.ownerPhone}</span>
+                                                        <button onClick={() => window.open(`https://wa.me/55${cleanPhone(ticket.client.ownerPhone!)}`, "_blank")} className="text-slate-400 hover:text-emerald-500 cursor-pointer">
+                                                            <MessageCircle size={14} />
+                                                        </button>
+                                                        <button onClick={() => handleCopy(ticket.client.ownerPhone!, "phone")} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                                                            {copied === "phone" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                                                        </button>
                                                     </div>
                                                 )}
                                                 {ticket.client.ownerEmail && (
-                                                    <div className="flex items-center gap-2 text-xs text-slate-600 break-all">
-                                                        <span>{ticket.client.ownerEmail}</span>
-                                                        <button onClick={() => handleCopy(ticket.client.ownerEmail!, "email")} className="text-gray-300 hover:text-gray-500 cursor-pointer shrink-0">{copied === "email" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
+                                                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                                                        <Mail size={12} className="text-slate-400" />
+                                                        <span className="flex-1 truncate">{ticket.client.ownerEmail}</span>
+                                                        <button onClick={() => handleCopy(ticket.client.ownerEmail!, "email")} className="text-slate-400 hover:text-slate-600 cursor-pointer shrink-0">
+                                                            {copied === "email" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                                                        </button>
                                                     </div>
                                                 )}
                                             </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex min-h-[150px] flex-col rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-                                        <div className="mb-3 flex items-center justify-between gap-3">
-                                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Solicitante</p>
-                                            <button
-                                                onClick={() => setShowChangeRequesterModal(true)}
-                                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-medium text-slate-600 hover:bg-slate-50 transition-all cursor-pointer"
-                                            ><UserCheck size={10} /> {ticket.requestedByContact || ticket.requestedByContability ? "Alterar" : "Definir"}</button>
-                                        </div>
-                                        {ticket.requestedByContact ? (
-                                            <div className="flex flex-1 flex-col justify-end gap-2">
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-900">{ticket.requestedByContact.name}</p>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    {ticket.requestedByContact.phone && (
-                                                        <div className="flex items-center gap-2 text-xs text-slate-500">
-                                                            <span>Telefone: {ticket.requestedByContact.phone}</span>
-                                                            <button onClick={() => window.open(`https://wa.me/55${cleanPhone(ticket.requestedByContact.phone!)}`, "_blank")} className="text-gray-300 hover:text-emerald-500 cursor-pointer"><MessageCircle size={11} /></button>
-                                                            <button onClick={() => handleCopy(ticket.requestedByContact.phone!, "requester-phone")} className="text-gray-300 hover:text-gray-500 cursor-pointer">{copied === "requester-phone" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
-                                                        </div>
-                                                    )}
-                                                    {ticket.requestedByContact.email && (
-                                                        <div className="flex items-center gap-2 text-xs text-slate-500 break-all">
-                                                            <span>Email: {ticket.requestedByContact.email}</span>
-                                                            <button onClick={() => handleCopy(ticket.requestedByContact.email!, "requester-email")} className="text-gray-300 hover:text-gray-500 cursor-pointer shrink-0">{copied === "requester-email" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ) : ticket.requestedByContability ? (
-                                            <div className="flex flex-1 flex-col justify-between gap-4">
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-900">{ticket.requestedByContability.name || ticket.requestedByContability.cnpj || ticket.requestedByContability.cpf}</p>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    {ticket.requestedByContability.email && (
-                                                        <div className="flex items-center gap-2 text-xs text-slate-500 break-all">
-                                                            <span>Email: {ticket.requestedByContability.email}</span>
-                                                            <button onClick={() => handleCopy(ticket.requestedByContability.email!, "contability-email")} className="text-gray-300 hover:text-gray-500 cursor-pointer shrink-0">{copied === "contability-email" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
-                                                        </div>
-                                                    )}
-                                                    {ticket.requestedByContability.phone && (
-                                                        <div className="flex items-center gap-2 text-xs text-slate-500">
-                                                            <span>Telefone: {ticket.requestedByContability.phone}</span>
-                                                            <button onClick={() => window.open(`https://wa.me/55${cleanPhone(ticket.requestedByContability.phone!)}`, "_blank")} className="text-gray-300 hover:text-emerald-500 cursor-pointer"><MessageCircle size={11} /></button>
-                                                            <button onClick={() => handleCopy(ticket.requestedByContability.phone!, "contability-phone")} className="text-gray-300 hover:text-gray-500 cursor-pointer">{copied === "contability-phone" ? <span className="text-[10px] text-emerald-500">✓</span> : <Copy size={10} />}</button>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <p className="text-xs italic text-slate-400">Não definido</p>
                                         )}
                                     </div>
                                 </div>
 
-                                <div>
-                                    <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Descrição</p>
-                                    <p className="text-sm leading-7 text-slate-600">{ticket.ticketDescription}</p>
-                                </div>
-
-                                {ticket.knowledgeArticle && (
-                                    <div className="mt-5 border-t border-slate-100 pt-5">
-                                        <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Base de conhecimento</p>
-                                        <Link href={`/dashboard/base-conhecimento/${ticket.knowledgeArticle.id}`} className="block rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-4 hover:bg-indigo-50 transition-colors">
-                                            <div className="flex items-start gap-3">
-                                                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white shrink-0">
-                                                    <BookOpen size={16} />
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <p className="text-sm font-semibold text-slate-900">{ticket.knowledgeArticle.title}</p>
-                                                    {ticket.knowledgeArticle.summary && <p className="mt-1 line-clamp-2 text-xs text-slate-600">{ticket.knowledgeArticle.summary}</p>}
-                                                    <div className="mt-2 flex flex-wrap gap-1.5">
-                                                        {ticket.knowledgeArticle.category && <span className="rounded bg-white px-2 py-0.5 text-[10px] font-medium text-indigo-700">{ticket.knowledgeArticle.category}</span>}
-                                                        {ticket.knowledgeArticle.products.map((product: { id: string; name: string }) => (
-                                                            <span key={product.id} className="rounded bg-white px-2 py-0.5 text-[10px] font-medium text-slate-600">{product.name}</span>
-                                                        ))}
-                                                    </div>
-                                                </div>
+                                {/* Card Solicitante */}
+                                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm flex flex-col justify-between">
+                                    <div className="mb-4 flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100">
+                                                <UserCheck size={16} className="text-emerald-600" />
                                             </div>
-                                        </Link>
+                                            <h3 className="text-sm font-semibold text-slate-900">Solicitante</h3>
+                                        </div>
+                                        <button
+                                            onClick={() => setShowChangeRequesterModal(true)}
+                                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-all cursor-pointer"
+                                        >
+                                            <UserCheck size={12} /> {ticket.requestedByContact || ticket.requestedByContability ? "Alterar" : "Definir"}
+                                        </button>
                                     </div>
-                                )}
+                                    {ticket.requestedByContact ? (
+                                        <div className="space-y-3">
+                                            <div className="">
+                                                <p className="text-base font-semibold text-slate-900">{ticket.requestedByContact.name}</p>
+                                            </div>
+                                            {(ticket.requestedByContact.phone || ticket.requestedByContact.email) && (
+                                                <div className="space-y-2 border-t border-slate-100 pt-3">
+                                                    {ticket.requestedByContact.phone && (
+                                                        <div className="flex items-center gap-2 text-sm text-slate-600">
+                                                            <Phone size={12} className="text-slate-400" />
+                                                            <span className="flex-1">{ticket.requestedByContact.phone}</span>
+                                                            <button onClick={() => window.open(`https://wa.me/55${cleanPhone(ticket.requestedByContact.phone!)}`, "_blank")} className="text-slate-400 hover:text-emerald-500 cursor-pointer">
+                                                                <MessageCircle size={14} />
+                                                            </button>
+                                                            <button onClick={() => handleCopy(ticket.requestedByContact.phone!, "requester-phone")} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                                                                {copied === "requester-phone" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {ticket.requestedByContact.email && (
+                                                        <div className="flex items-center gap-2 text-sm text-slate-600">
+                                                            <Mail size={12} className="text-slate-400" />
+                                                            <span className="flex-1 truncate">{ticket.requestedByContact.email}</span>
+                                                            <button onClick={() => handleCopy(ticket.requestedByContact.email!, "requester-email")} className="text-slate-400 hover:text-slate-600 cursor-pointer shrink-0">
+                                                                {copied === "requester-email" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : ticket.requestedByContability ? (
+                                        <div className="space-y-3">
+                                            <div>
+                                                <p className="text-base font-semibold text-slate-900">{ticket.requestedByContability.name || ticket.requestedByContability.cnpj || ticket.requestedByContability.cpf}</p>
+                                            </div>
+                                            {(ticket.requestedByContability.email || ticket.requestedByContability.phone) && (
+                                                <div className="space-y-2 border-t border-slate-100 pt-3">
+                                                    {ticket.requestedByContability.email && (
+                                                        <div className="flex items-center gap-2 text-sm text-slate-600">
+                                                            <Mail size={12} className="text-slate-400" />
+                                                            <span className="flex-1 truncate">{ticket.requestedByContability.email}</span>
+                                                            <button onClick={() => handleCopy(ticket.requestedByContability.email!, "contability-email")} className="text-slate-400 hover:text-slate-600 cursor-pointer shrink-0">
+                                                                {copied === "contability-email" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {ticket.requestedByContability.phone && (
+                                                        <div className="flex items-center gap-2 text-sm text-slate-600">
+                                                            <Phone size={12} className="text-slate-400" />
+                                                            <span className="flex-1">{ticket.requestedByContability.phone}</span>
+                                                            <button onClick={() => window.open(`https://wa.me/55${cleanPhone(ticket.requestedByContability.phone!)}`, "_blank")} className="text-slate-400 hover:text-emerald-500 cursor-pointer">
+                                                                <MessageCircle size={14} />
+                                                            </button>
+                                                            <button onClick={() => handleCopy(ticket.requestedByContability.phone!, "contability-phone")} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                                                                {copied === "contability-phone" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center justify-center py-6">
+                                            <p className="text-sm text-slate-400">Não definido</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
 
-                                {ticket.attachments && ticket.attachments.length > 0 && (
-                                    <div className="mt-5 border-t border-slate-100 pt-5">
-                                        <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Anexos</p>
-                                        <div className="flex flex-wrap gap-2">
-                                            {ticket.attachments.map((att: AttachmentData) => (
-                                                isImageFile(att.fileType) ? (
-                                                    <a key={att.id} href={att.url} target="_blank" rel="noreferrer" className="block">
-                                                        <img src={att.url} alt={att.fileName} className="max-w-35 max-h-25 rounded-xl object-cover border border-gray-200 hover:shadow-md transition-shadow" />
-                                                    </a>
-                                                ) : (
-                                                    <a key={att.id} href={att.url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 hover:bg-gray-100 transition-colors">
-                                                        <FileText size={12} className="text-gray-400" />
-                                                        <span className="max-w-30 truncate text-[11px] text-gray-600">{att.fileName}</span>
-                                                        <span className="text-[9px] text-gray-400">{formatFileSize(att.fileSize)}</span>
-                                                        <Download size={10} className="text-gray-400" />
-                                                    </a>
-                                                )
-                                            ))}
+                            {/* Descrição */}
+                            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                                <h3 className="mb-3 text-sm font-semibold text-slate-900">Descrição do ticket</h3>
+                                <p className="text-sm leading-relaxed text-slate-600">{ticket.ticketDescription}</p>
+                            </div>
+
+                            {/* Base de Conhecimento */}
+                            {ticket.knowledgeArticle && (
+                                <Link href={`/dashboard/base-conhecimento/${ticket.knowledgeArticle.id}`} className="block rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-indigo-100/50 p-5 shadow-sm hover:shadow-md transition-all">
+                                    <div className="flex items-start gap-4">
+                                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-600 text-white shrink-0">
+                                            <BookOpen size={18} />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <h3 className="text-sm font-semibold text-slate-900 mb-1">{ticket.knowledgeArticle.title}</h3>
+                                            {ticket.knowledgeArticle.summary && <p className="text-xs text-slate-600 line-clamp-2 mb-2">{ticket.knowledgeArticle.summary}</p>}
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {ticket.knowledgeArticle.category && (
+                                                    <span className="inline-flex items-center rounded-lg bg-white px-2 py-1 text-xs font-medium text-indigo-700 border border-indigo-200">
+                                                        {ticket.knowledgeArticle.category}
+                                                    </span>
+                                                )}
+                                                {ticket.knowledgeArticle.products.map((product: { id: string; name: string }) => (
+                                                    <span key={product.id} className="inline-flex items-center rounded-lg bg-white px-2 py-1 text-xs font-medium text-slate-600 border border-slate-200">
+                                                        {product.name}
+                                                    </span>
+                                                ))}
+                                            </div>
                                         </div>
                                     </div>
-                                )}
+                                </Link>
+                            )}
 
-                                {(ticket.reopenCount > 0 && ticket.reopenDate) || ticket.cancelReason || ticket.ticketResolutionDate ? (
-                                    <div className="mt-5 border-t border-slate-100 pt-5 space-y-3">
+                            {/* Anexos */}
+                            {ticket.attachments && ticket.attachments.length > 0 && (
+                                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                                    <h3 className="mb-4 text-sm font-semibold text-slate-900">Anexos ({ticket.attachments.length})</h3>
+                                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                                        {ticket.attachments.map((att: AttachmentData) => (
+                                            isImageFile(att.fileType) ? (
+                                                <a key={att.id} href={att.url} target="_blank" rel="noreferrer" className="group relative aspect-square overflow-hidden rounded-lg border border-slate-200 hover:border-indigo-300 transition-all">
+                                                    <img src={att.url} alt={att.fileName} className="h-full w-full object-cover group-hover:scale-105 transition-transform" />
+                                                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                    <div className="absolute bottom-2 left-2 right-2 text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <p className="text-xs font-medium truncate">{att.fileName}</p>
+                                                    </div>
+                                                </a>
+                                            ) : (
+                                                <a key={att.id} href={att.url} target="_blank" rel="noreferrer" className="flex flex-col items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-4 hover:border-indigo-300 hover:bg-indigo-50 transition-all group">
+                                                    <FileText size={24} className="text-slate-400 group-hover:text-indigo-600" />
+                                                    <div className="text-center">
+                                                        <p className="text-xs font-medium text-slate-700 truncate max-w-full">{att.fileName}</p>
+                                                        <p className="text-xs text-slate-400 mt-0.5">{formatFileSize(att.fileSize)}</p>
+                                                    </div>
+                                                    <Download size={14} className="text-slate-400 group-hover:text-indigo-600" />
+                                                </a>
+                                            )
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Informações Adicionais */}
+                            {((ticket.reopenCount > 0 && ticket.reopenDate) || ticket.cancelReason || ticket.ticketResolutionDate) && (
+                                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                                    <h3 className="mb-4 text-sm font-semibold text-slate-900">Informações adicionais</h3>
+                                    <div className="space-y-3">
                                         {ticket.reopenCount > 0 && ticket.reopenDate && (
-                                            <div className="flex items-start gap-2 text-xs text-slate-600">
-                                                <RotateCcw size={12} className="mt-0.5 shrink-0 text-amber-500" />
-                                                <div>
-                                                    <p className="font-medium text-slate-700">Reaberto ({ticket.reopenCount}x)</p>
-                                                    {ticket.reopenReason && <p className="mt-0.5 text-slate-500">{ticket.reopenReason}</p>}
-                                                    <p className="text-slate-400">{formatDate(ticket.reopenDate)}</p>
+                                            <div className="flex items-start gap-3 rounded-lg bg-amber-50 border border-amber-200 p-3">
+                                                <RotateCcw size={16} className="shrink-0 text-amber-600 mt-0.5" />
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-medium text-amber-900">Reaberto {ticket.reopenCount}x</p>
+                                                    {ticket.reopenReason && <p className="mt-1 text-sm text-amber-700">{ticket.reopenReason}</p>}
+                                                    <p className="mt-1 text-xs text-amber-600">{formatDate(ticket.reopenDate)}</p>
                                                 </div>
                                             </div>
                                         )}
                                         {ticket.cancelReason && (
-                                            <div className="flex items-start gap-2 text-xs text-slate-600">
-                                                <XCircle size={12} className="mt-0.5 shrink-0 text-red-500" />
-                                                <div>
-                                                    <p className="font-medium text-slate-700">Motivo do cancelamento</p>
-                                                    <p className="mt-0.5 text-slate-500">{ticket.cancelReason}</p>
+                                            <div className="flex items-start gap-3 rounded-lg bg-red-50 border border-red-200 p-3">
+                                                <XCircle size={16} className="shrink-0 text-red-600 mt-0.5" />
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-medium text-red-900">Motivo do cancelamento</p>
+                                                    <p className="mt-1 text-sm text-red-700">{ticket.cancelReason}</p>
                                                 </div>
                                             </div>
                                         )}
                                         {ticket.ticketResolutionDate && (
-                                            <div className="flex items-center gap-2 text-xs text-slate-600">
-                                                <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
-                                                <span className="font-medium text-slate-700">Resolvido em {formatDate(ticket.ticketResolutionDate)}</span>
+                                            <div className="flex items-center gap-3 rounded-lg bg-emerald-50 border border-emerald-200 p-3">
+                                                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 shrink-0">
+                                                    <Check size={16} className="text-white" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-medium text-emerald-900">Ticket resolvido</p>
+                                                    <p className="text-xs text-emerald-700">{formatDate(ticket.ticketResolutionDate)}</p>
+                                                </div>
                                             </div>
                                         )}
                                     </div>
-                                ) : null}
-                            </div>
+                                </div>
+                            )}
                         </>
                     )}
 
@@ -1161,32 +1256,99 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                     )}
                 </div>
 
-                {/* ── Right: Properties sidebar ── */}
-                <div className="w-full shrink-0 xl:w-80">
-                    <div className="sticky top-8 space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                        <div>
-                            <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Resumo operacional</p>
+                {/* Sidebar */}
+                <div className="w-full shrink-0 lg:w-80">
+                    <div className="sticky top-6 space-y-4">
+                        {/* Card Resumo */}
+                        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <h3 className="mb-4 text-sm font-semibold text-slate-900">Resumo</h3>
                             <div className="space-y-3">
-                                <SidebarProp label="Status" value={<span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold text-white ${statusBadgeColors[status]}`}>{statusLabels[status]}</span>} />
-                                <SidebarProp label="Prioridade" value={<div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${priorityDotColors[priority]}`} /><span className="text-xs">{priorityLabels[priority]}</span></div>} />
-                                <SidebarProp label="Tipo" value={<span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${typeColors[type]}`}>{typeLabels[type]}</span>} />
-                                <SidebarProp label="Responsável" value={ticket.assignedTo ? <span className="text-xs">{ticket.assignedTo.name}</span> : <span className="text-xs text-gray-300">Não atribuído</span>} />
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-slate-500">Status</span>
+                                    <span className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold ${statusBadgeColors[status]}`}>
+                                        <span className={`h-1.5 w-1.5 rounded-full ${statusDotColors[status]}`} />
+                                        {statusLabels[status]}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-slate-500">Prioridade</span>
+                                    <span className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium border ${priorityBadgeColors[priority]}`}>
+                                        <span className={`h-1.5 w-1.5 rounded-full ${priorityDotColors[priority]}`} />
+                                        {priorityLabels[priority]}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-slate-500">Tipo</span>
+                                    <span className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-medium border ${typeColors[type]}`}>
+                                        {typeLabels[type]}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                                    <span className="text-xs text-slate-500">Responsável</span>
+                                    {ticket.assignedTo ? (
+                                        <span className="text-xs font-medium text-slate-900">{ticket.assignedTo.name}</span>
+                                    ) : (
+                                        <span className="text-xs text-slate-400">Não atribuído</span>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
-                        <div>
-                            <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Detalhes</p>
+                        {/* Card Estatísticas */}
+                        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <h3 className="mb-4 text-sm font-semibold text-slate-900">Estatísticas</h3>
                             <div className="space-y-3">
-                                {ticket.knowledgeArticle && <SidebarProp label="Artigo" value={<Link href={`/dashboard/base-conhecimento/${ticket.knowledgeArticle.id}`} className="text-xs text-indigo-600 hover:text-indigo-700">{ticket.knowledgeArticle.title}</Link>} />}
-                                <SidebarProp label="Criado" value={<span className="text-xs font-medium">{formatDate(ticket.createdAt)}</span>} />
-                                <SidebarProp label="Atualizado" value={<span className="text-xs font-medium">{formatDate(ticket.updatedAt)}</span>} />
-                                <SidebarProp label="Tempo total" value={<span className="text-xs font-medium">{formatDuration(totalMinutes)}</span>} />
-                                <SidebarProp label="Apontamentos" value={<span className="text-xs">{ticket.totalApontamentos}</span>} />
-                                <SidebarProp label="Comentários" value={<span className="text-xs">{totalComments}</span>} />
-                                <SidebarProp label="Agendamentos" value={<span className="text-xs">{schedules.length}</span>} />
-                                <SidebarProp label="Reaberturas" value={<span className="text-xs">{ticket.reopenCount}</span>} />
-                                {ticket.ticketResolutionDate && <SidebarProp label="Resolvido" value={<span className="text-xs">{formatDateShort(ticket.ticketResolutionDate)}</span>} />}
-                                {ticket.cancelReason && <SidebarProp label="Cancelado" value={<span className="max-w-40 text-xs leading-snug text-right line-clamp-3">{ticket.cancelReason}</span>} />}
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-slate-500">Tempo total</span>
+                                    <span className="text-xs font-semibold text-slate-900">{formatDuration(totalMinutes)}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-slate-500">Apontamentos</span>
+                                    <span className="inline-flex items-center justify-center rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-bold text-indigo-700">
+                                        {ticket.totalApontamentos}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-slate-500">Comentários</span>
+                                    <span className="inline-flex items-center justify-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-700">
+                                        {totalComments}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-slate-500">Agendamentos</span>
+                                    <span className="inline-flex items-center justify-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-700">
+                                        {schedules.length}
+                                    </span>
+                                </div>
+                                {ticket.reopenCount > 0 && (
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs text-slate-500">Reaberturas</span>
+                                        <span className="inline-flex items-center justify-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">
+                                            {ticket.reopenCount}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Card Datas */}
+                        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <h3 className="mb-4 text-sm font-semibold text-slate-900">Datas</h3>
+                            <div className="space-y-3">
+                                <div>
+                                    <p className="text-xs text-slate-500 mb-1">Criado</p>
+                                    <p className="text-xs font-medium text-slate-900">{formatDate(ticket.createdAt)}</p>
+                                </div>
+                                <div className="pt-2 border-t border-slate-100">
+                                    <p className="text-xs text-slate-500 mb-1">Última atualização</p>
+                                    <p className="text-xs font-medium text-slate-900">{formatDate(ticket.updatedAt)}</p>
+                                </div>
+                                {ticket.ticketResolutionDate && (
+                                    <div className="pt-2 border-t border-slate-100">
+                                        <p className="text-xs text-slate-500 mb-1">Resolvido</p>
+                                        <p className="text-xs font-medium text-emerald-700">{formatDate(ticket.ticketResolutionDate)}</p>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -1355,15 +1517,6 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div>
-    )
-}
-
-function SidebarProp({ label, value }: { label: string; value: React.ReactNode }) {
-    return (
-        <div className="flex min-h-10 items-center justify-between gap-4 rounded-xl border border-slate-100 bg-slate-50/70 px-5 py-3">
-            <span className="text-[11px] font-medium leading-none text-gray-400">{label}</span>
-            <div className="flex items-center justify-end text-right leading-none text-gray-900">{value}</div>
         </div>
     )
 }
