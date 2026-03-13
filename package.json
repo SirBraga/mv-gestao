@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run clean && next build",
+    "build:production": "npm run clean && next build",
+    "clean": "rm -rf .next && rm -rf node_modules/.cache",
     "start": "next start",
     "lint": "eslint"
   },
