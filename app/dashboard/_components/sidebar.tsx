@@ -19,7 +19,8 @@ import {
   Bell, 
   CheckCheck,
   Sparkles,
-  UserCircle
+  UserCircle,
+  Mail
 } from "lucide-react"
 import { HiArrowRightOnRectangle } from "react-icons/hi2";
 import { updateOnlineStatus } from "@/app/actions/chat"
@@ -44,6 +45,8 @@ import { authClient } from "@/app/utils/auth-client"
 import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
 
+const EMAIL_SERVICE_URL = process.env.NEXT_PUBLIC_EMAIL_SERVICE_URL || "http://localhost:3010"
+
 const navItems = [
   { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard, permission: "dashboard" as PermissionKey },
   { label: "Clientes", path: "/dashboard/clientes", icon: Users, permission: "clientes" as PermissionKey },
@@ -53,6 +56,7 @@ const navItems = [
   { label: "Base de Conhecimento", path: "/dashboard/base-conhecimento", icon: BookOpen, permission: "baseConhecimento" as PermissionKey },
   { label: "Funcionários", path: "/dashboard/funcionarios", icon: UsersRound, permission: "funcionarios" as PermissionKey },
   { label: "Chat", path: "/dashboard/chat", icon: MessageCircle, permission: "chat" as PermissionKey },
+  { label: "Inbox", path: "/dashboard/inbox", icon: Mail, permission: "inbox" as PermissionKey },
 ]
 
 function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
@@ -124,6 +128,19 @@ export default function Sidebar({ avatar, name, role, permissions }: SidebarProp
     refetchInterval: 30000,
     staleTime: 15000,
     refetchOnWindowFocus: true,
+  })
+
+  const { data: emailStats } = useQuery({
+    queryKey: ["email-stats"],
+    queryFn: async () => {
+      const res = await fetch(`${EMAIL_SERVICE_URL}/api/stats`)
+      if (!res.ok) throw new Error("Falha ao carregar estatísticas do inbox")
+      return res.json() as Promise<{ unreadEmails?: number }>
+    },
+    refetchInterval: 30000,
+    staleTime: 15000,
+    refetchOnWindowFocus: true,
+    enabled: permissions.inbox,
   })
 
   const { data: notifications = [] } = useQuery({
@@ -276,7 +293,11 @@ export default function Sidebar({ avatar, name, role, permissions }: SidebarProp
             const isActive = item.path === "/dashboard"
               ? pathname === "/dashboard"
               : pathname.startsWith(item.path)
-            const showBadge = item.label === "Chat" && totalUnreadCount > 0
+            const unreadEmailCount = emailStats?.unreadEmails || 0
+            const showChatBadge = item.label === "Chat" && totalUnreadCount > 0
+            const showInboxBadge = item.label === "Inbox" && unreadEmailCount > 0
+            const showBadge = showChatBadge || showInboxBadge
+            const badgeValue = item.label === "Inbox" ? unreadEmailCount : totalUnreadCount
 
             return (
               <Tooltip key={item.label} delayDuration={expanded ? 9999 : 0}>
@@ -299,7 +320,7 @@ export default function Sidebar({ avatar, name, role, permissions }: SidebarProp
                       <span className={`absolute flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-[10px] font-bold ${
                         expanded ? "right-3" : "-top-1 -right-1"
                       }`}>
-                        {totalUnreadCount > 99 ? "99+" : totalUnreadCount}
+                        {badgeValue > 99 ? "99+" : badgeValue}
                       </span>
                     )}
                   </Link>

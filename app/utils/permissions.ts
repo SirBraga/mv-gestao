@@ -9,6 +9,7 @@ export const PERMISSION_KEYS = [
     "baseConhecimento",
     "funcionarios",
     "chat",
+    "inbox",
 ] as const
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[number]
@@ -23,6 +24,7 @@ export const PERMISSION_MODULES: Array<{ key: PermissionKey; label: string; path
     { key: "baseConhecimento", label: "Base de Conhecimento", path: "/dashboard/base-conhecimento" },
     { key: "funcionarios", label: "Funcionários", path: "/dashboard/funcionarios" },
     { key: "chat", label: "Chat", path: "/dashboard/chat" },
+    { key: "inbox", label: "Inbox", path: "/dashboard/inbox" },
 ]
 
 export const DEFAULT_PERMISSIONS_BY_ROLE: Record<Role, UserPermissions> = {
@@ -35,6 +37,7 @@ export const DEFAULT_PERMISSIONS_BY_ROLE: Record<Role, UserPermissions> = {
         baseConhecimento: true,
         funcionarios: true,
         chat: true,
+        inbox: true,
     },
     MODERATOR: {
         dashboard: true,
@@ -45,6 +48,7 @@ export const DEFAULT_PERMISSIONS_BY_ROLE: Record<Role, UserPermissions> = {
         baseConhecimento: true,
         funcionarios: false,
         chat: true,
+        inbox: true,
     },
     USER: {
         dashboard: true,
@@ -55,6 +59,7 @@ export const DEFAULT_PERMISSIONS_BY_ROLE: Record<Role, UserPermissions> = {
         baseConhecimento: true,
         funcionarios: false,
         chat: true,
+        inbox: false,
     },
 }
 
