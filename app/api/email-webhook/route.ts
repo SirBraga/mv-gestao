@@ -5,6 +5,20 @@ const clients = new Set<ReadableStreamDefaultController>()
 
 export async function POST(request: NextRequest) {
   try {
+    // Validar bearer token
+    const authHeader = request.headers.get("authorization")
+    const expectedToken = process.env.EMAIL_WEBHOOK_BEARER_TOKEN
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Missing or invalid authorization header" }, { status: 401 })
+    }
+
+    const token = authHeader.substring(7) // Remove "Bearer "
+    
+    if (token !== expectedToken) {
+      return NextResponse.json({ error: "Invalid bearer token" }, { status: 401 })
+    }
+
     const body = await request.json()
 
     // Validar payload do webhook
