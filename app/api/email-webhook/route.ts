@@ -26,12 +26,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid webhook payload" }, { status: 400 })
     }
 
+    const mailboxType = body.email.metadata?.mailboxType || "inbox"
+
+    if (mailboxType !== "inbox") {
+      return NextResponse.json({ success: true, notified: 0, ignored: true })
+    }
+
     const emailData = {
       id: body.email.messageId,
       subject: body.email.subject,
       from: body.email.from,
       receivedAt: body.email.metadata?.receivedAt,
       hasAttachments: body.email.hasAttachments,
+      mailboxType,
     }
 
     // Notificar todos os clientes conectados via SSE

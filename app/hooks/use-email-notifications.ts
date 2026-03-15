@@ -33,7 +33,10 @@ export function useEmailNotifications(userId?: string) {
           const data = JSON.parse(event.data)
           
           if (data.type === "new_email" && data.email) {
-            const { subject, from, id } = data.email
+            const { subject, from, id, mailboxType } = data.email
+            if (mailboxType && mailboxType !== "inbox") {
+              return
+            }
             const fromName = from?.[0] || "Desconhecido"
             
             // Mostrar notificação

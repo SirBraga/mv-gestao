@@ -87,6 +87,7 @@ interface EmailPreview {
   messageId: string
   uid: number
   mailbox: string
+  mailboxType?: "inbox" | "sent" | "spam"
   subject: string
   from: string[]
   to: string[]
@@ -131,20 +132,51 @@ interface EmailsResponse {
   }
 }
 
-type InboxView = "all" | "unread" | "read" | "attachments"
+interface BlockedSender {
+  id: string
+  email: string
+  normalizedEmail: string
+  reason: string | null
+  blockedByUserId: string | null
+  blockedByUserName: string | null
+  blockedByUserEmail: string | null
+  blockedAt: string | null
+}
+
+interface DeletedEmail {
+  id: string
+  mailbox: string
+  uid: number
+  messageId: string | null
+  subject: string | null
+  fromAddress: string | null
+  deletedByUserId: string | null
+  deletedByUserName: string | null
+  deletedByUserEmail: string | null
+  deletedAt: string | null
+}
+
+type InboxView = "inbox" | "sent" | "spam" | "unread" | "read" | "attachments" | "blocked" | "deleted"
 
 type ComposeMode = "new" | "reply" | "forward"
 
 const FILTERS = [
-  { key: "all" as InboxView, label: "Todos", icon: InboxIcon },
+  { key: "inbox" as InboxView, label: "Entrada", icon: InboxIcon },
+  { key: "sent" as InboxView, label: "Enviados", icon: Send },
+  { key: "spam" as InboxView, label: "Spam", icon: Mail },
   { key: "unread" as InboxView, label: "Não lidos", icon: MailOpen },
   { key: "read" as InboxView, label: "Lidos", icon: Mail },
   { key: "attachments" as InboxView, label: "Com anexos", icon: Paperclip },
+  { key: "blocked" as InboxView, label: "Bloqueados", icon: X },
+  { key: "deleted" as InboxView, label: "Excluídos", icon: Trash2 },
 ]
 
-async function fetchEmails(page: number, search: string): Promise<EmailsResponse> {
+async function fetchEmails(page: number, search: string, activeView: InboxView): Promise<EmailsResponse> {
   const params = new URLSearchParams({ page: String(page), limit: "20" })
   if (search) params.set("search", search)
+  if (activeView === "inbox" || activeView === "sent" || activeView === "spam") {
+    params.set("mailboxType", activeView)
+  }
   
   const res = await fetch(`${EMAIL_SERVICE_URL}/api/emails?${params}`)
   if (!res.ok) throw new Error("Falha ao carregar emails")
@@ -212,9 +244,15 @@ async function markEmailUnread(id: string) {
   return res.json()
 }
 
-async function deleteEmail(id: string) {
+async function deleteEmail(id: string, viewer?: {
+  viewerId?: string
+  viewerName?: string
+  viewerEmail?: string
+}) {
   const res = await fetch(`${EMAIL_SERVICE_URL}/api/emails/${id}`, {
     method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(viewer || {}),
   })
 
   if (!res.ok) {
@@ -225,7 +263,71 @@ async function deleteEmail(id: string) {
   return res.json() as Promise<{ success: boolean }>
 }
 
-async function fetchEmailStats(): Promise<{ unreadEmails: number }> {
+async function fetchBlockedSenders(): Promise<{ blockedSenders: BlockedSender[] }> {
+  const res = await fetch(`${EMAIL_SERVICE_URL}/api/blocked-senders`)
+  if (!res.ok) throw new Error("Falha ao carregar remetentes bloqueados")
+  return res.json()
+}
+
+async function blockEmailSender(data: {
+  email: string
+  reason?: string
+  viewerId?: string
+  viewerName?: string
+  viewerEmail?: string
+}) {
+  const res = await fetch(`${EMAIL_SERVICE_URL}/api/blocked-senders`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  })
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => null)
+    throw new Error(error?.error || "Falha ao bloquear remetente")
+  }
+
+  return res.json() as Promise<{ success: boolean; blockedSender: BlockedSender }>
+}
+
+async function unblockEmailSender(id: string) {
+  const res = await fetch(`${EMAIL_SERVICE_URL}/api/blocked-senders/${id}`, {
+    method: "DELETE",
+  })
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => null)
+    throw new Error(error?.error || "Falha ao desbloquear remetente")
+  }
+
+  return res.json() as Promise<{ success: boolean }>
+}
+
+async function fetchDeletedEmails(): Promise<{ deletedEmails: DeletedEmail[] }> {
+  const res = await fetch(`${EMAIL_SERVICE_URL}/api/deleted-emails`)
+  if (!res.ok) throw new Error("Falha ao carregar emails excluídos")
+  return res.json()
+}
+
+async function restoreDeletedEmailRequest(id: string) {
+  const res = await fetch(`${EMAIL_SERVICE_URL}/api/deleted-emails/${id}/restore`, {
+    method: "POST",
+  })
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => null)
+    throw new Error(error?.error || "Falha ao restaurar email")
+  }
+
+  return res.json() as Promise<{ success: boolean }>
+}
+
+async function fetchEmailStats(): Promise<{
+  unreadEmails: number
+  inboxEmails: number
+  sentEmails: number
+  spamEmails: number
+}> {
   const res = await fetch(`${EMAIL_SERVICE_URL}/api/stats`)
   if (!res.ok) throw new Error("Falha ao carregar estatísticas do inbox")
   return res.json()
@@ -293,10 +395,11 @@ export default function InboxPage() {
   const [searchInput, setSearchInput] = useState("")
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null)
   const [composeOpen, setComposeOpen] = useState(false)
-  const [activeView, setActiveView] = useState<InboxView>("all")
+  const [activeView, setActiveView] = useState<InboxView>("inbox")
   const [composeMode, setComposeMode] = useState<ComposeMode>("new")
   const [filtersOpen, setFiltersOpen] = useState(true)
   const [emailPendingDelete, setEmailPendingDelete] = useState<EmailFull | null>(null)
+  const [blockReason, setBlockReason] = useState("")
 
   // Ativar notificações de novos emails
   useEmailNotifications()
@@ -307,9 +410,11 @@ export default function InboxPage() {
     staleTime: 60000,
   })
 
+  const isAdmin = profile?.role === "ADMIN"
+
   const { data, isLoading, isFetching, refetch } = useQuery({
-    queryKey: ["emails", page, search],
-    queryFn: () => fetchEmails(page, search),
+    queryKey: ["emails", page, search, activeView],
+    queryFn: () => fetchEmails(page, search, activeView),
     staleTime: 30000,
   })
 
@@ -323,14 +428,30 @@ export default function InboxPage() {
   const { data: selectedEmail, isLoading: isLoadingEmail } = useQuery({
     queryKey: ["email", selectedEmailId],
     queryFn: () => fetchEmail(selectedEmailId!),
-    enabled: !!selectedEmailId,
+    enabled: !!selectedEmailId && activeView !== "blocked",
+  })
+
+  const { data: blockedSendersData } = useQuery({
+    queryKey: ["blocked-senders"],
+    queryFn: () => fetchBlockedSenders(),
+    enabled: isAdmin,
+    staleTime: 30000,
+    refetchInterval: 30000,
+  })
+
+  const { data: deletedEmailsData } = useQuery({
+    queryKey: ["deleted-emails"],
+    queryFn: () => fetchDeletedEmails(),
+    enabled: isAdmin,
+    staleTime: 30000,
+    refetchInterval: 30000,
   })
 
   const markReadMutation = useMutation({
     mutationFn: ({ id, viewer }: { id: string; viewer: { viewerId?: string; viewerName?: string; viewerEmail?: string } }) =>
       markEmailRead(id, viewer),
     onSuccess: (_, variables) => {
-      queryClient.setQueryData<EmailsResponse | undefined>(["emails", page, search], (current) => {
+      queryClient.setQueryData<EmailsResponse | undefined>(["emails", page, search, activeView], (current) => {
         if (!current) return current
         return {
           ...current,
@@ -355,7 +476,7 @@ export default function InboxPage() {
   const markUnreadMutation = useMutation({
     mutationFn: (id: string) => markEmailUnread(id),
     onSuccess: (_, id) => {
-      queryClient.setQueryData<EmailsResponse | undefined>(["emails", page, search], (current) => {
+      queryClient.setQueryData<EmailsResponse | undefined>(["emails", page, search, activeView], (current) => {
         if (!current) return current
         return {
           ...current,
@@ -382,7 +503,12 @@ export default function InboxPage() {
   })
 
   const deleteEmailMutation = useMutation({
-    mutationFn: (id: string) => deleteEmail(id),
+    mutationFn: (id: string) =>
+      deleteEmail(id, {
+        viewerId: profile?.id,
+        viewerName: profile?.name,
+        viewerEmail: profile?.email,
+      }),
     onSuccess: async (_, id) => {
       if (selectedEmailId === id) {
         setSelectedEmailId(null)
@@ -392,6 +518,55 @@ export default function InboxPage() {
         queryClient.invalidateQueries({ queryKey: ["emails"] }),
         queryClient.invalidateQueries({ queryKey: ["email-stats"] }),
         queryClient.invalidateQueries({ queryKey: ["email", id] }),
+      ])
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+  })
+
+  const blockSenderMutation = useMutation({
+    mutationFn: (email: string) =>
+      blockEmailSender({
+        email,
+        reason: blockReason.trim() || undefined,
+        viewerId: profile?.id,
+        viewerName: profile?.name,
+        viewerEmail: profile?.email,
+      }),
+    onSuccess: async () => {
+      setBlockReason("")
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["blocked-senders"] }),
+        queryClient.invalidateQueries({ queryKey: ["email-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["emails"] }),
+      ])
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+  })
+
+  const unblockSenderMutation = useMutation({
+    mutationFn: (id: string) => unblockEmailSender(id),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["blocked-senders"] }),
+        queryClient.invalidateQueries({ queryKey: ["email-stats"] }),
+      ])
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+  })
+
+  const restoreDeletedEmailMutation = useMutation({
+    mutationFn: (id: string) => restoreDeletedEmailRequest(id),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["deleted-emails"] }),
+        queryClient.invalidateQueries({ queryKey: ["emails"] }),
+        queryClient.invalidateQueries({ queryKey: ["email-stats"] }),
       ])
     },
     onError: (error: Error) => {
@@ -414,7 +589,8 @@ export default function InboxPage() {
     })
   }, [selectedEmailId, selectedEmail, profile])
 
-  const isAdmin = profile?.role === "ADMIN"
+  const blockedSenders = blockedSendersData?.blockedSenders ?? []
+  const deletedEmails = deletedEmailsData?.deletedEmails ?? []
   const selectedEmailReceivedLabel = useMemo(() => {
     if (!selectedEmail?.receivedAt) return "—"
     return new Date(selectedEmail.receivedAt).toLocaleString("pt-BR")
@@ -433,6 +609,10 @@ export default function InboxPage() {
 
     if (activeView === "attachments") {
       return emails.filter((email) => email.hasAttachments)
+    }
+
+    if (activeView === "blocked" || activeView === "deleted") {
+      return []
     }
 
     return emails
@@ -461,6 +641,30 @@ export default function InboxPage() {
     setEmailPendingDelete(null)
   }
 
+  const handleBlockSender = () => {
+    const sender = selectedEmail?.from[0]
+    if (!sender) {
+      toast.error("Remetente inválido")
+      return
+    }
+
+    const promise = blockSenderMutation.mutateAsync(sender)
+    toast.promise(promise, {
+      loading: "Bloqueando remetente...",
+      success: "Remetente bloqueado com sucesso!",
+      error: (err) => err?.message || "Falha ao bloquear remetente",
+    })
+  }
+
+  const handleRestoreDeletedEmail = (id: string) => {
+    const promise = restoreDeletedEmailMutation.mutateAsync(id)
+    toast.promise(promise, {
+      loading: "Restaurando email...",
+      success: "Email restaurado com sucesso!",
+      error: (err) => err?.message || "Falha ao restaurar email",
+    })
+  }
+
   const handleDownloadAttachment = (attachment: EmailAttachment) => {
     const promise = downloadAttachment(attachment)
 
@@ -477,10 +681,14 @@ export default function InboxPage() {
   }
 
   const counts: Record<InboxView, number> = {
-    all: data?.pagination.total || 0,
+    inbox: emailStats?.inboxEmails || 0,
+    sent: emailStats?.sentEmails || 0,
+    spam: emailStats?.spamEmails || 0,
     unread: emailStats?.unreadEmails || 0,
     read: (data?.emails || []).filter((email) => email.isRead).length,
     attachments: (data?.emails || []).filter((email) => email.hasAttachments).length,
+    blocked: blockedSenders.length,
+    deleted: deletedEmails.length,
   }
 
   if (isLoading) {
@@ -493,7 +701,7 @@ export default function InboxPage() {
         <div className="w-60 min-w-60 bg-white h-full flex flex-col px-4 pt-6 border-r border-slate-200 overflow-y-auto">
           <div className="mb-6">
             <h1 className="text-lg font-bold text-slate-900">Inbox</h1>
-            <p className="text-xs text-slate-500 mt-0.5">{counts.all} emails no total</p>
+            <p className="text-xs text-slate-500 mt-0.5">{counts.inbox} emails na caixa de entrada</p>
           </div>
 
           <div className="mb-6">
@@ -508,13 +716,20 @@ export default function InboxPage() {
             {filtersOpen && (
               <div className="flex flex-col gap-0.5">
                 {FILTERS.map((filter) => {
+                  if ((filter.key === "blocked" || filter.key === "deleted") && !isAdmin) return null
                   const Icon = filter.icon
                   const isActive = activeView === filter.key
 
                   return (
                     <button
                       key={filter.key}
-                      onClick={() => setActiveView(filter.key)}
+                      onClick={() => {
+                        setActiveView(filter.key)
+                        setPage(1)
+                        if (filter.key === "blocked" || filter.key === "deleted") {
+                          setSelectedEmailId(null)
+                        }
+                      }}
                       className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all cursor-pointer ${
                         isActive
                           ? "bg-indigo-50 text-indigo-700 font-medium"
@@ -544,8 +759,8 @@ export default function InboxPage() {
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Resumo</p>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">Total</span>
-                  <span className="text-sm font-semibold text-slate-900">{counts.all}</span>
+                  <span className="text-sm text-slate-600">Entrada</span>
+                  <span className="text-sm font-semibold text-slate-900">{counts.inbox}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-slate-600">Não lidos</span>
@@ -613,7 +828,54 @@ export default function InboxPage() {
           <div className="flex-1 flex overflow-hidden">
             <div className="w-[380px] min-w-[380px] border-r border-slate-200 bg-white flex flex-col overflow-hidden">
               <div className="flex-1 overflow-y-auto">
-                {filteredEmails.length === 0 ? (
+                {activeView === "blocked" ? (
+                  <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                    {blockedSenders.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                        <Mail size={40} className="text-slate-300 mb-3" />
+                        <p className="text-sm font-medium text-slate-600">Nenhum remetente bloqueado</p>
+                        <p className="text-xs text-slate-400 mt-1">Quando um admin bloquear alguém, ele aparece aqui</p>
+                      </div>
+                    ) : (
+                      blockedSenders.map((blocked) => (
+                        <div
+                          key={blocked.id}
+                          className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3"
+                        >
+                          <p className="text-sm font-medium text-slate-900 truncate">{blocked.email}</p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {blocked.blockedByUserName || "Admin não identificado"}
+                            {blocked.blockedAt ? ` em ${new Date(blocked.blockedAt).toLocaleString("pt-BR")}` : ""}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                ) : activeView === "deleted" ? (
+                  <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                    {deletedEmails.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                        <Trash2 size={40} className="text-slate-300 mb-3" />
+                        <p className="text-sm font-medium text-slate-600">Nenhum email excluído</p>
+                        <p className="text-xs text-slate-400 mt-1">Os emails removidos aparecerão aqui</p>
+                      </div>
+                    ) : (
+                      deletedEmails.map((email) => (
+                        <div
+                          key={email.id}
+                          className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3"
+                        >
+                          <p className="text-sm font-medium text-slate-900 truncate">{email.subject || "(Sem assunto)"}</p>
+                          <p className="text-xs text-slate-500 mt-1 truncate">{email.fromAddress || "Remetente não informado"}</p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {email.deletedByUserName || email.deletedByUserEmail || "Usuário não identificado"}
+                            {email.deletedAt ? ` em ${new Date(email.deletedAt).toLocaleString("pt-BR")}` : ""}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                ) : filteredEmails.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-slate-400">
                     <InboxIcon size={40} className="text-slate-300 mb-3" />
                     <p className="text-sm font-medium text-slate-600">Nenhum email encontrado</p>
@@ -688,7 +950,95 @@ export default function InboxPage() {
             </div>
 
             <div className="flex-1 bg-slate-50 overflow-y-auto">
-              {!selectedEmailId ? (
+              {activeView === "blocked" ? (
+                <div className="p-6">
+                  <div className="bg-white rounded-xl border border-slate-200 p-6">
+                    <div className="flex items-center justify-between gap-4 mb-4">
+                      <div>
+                        <h2 className="text-lg font-semibold text-slate-900">Remetentes bloqueados</h2>
+                        <p className="text-sm text-slate-500">Controle administrativo de bloqueios e auditoria</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {blockedSenders.length === 0 ? (
+                        <p className="text-sm text-slate-500">Nenhum remetente bloqueado até o momento.</p>
+                      ) : (
+                        blockedSenders.map((blocked) => (
+                          <div
+                            key={blocked.id}
+                            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-between gap-4"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-slate-900 truncate">{blocked.email}</p>
+                              <p className="text-xs text-slate-500 mt-1">
+                                Bloqueado por {blocked.blockedByUserName || blocked.blockedByUserEmail || "Admin não identificado"}
+                                {blocked.blockedAt ? ` em ${new Date(blocked.blockedAt).toLocaleString("pt-BR")}` : ""}
+                              </p>
+                              {blocked.reason ? (
+                                <p className="text-xs text-slate-500 mt-1">Motivo: {blocked.reason}</p>
+                              ) : null}
+                            </div>
+
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="rounded-xl"
+                              onClick={() => unblockSenderMutation.mutate(blocked.id)}
+                              disabled={unblockSenderMutation.isPending}
+                            >
+                              Desbloquear
+                            </Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : activeView === "deleted" ? (
+                <div className="p-6">
+                  <div className="bg-white rounded-xl border border-slate-200 p-6">
+                    <div className="flex items-center justify-between gap-4 mb-4">
+                      <div>
+                        <h2 className="text-lg font-semibold text-slate-900">Emails excluídos</h2>
+                        <p className="text-sm text-slate-500">Controle administrativo de exclusões e restauração</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {deletedEmails.length === 0 ? (
+                        <p className="text-sm text-slate-500">Nenhum email excluído até o momento.</p>
+                      ) : (
+                        deletedEmails.map((email) => (
+                          <div
+                            key={email.id}
+                            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-between gap-4"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-slate-900 truncate">{email.subject || "(Sem assunto)"}</p>
+                              <p className="text-xs text-slate-500 mt-1">{email.fromAddress || "Remetente não informado"}</p>
+                              <p className="text-xs text-slate-500 mt-1">
+                                Excluído por {email.deletedByUserName || email.deletedByUserEmail || "Usuário não identificado"}
+                                {email.deletedAt ? ` em ${new Date(email.deletedAt).toLocaleString("pt-BR")}` : ""}
+                              </p>
+                            </div>
+
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="rounded-xl"
+                              onClick={() => handleRestoreDeletedEmail(email.id)}
+                              disabled={restoreDeletedEmailMutation.isPending}
+                            >
+                              Restaurar
+                            </Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : !selectedEmailId ? (
                 <div className="h-full flex flex-col items-center justify-center text-slate-400">
                   <Mail size={48} className="text-slate-300 mb-4" />
                   <p className="text-lg font-medium text-slate-600">Selecione um email</p>
@@ -741,6 +1091,25 @@ export default function InboxPage() {
                               <EyeOff className="w-4 h-4 mr-2" />
                               Marcar como não lido
                             </DropdownMenuItem>
+                            {isAdmin && (
+                              <>
+                                <DropdownMenuItem
+                                  onClick={handleBlockSender}
+                                  disabled={blockSenderMutation.isPending}
+                                >
+                                  <X className="w-4 h-4 mr-2" />
+                                  Bloquear remetente
+                                </DropdownMenuItem>
+                                <div className="px-2 pb-2">
+                                  <Input
+                                    value={blockReason}
+                                    onChange={(e) => setBlockReason(e.target.value)}
+                                    placeholder="Motivo do bloqueio"
+                                    className="h-8 text-xs"
+                                  />
+                                </div>
+                              </>
+                            )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               variant="destructive"
