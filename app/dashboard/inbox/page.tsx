@@ -235,6 +235,33 @@ function getAttachmentDownloadUrl(attachmentId: string) {
   return `${EMAIL_SERVICE_URL}/api/attachments/${attachmentId}/download`
 }
 
+async function downloadAttachment(attachment: EmailAttachment) {
+  const response = await fetch(getAttachmentDownloadUrl(attachment.id))
+
+  if (!response.ok) {
+    let message = "Falha ao baixar anexo"
+
+    try {
+      const error = await response.json()
+      message = error?.error || message
+    } catch {}
+
+    throw new Error(message)
+  }
+
+  const blob = await response.blob()
+  const objectUrl = window.URL.createObjectURL(blob)
+  const link = document.createElement("a")
+
+  link.href = objectUrl
+  link.download = attachment.filename || "anexo"
+  link.style.display = "none"
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.URL.revokeObjectURL(objectUrl)
+}
+
 function formatDate(dateString: string | null) {
   if (!dateString) return "—"
   const date = new Date(dateString)
@@ -432,6 +459,16 @@ export default function InboxPage() {
       error: (err) => err?.message || "Falha ao apagar email",
     })
     setEmailPendingDelete(null)
+  }
+
+  const handleDownloadAttachment = (attachment: EmailAttachment) => {
+    const promise = downloadAttachment(attachment)
+
+    toast.promise(promise, {
+      loading: `Baixando ${attachment.filename}...`,
+      success: `${attachment.filename} baixado com sucesso!`,
+      error: (err) => err?.message || "Falha ao baixar anexo",
+    })
   }
 
   const openCompose = (mode: ComposeMode) => {
@@ -802,12 +839,11 @@ export default function InboxPage() {
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {selectedEmail.attachments.map((att) => (
-                          <a
+                          <button
                             key={att.id}
-                            href={getAttachmentDownloadUrl(att.id)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
+                            type="button"
+                            onClick={() => handleDownloadAttachment(att)}
+                            className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors text-left cursor-pointer"
                           >
                             <FileText className="w-4 h-4 text-slate-500" />
                             <div className="min-w-0">
@@ -815,7 +851,7 @@ export default function InboxPage() {
                               <p className="text-xs text-slate-400">{formatFileSize(att.size)}</p>
                             </div>
                             <Download className="w-4 h-4 text-slate-400" />
-                          </a>
+                          </button>
                         ))}
                       </div>
                     </div>
