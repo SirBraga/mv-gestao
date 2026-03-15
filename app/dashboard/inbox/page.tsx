@@ -27,6 +27,7 @@ import {
   ChevronDown,
   MailOpen,
   X,
+  MoreVertical,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -38,6 +39,23 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -194,10 +212,27 @@ async function markEmailUnread(id: string) {
   return res.json()
 }
 
+async function deleteEmail(id: string) {
+  const res = await fetch(`${EMAIL_SERVICE_URL}/api/emails/${id}`, {
+    method: "DELETE",
+  })
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => null)
+    throw new Error(error?.error || "Falha ao apagar email")
+  }
+
+  return res.json() as Promise<{ success: boolean }>
+}
+
 async function fetchEmailStats(): Promise<{ unreadEmails: number }> {
   const res = await fetch(`${EMAIL_SERVICE_URL}/api/stats`)
   if (!res.ok) throw new Error("Falha ao carregar estatísticas do inbox")
   return res.json()
+}
+
+function getAttachmentDownloadUrl(attachmentId: string) {
+  return `${EMAIL_SERVICE_URL}/api/attachments/${attachmentId}/download`
 }
 
 function formatDate(dateString: string | null) {
@@ -234,6 +269,7 @@ export default function InboxPage() {
   const [activeView, setActiveView] = useState<InboxView>("all")
   const [composeMode, setComposeMode] = useState<ComposeMode>("new")
   const [filtersOpen, setFiltersOpen] = useState(true)
+  const [emailPendingDelete, setEmailPendingDelete] = useState<EmailFull | null>(null)
 
   // Ativar notificações de novos emails
   useEmailNotifications()
@@ -318,6 +354,24 @@ export default function InboxPage() {
     },
   })
 
+  const deleteEmailMutation = useMutation({
+    mutationFn: (id: string) => deleteEmail(id),
+    onSuccess: async (_, id) => {
+      if (selectedEmailId === id) {
+        setSelectedEmailId(null)
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["emails"] }),
+        queryClient.invalidateQueries({ queryKey: ["email-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["email", id] }),
+      ])
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+  })
+
   useEffect(() => {
     if (!selectedEmailId || !profile?.id || !selectedEmail || selectedEmail.isRead) {
       return
@@ -368,6 +422,18 @@ export default function InboxPage() {
     toast.success("Inbox atualizado")
   }
 
+  const handleConfirmDeleteEmail = () => {
+    if (!emailPendingDelete) return
+
+    const promise = deleteEmailMutation.mutateAsync(emailPendingDelete.id)
+    toast.promise(promise, {
+      loading: "Apagando email...",
+      success: "Email apagado com sucesso!",
+      error: (err) => err?.message || "Falha ao apagar email",
+    })
+    setEmailPendingDelete(null)
+  }
+
   const openCompose = (mode: ComposeMode) => {
     setComposeMode(mode)
     setComposeOpen(true)
@@ -385,398 +451,418 @@ export default function InboxPage() {
   }
 
   return (
-    <div className="flex h-full bg-slate-50">
-      {/* Left Filter Panel */}
-      <div className="w-60 min-w-60 bg-white h-full flex flex-col px-4 pt-6 border-r border-slate-200 overflow-y-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-lg font-bold text-slate-900">Inbox</h1>
-          <p className="text-xs text-slate-500 mt-0.5">{counts.all} emails no total</p>
-        </div>
-
-        {/* Filtros section */}
-        <div className="mb-6">
-          <button
-            onClick={() => setFiltersOpen(!filtersOpen)}
-            className="flex items-center justify-between w-full px-2 mb-2"
-          >
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Filtros</span>
-            {filtersOpen ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
-          </button>
-
-          {filtersOpen && (
-            <div className="flex flex-col gap-0.5">
-              {FILTERS.map((filter) => {
-                const Icon = filter.icon
-                const isActive = activeView === filter.key
-                return (
-                  <button
-                    key={filter.key}
-                    onClick={() => setActiveView(filter.key)}
-                    className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all cursor-pointer ${
-                      isActive
-                        ? "bg-indigo-50 text-indigo-700 font-medium"
-                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Icon size={16} strokeWidth={1.5} />
-                      <span>{filter.label}</span>
-                    </div>
-                    <span className={`text-xs min-w-6 text-center rounded-full px-2 py-0.5 font-semibold ${
-                      isActive ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
-                    }`}>{counts[filter.key]}</span>
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Estatísticas */}
-        <div className="mt-auto pb-6">
-          <div className="rounded-xl bg-slate-50 p-4">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Resumo</p>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-600">Total</span>
-                <span className="text-sm font-semibold text-slate-900">{counts.all}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-600">Não lidos</span>
-                <span className="text-sm font-semibold text-indigo-600">{counts.unread}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Right Content Area */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Top Bar */}
-        <div className="flex items-center justify-between px-6 h-16 bg-white border-b border-slate-200">
-          <div className="flex items-center gap-4">
-            <form onSubmit={handleSearch} className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <Input
-                placeholder="Buscar emails..."
-                className="pl-10 pr-4 w-72 bg-slate-50 border-slate-200 h-10 text-sm rounded-xl focus-visible:ring-indigo-500 placeholder:text-slate-400"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-              />
-            </form>
+    <AlertDialog open={!!emailPendingDelete} onOpenChange={(open) => !open && setEmailPendingDelete(null)}>
+      <div className="flex h-full bg-slate-50">
+        <div className="w-60 min-w-60 bg-white h-full flex flex-col px-4 pt-6 border-r border-slate-200 overflow-y-auto">
+          <div className="mb-6">
+            <h1 className="text-lg font-bold text-slate-900">Inbox</h1>
+            <p className="text-xs text-slate-500 mt-0.5">{counts.all} emails no total</p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={handleRefresh}
-              disabled={isFetching}
-              className="h-10 w-10 rounded-xl"
+          <div className="mb-6">
+            <button
+              onClick={() => setFiltersOpen(!filtersOpen)}
+              className="flex items-center justify-between w-full px-2 mb-2"
             >
-              <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
-            </Button>
-            <button 
-              onClick={() => openCompose("new")} 
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer shadow-sm shadow-indigo-600/25"
-            >
-              <Plus size={16} /> Novo Email
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Filtros</span>
+              {filtersOpen ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
             </button>
-          </div>
-        </div>
 
-        <div className="flex items-center justify-between px-6 py-3 border-b border-slate-200 bg-white">
-          <p className="text-sm text-slate-500">
-            Mostrando <span className="font-medium text-slate-900">{filteredEmails.length}</span> de <span className="font-medium text-slate-900">{data?.pagination.total || 0}</span>
-          </p>
-          <div className="flex items-center gap-3">
-            <label className="text-sm text-slate-500">Página</label>
-            <select
-              className="h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 bg-white"
-              value={page}
-              onChange={(e) => setPage(Number(e.target.value))}
-            >
-              {Array.from({ length: data?.pagination.totalPages || 1 }, (_, i) => (
-                <option key={i + 1} value={i + 1}>{i + 1}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+            {filtersOpen && (
+              <div className="flex flex-col gap-0.5">
+                {FILTERS.map((filter) => {
+                  const Icon = filter.icon
+                  const isActive = activeView === filter.key
 
-        {/* Email List and Reader */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Email List */}
-          <div className="w-[380px] min-w-[380px] border-r border-slate-200 bg-white flex flex-col overflow-hidden">
-            <div className="flex-1 overflow-y-auto">
-              {filteredEmails.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 text-slate-400">
-                  <InboxIcon size={40} className="text-slate-300 mb-3" />
-                  <p className="text-sm font-medium text-slate-600">Nenhum email encontrado</p>
-                  <p className="text-xs text-slate-400 mt-1">Tente ajustar os filtros ou busca</p>
-                </div>
-              ) : (
-                filteredEmails.map((email) => (
-                  <button
-                    key={email.id}
-                    onClick={() => setSelectedEmailId(email.id)}
-                    className={cn(
-                      "w-full text-left px-4 py-4 border-b border-slate-100 transition-all cursor-pointer",
-                      !email.isRead && "bg-indigo-50/50",
-                      selectedEmailId === email.id && "bg-indigo-100 border-l-4 border-l-indigo-600"
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <p className={cn(
-                        "text-sm truncate",
-                        !email.isRead ? "font-semibold text-slate-900" : "font-medium text-slate-700"
-                      )}>
-                        {email.from[0] ? extractName(email.from[0]) : "Desconhecido"}
-                      </p>
-                      <span className="text-xs text-slate-400 whitespace-nowrap">
-                        {formatDate(email.receivedAt)}
+                  return (
+                    <button
+                      key={filter.key}
+                      onClick={() => setActiveView(filter.key)}
+                      className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all cursor-pointer ${
+                        isActive
+                          ? "bg-indigo-50 text-indigo-700 font-medium"
+                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon size={16} strokeWidth={1.5} />
+                        <span>{filter.label}</span>
+                      </div>
+                      <span
+                        className={`text-xs min-w-6 text-center rounded-full px-2 py-0.5 font-semibold ${
+                          isActive ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        {counts[filter.key]}
                       </span>
-                    </div>
-                    <p className={cn(
-                      "text-sm truncate mb-1",
-                      !email.isRead ? "font-medium text-slate-800" : "text-slate-600"
-                    )}>
-                      {email.subject || "(Sem assunto)"}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs text-slate-400 truncate flex-1">
-                        {email.preview || "Sem conteúdo"}
-                      </p>
-                      {!email.isRead && (
-                        <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
-                      )}
-                      {email.hasAttachments && (
-                        <Paperclip className="w-3 h-3 text-slate-400 shrink-0" />
-                      )}
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-
-            {(data?.pagination.totalPages ?? 0) > 1 && (
-              <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-white">
-                <p className="text-sm text-slate-500">Página <span className="font-medium text-slate-900">{page}</span> de <span className="font-medium text-slate-900">{data?.pagination.totalPages || 1}</span></p>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" className="h-9 rounded-lg text-sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Anterior</Button>
-                  <Button variant="outline" className="h-9 rounded-lg text-sm" onClick={() => setPage((p) => Math.min(data?.pagination.totalPages || 1, p + 1))} disabled={page >= (data?.pagination.totalPages || 1)}>Próxima</Button>
-                </div>
+                    </button>
+                  )
+                })}
               </div>
             )}
           </div>
 
-          {/* Email Reader */}
-          <div className="flex-1 bg-slate-50 overflow-y-auto">
-            {!selectedEmailId ? (
-              <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                <Mail size={48} className="text-slate-300 mb-4" />
-                <p className="text-lg font-medium text-slate-600">Selecione um email</p>
-                <p className="text-sm text-slate-400">Clique em um email para visualizar</p>
+          <div className="mt-auto pb-6">
+            <div className="rounded-xl bg-slate-50 p-4">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Resumo</p>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-600">Total</span>
+                  <span className="text-sm font-semibold text-slate-900">{counts.all}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-600">Não lidos</span>
+                  <span className="text-sm font-semibold text-indigo-600">{counts.unread}</span>
+                </div>
               </div>
-            ) : isLoadingEmail ? (
-              <div className="h-full flex items-center justify-center">
-                <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
-              </div>
-            ) : selectedEmail ? (
-              <div className="p-6">
-                {/* Email Header */}
-                <div className="bg-white rounded-xl border border-slate-200 p-6 mb-4">
-                  <div className="flex items-start justify-between gap-4 mb-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-2 flex-wrap">
-                        <h2 className="text-lg font-semibold text-slate-900">
-                          {selectedEmail.subject || "(Sem assunto)"}
-                        </h2>
-                        <Badge variant={selectedEmail.isRead ? "secondary" : "default"} className="rounded-full">
-                          {selectedEmail.isRead ? "Lido" : "Não lido"}
-                        </Badge>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
+          <div className="flex items-center justify-between px-6 h-16 bg-white border-b border-slate-200">
+            <div className="flex items-center gap-4">
+              <form onSubmit={handleSearch} className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <Input
+                  placeholder="Buscar emails..."
+                  className="pl-10 pr-4 w-72 bg-slate-50 border-slate-200 h-10 text-sm rounded-xl focus-visible:ring-indigo-500 placeholder:text-slate-400"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                />
+              </form>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleRefresh}
+                disabled={isFetching}
+                className="h-10 w-10 rounded-xl"
+              >
+                <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
+              </Button>
+              <button
+                onClick={() => openCompose("new")}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer shadow-sm shadow-indigo-600/25"
+              >
+                <Plus size={16} /> Novo Email
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between px-6 py-3 border-b border-slate-200 bg-white">
+            <p className="text-sm text-slate-500">
+              Mostrando <span className="font-medium text-slate-900">{filteredEmails.length}</span> de{" "}
+              <span className="font-medium text-slate-900">{data?.pagination.total || 0}</span>
+            </p>
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-slate-500">Página</label>
+              <select
+                className="h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 bg-white outline-none transition-colors hover:border-slate-300 focus:border-indigo-400"
+                value={page}
+                onChange={(e) => setPage(Number(e.target.value))}
+              >
+                {Array.from({ length: data?.pagination.totalPages || 1 }, (_, i) => (
+                  <option key={i + 1} value={i + 1}>
+                    {i + 1}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex-1 flex overflow-hidden">
+            <div className="w-[380px] min-w-[380px] border-r border-slate-200 bg-white flex flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto">
+                {filteredEmails.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                    <InboxIcon size={40} className="text-slate-300 mb-3" />
+                    <p className="text-sm font-medium text-slate-600">Nenhum email encontrado</p>
+                    <p className="text-xs text-slate-400 mt-1">Tente ajustar os filtros ou busca</p>
+                  </div>
+                ) : (
+                  filteredEmails.map((email) => (
+                    <button
+                      key={email.id}
+                      onClick={() => setSelectedEmailId(email.id)}
+                      className={cn(
+                        "w-full text-left px-4 py-4 border-b border-slate-100 transition-all cursor-pointer",
+                        !email.isRead && "bg-indigo-50/50",
+                        selectedEmailId === email.id && "bg-indigo-100 border-l-4 border-l-indigo-600",
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <p
+                          className={cn(
+                            "text-sm truncate",
+                            !email.isRead ? "font-semibold text-slate-900" : "font-medium text-slate-700",
+                          )}
+                        >
+                          {email.from[0] ? extractName(email.from[0]) : "Desconhecido"}
+                        </p>
+                        <span className="text-xs text-slate-400 whitespace-nowrap">{formatDate(email.receivedAt)}</span>
                       </div>
-                      <p className="text-sm text-slate-500">
-                        Recebido em {selectedEmailReceivedLabel}
+                      <p
+                        className={cn(
+                          "text-sm truncate mb-1",
+                          !email.isRead ? "font-medium text-slate-800" : "text-slate-600",
+                        )}
+                      >
+                        {email.subject || "(Sem assunto)"}
                       </p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-slate-400 truncate flex-1">{email.preview || "Sem conteúdo"}</p>
+                        {!email.isRead && <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />}
+                        {email.hasAttachments && <Paperclip className="w-3 h-3 text-slate-400 shrink-0" />}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+
+              {(data?.pagination.totalPages ?? 0) > 1 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-white">
+                  <p className="text-sm text-slate-500">
+                    Página <span className="font-medium text-slate-900">{page}</span> de{" "}
+                    <span className="font-medium text-slate-900">{data?.pagination.totalPages || 1}</span>
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      className="h-9 rounded-lg text-sm"
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                    >
+                      Anterior
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="h-9 rounded-lg text-sm"
+                      onClick={() => setPage((p) => Math.min(data?.pagination.totalPages || 1, p + 1))}
+                      disabled={page >= (data?.pagination.totalPages || 1)}
+                    >
+                      Próxima
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex-1 bg-slate-50 overflow-y-auto">
+              {!selectedEmailId ? (
+                <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                  <Mail size={48} className="text-slate-300 mb-4" />
+                  <p className="text-lg font-medium text-slate-600">Selecione um email</p>
+                  <p className="text-sm text-slate-400">Clique em um email para visualizar</p>
+                </div>
+              ) : isLoadingEmail ? (
+                <div className="h-full flex items-center justify-center">
+                  <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+                </div>
+              ) : selectedEmail ? (
+                <div className="p-6">
+                  <div className="bg-white rounded-xl border border-slate-200 p-6 mb-4">
+                    <div className="flex items-start justify-between gap-4 mb-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <h2 className="text-lg font-semibold text-slate-900">{selectedEmail.subject || "(Sem assunto)"}</h2>
+                          <Badge variant={selectedEmail.isRead ? "secondary" : "default"} className="rounded-full">
+                            {selectedEmail.isRead ? "Lido" : "Não lido"}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-slate-500">Recebido em {selectedEmailReceivedLabel}</p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 w-8 rounded-lg p-0 text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48">
+                            <DropdownMenuItem onClick={() => openCompose("reply")}>
+                              <Reply className="w-4 h-4 mr-2" />
+                              Responder
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => openCompose("forward")}>
+                              <Forward className="w-4 h-4 mr-2" />
+                              Encaminhar
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => markUnreadMutation.mutate(selectedEmail.id)}
+                              disabled={markUnreadMutation.isPending}
+                            >
+                              <EyeOff className="w-4 h-4 mr-2" />
+                              Marcar como não lido
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              disabled={deleteEmailMutation.isPending}
+                              onClick={() => setEmailPendingDelete(selectedEmail)}
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Apagar email
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Button type="button" variant="outline" size="sm" className="rounded-lg" onClick={() => openCompose("reply")}>
-                        <Reply className="w-4 h-4 mr-2" />
-                        Responder
-                      </Button>
-                      <Button type="button" variant="outline" size="sm" className="rounded-lg" onClick={() => openCompose("forward")}>
-                        <Forward className="w-4 h-4 mr-2" />
-                        Encaminhar
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="rounded-lg"
-                        onClick={() => markUnreadMutation.mutate(selectedEmail.id)}
-                        disabled={markUnreadMutation.isPending}
-                      >
-                        <EyeOff className="w-4 h-4 mr-2" />
-                        Não lido
-                      </Button>
+                    <div className="flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                        <User className="w-5 h-5 text-indigo-600" />
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="font-medium text-slate-900">
+                            {selectedEmail.from[0] ? extractName(selectedEmail.from[0]) : "Desconhecido"}
+                          </p>
+                          <span className="text-xs text-slate-400">{selectedEmail.from[0] || ""}</span>
+                        </div>
+
+                        <div className="flex items-center gap-4 text-xs text-slate-500">
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {selectedEmail.date ? new Date(selectedEmail.date).toLocaleString("pt-BR") : "—"}
+                          </span>
+                          <span>Para: {selectedEmail.to.join(", ") || "—"}</span>
+                        </div>
+
+                        {selectedEmail.cc && selectedEmail.cc.length > 0 && (
+                          <p className="text-xs text-slate-500 mt-1">Cc: {selectedEmail.cc.join(", ")}</p>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  
-                  <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                      <User className="w-5 h-5 text-indigo-600" />
+
+                  {selectedEmail.isRead && (
+                    <div className="bg-white rounded-xl border border-emerald-200 p-4 mb-4">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                          <Eye className="w-5 h-5 text-emerald-700" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-emerald-900">Última leitura</p>
+                          <p className="text-sm text-emerald-800">
+                            {selectedEmail.readByUserName || "Usuário não identificado"}
+                            {selectedEmail.readAt ? ` em ${new Date(selectedEmail.readAt).toLocaleString("pt-BR")}` : ""}
+                          </p>
+                        </div>
+                      </div>
                     </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="font-medium text-slate-900">
-                          {selectedEmail.from[0] ? extractName(selectedEmail.from[0]) : "Desconhecido"}
-                        </p>
-                        <span className="text-xs text-slate-400">
-                          {selectedEmail.from[0] || ""}
-                        </span>
+                  )}
+
+                  {isAdmin && selectedEmail.viewEvents.length > 0 && (
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Sparkles className="w-4 h-4 text-indigo-600" />
+                        <p className="text-sm font-semibold text-slate-800">Histórico de visualização</p>
                       </div>
-                      
-                      <div className="flex items-center gap-4 text-xs text-slate-500">
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {selectedEmail.date 
-                            ? new Date(selectedEmail.date).toLocaleString("pt-BR")
-                            : "—"
-                          }
-                        </span>
-                        <span>
-                          Para: {selectedEmail.to.join(", ") || "—"}
-                        </span>
+
+                      <div className="space-y-2">
+                        {selectedEmail.viewEvents.map((event) => (
+                          <div
+                            key={event.id}
+                            className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-slate-800 truncate">
+                                {event.viewerName || "Usuário não identificado"}
+                              </p>
+                              <p className="text-xs text-slate-500 flex items-center gap-1">
+                                <AtSign className="w-3 h-3" />
+                                {event.viewerEmail || "Sem email"}
+                              </p>
+                            </div>
+                            <p className="text-xs text-slate-500 whitespace-nowrap">
+                              {new Date(event.viewedAt).toLocaleString("pt-BR")}
+                            </p>
+                          </div>
+                        ))}
                       </div>
-                      
-                      {selectedEmail.cc && selectedEmail.cc.length > 0 && (
-                        <p className="text-xs text-slate-500 mt-1">
-                          Cc: {selectedEmail.cc.join(", ")}
-                        </p>
+                    </div>
+                  )}
+
+                  {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4">
+                      <p className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
+                        <Paperclip className="w-4 h-4" />
+                        {selectedEmail.attachments.length} anexo(s)
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedEmail.attachments.map((att) => (
+                          <a
+                            key={att.id}
+                            href={getAttachmentDownloadUrl(att.id)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
+                          >
+                            <FileText className="w-4 h-4 text-slate-500" />
+                            <div className="min-w-0">
+                              <p className="text-sm text-slate-700 truncate max-w-[150px]">{att.filename}</p>
+                              <p className="text-xs text-slate-400">{formatFileSize(att.size)}</p>
+                            </div>
+                            <Download className="w-4 h-4 text-slate-400" />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-white rounded-xl border border-slate-200 p-6">
+                    <div className="prose prose-slate max-w-none">
+                      {selectedEmail.htmlBody ? (
+                        <div dangerouslySetInnerHTML={{ __html: selectedEmail.htmlBody }} className="email-content" />
+                      ) : (
+                        <pre className="whitespace-pre-wrap font-sans text-sm text-slate-700">
+                          {selectedEmail.textBody || "Sem conteúdo"}
+                        </pre>
                       )}
                     </div>
                   </div>
                 </div>
-
-                {selectedEmail.isRead && (
-                  <div className="bg-white rounded-xl border border-emerald-200 p-4 mb-4">
-                    <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
-                        <Eye className="w-5 h-5 text-emerald-700" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-emerald-900">
-                          Última leitura
-                        </p>
-                        <p className="text-sm text-emerald-800">
-                          {selectedEmail.readByUserName || "Usuário não identificado"}
-                          {selectedEmail.readAt ? ` em ${new Date(selectedEmail.readAt).toLocaleString("pt-BR")}` : ""}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {isAdmin && selectedEmail.viewEvents.length > 0 && (
-                  <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Sparkles className="w-4 h-4 text-indigo-600" />
-                      <p className="text-sm font-semibold text-slate-800">
-                        Histórico de visualização
-                      </p>
-                    </div>
-
-                    <div className="space-y-2">
-                      {selectedEmail.viewEvents.map((event) => (
-                        <div
-                          key={event.id}
-                          className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2"
-                        >
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-slate-800 truncate">
-                              {event.viewerName || "Usuário não identificado"}
-                            </p>
-                            <p className="text-xs text-slate-500 flex items-center gap-1">
-                              <AtSign className="w-3 h-3" />
-                              {event.viewerEmail || "Sem email"}
-                            </p>
-                          </div>
-                          <p className="text-xs text-slate-500 whitespace-nowrap">
-                            {new Date(event.viewedAt).toLocaleString("pt-BR")}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Attachments */}
-                {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
-                  <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4">
-                    <p className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
-                      <Paperclip className="w-4 h-4" />
-                      {selectedEmail.attachments.length} anexo(s)
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedEmail.attachments.map((att) => (
-                        <a
-                          key={att.id}
-                          href={att.storageUrl || "#"}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
-                        >
-                          <FileText className="w-4 h-4 text-slate-500" />
-                          <div className="min-w-0">
-                            <p className="text-sm text-slate-700 truncate max-w-[150px]">
-                              {att.filename}
-                            </p>
-                            <p className="text-xs text-slate-400">
-                              {formatFileSize(att.size)}
-                            </p>
-                          </div>
-                          <Download className="w-4 h-4 text-slate-400" />
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Email Body */}
-                <div className="bg-white rounded-xl border border-slate-200 p-6">
-                  <div className="prose prose-slate max-w-none">
-                    {selectedEmail.htmlBody ? (
-                      <div 
-                        dangerouslySetInnerHTML={{ __html: selectedEmail.htmlBody }}
-                        className="email-content"
-                      />
-                    ) : (
-                      <pre className="whitespace-pre-wrap font-sans text-sm text-slate-700">
-                        {selectedEmail.textBody || "Sem conteúdo"}
-                      </pre>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
         </div>
-      </div>
 
-      <ComposeModal 
-        open={composeOpen} 
-        onOpenChange={setComposeOpen}
-        onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ["emails"] })
-          queryClient.invalidateQueries({ queryKey: ["email-stats"] })
-        }}
-        mode={composeMode}
-        replyTo={selectedEmail || undefined}
-      />
-    </div>
+        <ComposeModal
+          open={composeOpen}
+          onOpenChange={setComposeOpen}
+          onSuccess={() => refetch()}
+          mode={composeMode}
+          replyTo={selectedEmail || undefined}
+        />
+
+        <AlertDialogContent className="max-w-md rounded-2xl border border-slate-200 bg-white p-0 shadow-2xl">
+          <AlertDialogHeader className="px-6 pt-6 pb-4 text-left">
+            <AlertDialogTitle className="text-left text-lg text-slate-900">Apagar email?</AlertDialogTitle>
+            <AlertDialogDescription className="text-left text-sm text-slate-500">
+              Esta ação remove o email selecionado e tenta excluir também os anexos vinculados. Essa ação não pode ser
+              desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="border-t border-slate-100 px-6 py-4">
+            <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" className="rounded-xl" onClick={handleConfirmDeleteEmail}>
+              Apagar email
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </div>
+    </AlertDialog>
   )
 }
 
